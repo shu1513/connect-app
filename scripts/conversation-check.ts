@@ -88,6 +88,10 @@ async function main() {
 
   const up = await send("/login").catch(() => null);
   if (!up || up.status !== 200) throw new Error(`The app is not running at ${BASE}. Start it first.`);
+  // One run at a time: this script moves the founder's switch and puts it back, and two runs at once could leave it
+  // wrong. The lock is held by this run's connection to the database and goes when the run ends.
+  const [{ alone }] = await db.execute<{ alone: boolean }>(sql`select pg_try_advisory_lock(hashtext('conversation-check')) as alone`);
+  if (!alone) throw new Error("Another run of this script is going on. Wait for it to finish.");
   await db.delete(schema.rateLimit);
 
   const now = new Date();
@@ -130,6 +134,9 @@ async function main() {
   async function asHost<T extends { id: string }>(who: T, name: string, displayName: string) {
     const handle = `tk${RUN}${name}`.toLowerCase();
     await db.insert(schema.hostProfiles).values({ userId: who.id, handle, handleKey: handle, displayName, pricePer15Cents: 2000, status: "approved", usConfirmedAt: now });
+    // With a calendar and hours, so that she can really be booked: the booking buttons ask for that.
+    await db.insert(schema.hostCalendars).values({ userId: who.id, timeZone: "America/New_York", lengths: "15,30", noticeHours: 24, horizonWeeks: 2, breakMinutes: 5 });
+    await db.insert(schema.weeklyHours).values([1, 2, 3, 4, 5, 6, 7].map((weekday) => ({ hostId: who.id, weekday, startMinute: 0, endMinute: 1440 })));
     return { ...who, handle, displayName };
   }
   /**
@@ -276,6 +283,7 @@ async function main() {
       const after = await messagesIn(talk);
       check("the same press sent twice, and once more later, makes one message and gives the same number", press.every(sent) && again.ok && press[0].ok && press[1].ok && press[0].number === press[1].number && again.number === press[0].number && count(after.map((m) => m.body).join("|"), "Only once") === 1);
 
+      check("other words under a key that was already used are not called sent, and nothing more is saved", refusedAs(await say(talk, cory.id, "Other words", key)) === "text" && (await messagesIn(talk)).every((m) => m.body !== "Other words"));
       check("an empty message, one that is too long and one without a proper key are refused", refusedAs(await say(talk, cory.id, "   ")) === "text" && refusedAs(await say(talk, cory.id, "x".repeat(CONVERSATION.maxChars + 1))) === "text" && refusedAs(await say(talk, cory.id, "hi", "short")) === "text");
       check("a stranger cannot write into it, and gets the same answer as for one that does not exist", refusedAs(await say(talk, olga.id)) === "not_found" && refusedAs(await say(randomUUID(), olga.id)) === "not_found" && refusedAs(await say("not-an-id", olga.id)) === "not_found");
       check("nothing of the stranger's was saved", (await messagesIn(talk)).every((m) => m.senderId !== olga.id));
@@ -318,6 +326,7 @@ async function main() {
       // Sixty new messages: all of them are on the page, so none can count as shown that was not there.
       await rawMessages(id, host.id, 60);
       const view = (await viewFor(a.id, id, new Date()))!;
+      check("with 60 new messages the page may say that it showed them: none lies before its first one", !view.unshownBefore);
       check("with 60 new messages, all 60 are on the page", view.messages.filter((m) => m.senderId === host.id && m.number > 2).length === 60 && view.messages[0].number <= 3);
       // The host's own browser has shown her everything (it says so after every message of hers that is drawn).
       await markShownUpTo(host.id, id, 62);
@@ -355,7 +364,15 @@ async function main() {
       const back = (await viewFor(long.id, longId, new Date(), { from: fresh.firstNumber! - CONVERSATION.shown }))!;
       check("Show earlier also moves for someone to whom all 600 are new", fresh.messages.length === 500 && fresh.firstNumber === 101 && fresh.hasEarlier && back.messages[0].number === 51 && back.messages.length === 500 && back.hasLater);
       const { mayMarkShown } = await import("../src/lib/conversations/read");
-      check("an older stretch that was asked for marks nothing as shown that lies before it; the usual page does", !mayMarkShown(back, 51) && mayMarkShown(fresh, undefined) && mayMarkShown((await viewFor(long.id, longId, new Date(), { from: 1 }))!, 1));
+      const fromFirst = (await viewFor(long.id, longId, new Date(), { from: 1 }))!;
+      check("a page marks nothing as shown while a new message lies before its first one: not the usual page with 600 new, not a stretch from the 51st", !mayMarkShown(fresh) && fresh.unshownBefore && !mayMarkShown(back));
+      check("the stretch from the first message may say that it showed its 500, and then the next stretch may too", mayMarkShown(fromFirst) && fromFirst.messages.length === 500);
+      await markShownUpTo(long.id, longId, 500);
+      const rest = (await viewFor(long.id, longId, new Date()))!;
+      check("after that the usual page holds the rest and may mark it", rest.messages[0].number <= 501 && !rest.unshownBefore && mayMarkShown(rest));
+      await db.delete(schema.conversationMessages).where(and(eq(schema.conversationMessages.conversationId, longId), sql`${schema.conversationMessages.number} between 501 and 520`));
+      check("messages that were deleted do not count as lying before the page", mayMarkShown((await viewFor(long.id, longId, new Date(), { from: 521 }))!));
+      check("a stretch asked for past the last message holds nothing", (await viewFor(long.id, longId, new Date(), { from: 9999 }))!.messages.length === 0 && [302, 303, 307].includes((await page(`/conversations/${talk}?from=9999`, cory.jar)).status));
 
       // The list: a conversation with something new comes before a later one with nothing new.
       await say(id, a.id, "new for the host");
@@ -366,11 +383,13 @@ async function main() {
       // In the pages: the count in the top bar, the list, and that drawing a page marks nothing.
       await say(talk, hana.id, "Something new for Cory");
       const before = await newConversationCount(cory.id);
-      // What Connect itself wrote to him and he has not read is counted in the same number.
+      // What Connect itself wrote to him and he has not read is counted in the same number: two such messages are
+      // written here, and the number expected is worked out without the function the top bar uses.
+      await db.insert(schema.messages).values([1, 2].map((n) => ({ userId: cory.id, subject: `From Connect ${n}`, body: "A message from Connect.", key: `talkcheck-${RUN}-notice-${n}` })));
       const total = await topBarCount(cory.id);
       const list = await page("/messages", cory.jar);
       const read = await page(`/conversations/${talk}`, cory.jar);
-      check("the top bar's Messages counts the conversation", before === 1 && total >= 1 && new RegExp(`data-messages-link[^>]*data-unread="${total}"`).test(list.html) && list.words.includes(`Messages (${total})`), `${before} of ${total}`);
+      check("the top bar's Messages counts the conversation", before === 1 && total === 3 && /data-messages-link[^>]*data-unread="3"/.test(list.html) && list.words.includes("Messages (3)"), `${before} of ${total}`);
       check("the Messages page lists it under Conversations, marked New, before what Connect wrote", list.html.includes("data-conversations") && list.html.includes('data-conversation="new"') && list.html.indexOf("Conversations") < list.html.indexOf("From Connect") && list.words.includes(hana.displayName));
       check("drawing the conversation's page marks nothing as shown", read.status === 200 && (await newConversationCount(cory.id)) === 1);
       check("someone with no conversation sees the Messages page as before", !(await page("/messages", olga.jar)).html.includes("data-conversations"));
@@ -648,8 +667,8 @@ async function main() {
       await say(two, guest.id, "Hello");
       check("before it, both can write in both conversations", sent(await say(one, guest.id)) && sent(await say(two, host.id)));
       // A request the customer began before the press and that is agreed after it.
-      const begunBefore = new Date(Date.now() - 5 * MINUTE);
-      const stop = new Date(Date.now() - 60_000);
+      const begunBefore = new Date(Date.now() - 10 * MINUTE);
+      const stop = new Date(Date.now() - 5 * MINUTE);
       await agreed({ hostId: host.id, customerId: guest.id, startsInDays: -1, joined: [host.id, guest.id], safetyEnded: stop });
       check("the press alone, with no report sent, closes both conversations for both", refusedAs(await say(one, host.id)) === "closed" && refusedAs(await say(one, guest.id)) === "book_again" && refusedAs(await say(two, guest.id)) === "closed" && refusedAs(await say(two, host.id)) === "book_again");
       const view = (await viewFor(guest.id, one, new Date()))!;
@@ -658,6 +677,8 @@ async function main() {
       check("a member's new booking, which the host is not asked about, opens nothing", refusedAs(await say(one, guest.id)) === "book_again");
       await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 4, begunAt: begunBefore, agreedAt: new Date() });
       check("a request begun before the press and agreed after it opens nothing", refusedAs(await say(one, host.id)) === "closed");
+      await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 5, begunAt: new Date(stop.getTime() + 30_000), agreedAt: new Date() });
+      check("a request begun within the minute after the press opens nothing either (the two moments come from two clocks)", refusedAs(await say(one, host.id)) === "closed");
       await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 5, begunAt: new Date(), agreedAt: new Date() });
       check("a request begun after the press and accepted opens the conversation of its own direction", sent(await say(one, host.id, "About the new call")) && sent(await say(one, guest.id, "Yes")));
       check("and only that one: the other direction stays closed", refusedAs(await say(two, guest.id)) === "closed");
@@ -703,6 +724,9 @@ async function main() {
     await db.delete(schema.blocks).where(or(inArray(schema.blocks.blockerId, ids), inArray(schema.blocks.blockedId, ids)));
     await db.delete(schema.payments).where(inArray(schema.payments.callId, callIds));
     await db.delete(schema.calls).where(inArray(schema.calls.id, callIds));
+    await db.delete(schema.messages).where(inArray(schema.messages.userId, ids));
+    await db.delete(schema.weeklyHours).where(inArray(schema.weeklyHours.hostId, ids));
+    await db.delete(schema.hostCalendars).where(inArray(schema.hostCalendars.userId, ids));
     await db.delete(schema.hostProfiles).where(inArray(schema.hostProfiles.userId, ids));
     await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, `talkcheck-${RUN}-%`));
     await db.delete(schema.session).where(inArray(schema.session.userId, ids));

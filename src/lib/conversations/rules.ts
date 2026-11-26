@@ -29,6 +29,13 @@ export const CONVERSATION = {
 
 const DAY = 24 * 3_600_000;
 export const OPEN_MS = CONVERSATION.openDays * DAY;
+/**
+ * After "End call and report", a request counts only when it was begun more than this long after
+ * the press. The two moments are written by two clocks (the request's by the database, the
+ * press's by the app), which can differ by a little; nobody asks the same person for a new call
+ * within a minute of ending one that way.
+ */
+export const AFTER_STOP_MS = 60_000;
 
 export type Role = "host" | "customer";
 
@@ -133,7 +140,7 @@ export function callsThatCount(calls: PairCall[], latestStop: Date | null): Pair
   return calls.filter((call) => {
     if (call.source !== "customer" && call.source !== "now" && call.source !== "member") return false;
     if (latestStop === null) return true;
-    return call.source !== "member" && call.begunAt.getTime() > latestStop.getTime();
+    return call.source !== "member" && call.begunAt.getTime() > latestStop.getTime() + AFTER_STOP_MS;
   });
 }
 
@@ -171,13 +178,18 @@ export function limitProblem(counts: Counts, wakes: boolean): LimitProblem | nul
   return null;
 }
 
+/** How long a text is, counted the way the database counts it: in characters, not in the halves some of them are stored as. */
+export const charCount = (text: string): number => [...text].length;
+
 /**
- * A message as it is kept: line ends made alike, the ends trimmed. Null when nothing is left or
- * it is too long. Nothing else is changed: what a person wrote is what the other one reads.
+ * A message as it is kept: line ends made alike, the ends trimmed, and the one character the
+ * database cannot store (the "null" character, which nobody can see or type on purpose) taken
+ * out. Null when nothing is left or it is too long. Nothing else is changed: what a person wrote
+ * is what the other one reads.
  */
 export function tidyMessage(text: string): string | null {
-  const tidy = text.replace(/\r\n?/g, "\n").trim();
-  if (tidy.length === 0 || tidy.length > CONVERSATION.maxChars) return null;
+  const tidy = text.replace(/\u0000/g, "").replace(/\r\n?/g, "\n").trim();
+  if (tidy.length === 0 || charCount(tidy) > CONVERSATION.maxChars) return null;
   return tidy;
 }
 
