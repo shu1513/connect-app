@@ -5,7 +5,7 @@ import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import type { Membership, MembershipMonth, MembershipRefund } from "@/db/schema";
-import { fourteenDayCases } from "@/lib/membership/fourteen-days";
+import { fourteenDayCases, openFourteenDayRequests } from "@/lib/membership/fourteen-days";
 import { timeWords } from "@/lib/membership/rules";
 import { formatMoney } from "@/lib/payments/access";
 import { switches } from "@/lib/safety/switches";
@@ -74,6 +74,8 @@ export default async function AdminMembershipsPage(props: PageProps<"/admin/memb
   const who = (membership: Membership | undefined) => (membership ? `${people.get(membership.customerId) ?? "?"} with ${people.get(membership.hostId) ?? "?"}` : "?");
   // The new memberships whose first month is running: the 14-day form is for these, and for no other.
   const fourteen = await fourteenDayCases(memberships, now);
+  // Requests to cancel within 14 days that were made in time and are not finished. Normally none: the helper finishes them.
+  const openRequests = await openFourteenDayRequests(memberships, now);
   const today = now.toISOString().slice(0, 10);
 
   return (
@@ -104,6 +106,30 @@ export default async function AdminMembershipsPage(props: PageProps<"/admin/memb
         <Tile label="Pay-backs not done" value={owed.length} />
         <Tile label="Months under dispute" value={disputed.length} />
       </section>
+
+      {openRequests.length > 0 && (
+        <section className="mt-8 text-sm" data-fourteen-open>
+          <h2 className="text-lg font-semibold">Cancelled within 14 days, not finished</h2>
+          <p className="mt-1 opacity-70">
+            Each of these was asked in time and is on record, so the 14 days cannot run out on it. The helper finishes it by itself as soon as it can; what a rule stops needs you.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {openRequests.map((request) => (
+              <li key={request.membershipId}>
+                {who(membershipById.get(request.membershipId))}:{" "}
+                {request.by.as === "founder" ? `a request in writing that reached Connect on ${request.by.requestDay}, entered on ${request.askedDay}` : `the member pressed their own button on ${request.askedDay}`} (days in UTC).{" "}
+                {request.stoppedBy ? (
+                  <>
+                    <strong>It needs you.</strong> {request.stoppedBy}
+                  </>
+                ) : (
+                  "The helper is finishing it. If it is still here in a few minutes, use the form on that membership below: the day is already filled in."
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {failed.length > 0 && (
         <section className="mt-8 text-sm">
@@ -190,13 +216,13 @@ export default async function AdminMembershipsPage(props: PageProps<"/admin/memb
                       <input type="hidden" name="month" value={fourteen.get(membership.id)!.monthId} />
                       <p className="opacity-80">
                         Members can do this themselves on their membership&apos;s page; this form is for one who wrote to us instead. Joined on {fourteen.get(membership.id)!.joinedDay}; a request counts if it reached Connect by{" "}
-                        {fourteen.get(membership.id)!.lastDay} (days in UTC). The membership ends at once. An amount that is still only held is let go. If the month was taken, what was not used goes back to the card, and calls still to
+                        {fourteen.get(membership.id)!.lastDay} (days in UTC).{fourteen.get(membership.id)!.onRecordDay ? ` A request of ${fourteen.get(membership.id)!.onRecordDay} is on record and not finished: that day is filled in below.` : ""} The membership ends at once. An amount that is still only held is let go. If the month was taken, what was not used goes back to the card, and calls still to
                         come are cancelled (a call under way is worked out as usual). Time that was used, and a call cancelled late or missed that was already charged, stay paid for. This cannot be undone.
                       </p>
                       <p>
                         <label>
                           The day the member&apos;s request reached Connect:{" "}
-                          <input type="date" name="day" required min={fourteen.get(membership.id)!.joinedDay} max={today} className="rounded border border-neutral-400 px-2 py-1" />
+                          <input type="date" name="day" required min={fourteen.get(membership.id)!.joinedDay} max={today} defaultValue={fourteen.get(membership.id)!.onRecordDay ?? undefined} className="rounded border border-neutral-400 px-2 py-1" />
                         </label>
                       </p>
                       <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 font-medium">

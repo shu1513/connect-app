@@ -51,7 +51,7 @@ export async function cancelUpcomingMemberCalls(membershipId: string, now: Date)
     } catch (error) {
       // A call that started meanwhile is under way: it is left alone and settles in the usual way.
       if (error instanceof MoneyError) continue;
-      console.error(`[membership] could not cancel member call ${call.id} of ended membership ${membershipId}; will retry`, error);
+      console.error(`[membership] could not cancel member call ${call.id} of membership ${membershipId}, which has ended or is being cancelled; will retry`, error);
       noneLeft = false;
     }
   }

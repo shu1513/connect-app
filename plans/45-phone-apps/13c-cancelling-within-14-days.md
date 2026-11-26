@@ -29,16 +29,21 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
   nothing. It is open for the first membership of these two people (not a resumed one, not a
   second one), in its first month, once the bank has authorised that month (held or taken),
   with no problem on the payment and no bank question, through the whole of the 14th day
-  after the day of joining. Days are counted in UTC.
+  after the day of joining. Days are counted in UTC. Since 26 November 2026 it also stays
+  open after the last day while a request made in time is on record and not finished; the
+  answer then carries the day that request counts from (`asked`).
 - **What pressing does.** `cancelWithin14Days({ membershipId, by: { as: "member", memberId },
-  shownMonthId })`: a first look that writes nothing; then the calls booked from the membership
-  that are still to come are cancelled; only then the membership ends, at once and for good.
+  shownMonthId })`: a first look, which writes the request down if it passes every rule; then
+  the calls booked from the membership that are still to come are cancelled; only then the
+  membership ends, at once and for good.
   What was only held is let go; what was taken goes back to the card, except time that was
   used and a call that was charged under the booking's terms. The member gets one email that
   lists what stays paid for.
 - **Refusals** come as a `MembershipError` with a sentence written for the member
-  (`WHY_FOR_MEMBER`, `DAYS_OVER_FOR_MEMBER`, `MOVED_ON`, `CALLS_NOT_CANCELLED`). None of them
-  names a button.
+  (`WHY_FOR_MEMBER`, `DAYS_OVER_FOR_MEMBER`, `MOVED_ON`). None of them names a button.
+- **"Not finished yet"** is not a refusal: `NotFinishedYet` (`CALLS_NOT_CANCELLED`,
+  `BEING_TAKEN`). The request is on record, the helper finishes it, and the button stays. Its
+  sentence says "you can also press again in a minute", which is true in the app too.
 - **Pressed twice:** the second press finds the membership ended and is refused. Nothing is
   paid back twice.
 - **The website's page** (`src/app/memberships/[id]/page.tsx`) draws the button under "Cancel
@@ -74,8 +79,9 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
 7. **After pressing, the app reads the membership again, whatever came back.** A refusal is
    shown as the sentence the server sent. If the answer was lost on the way and the membership
    has ended, the app shows that it ended, not an error. If a call could not be cancelled just
-   now, the sentence says so. Whether the button is still there is, as always, what the server
-   says on that next read (see "A gap found while planning").
+   now, the sentence says so, and that the request is on record. Whether the button is still
+   there is, as always, what the server says on that next read (see "A gap found while
+   planning").
 8. **Afterwards** the membership's screen shows it as ended, with its reason. The list of what
    stays paid for is in the email; the app does not work it out again. The cancelled calls
    show as cancelled in the calls list (part 08).
@@ -109,23 +115,33 @@ built:
   a month that was only held; a month that was taken, with one used call; day 15 (no button);
   a refusal's sentence; the phone offline during the press, then the screen read again.
 - The case of "A gap found while planning": a press on the last day that fails part-way
-  through cancelling the calls, then a press after the last day. What is seen must be what
-  was settled for that case.
+  through cancelling the calls, then a press after the last day. The screen must still show
+  the button after the last day, with the day the request counts from, and the second press
+  must end the membership. (The website's check plays it in `member-calls-check`, journey 11.)
 
-## A gap found while planning (the website has it too)
+## A gap found while planning (fixed on the website, 26 November 2026)
 
-CodeRabbit found it in this plan's review. A press on the last day can fail part-way: some
-coming calls are cancelled, one cannot be, and the membership is not ended. The member is asked
-to press again. If the next press comes after the last day (UTC), it is refused as too late,
-and the button is gone. The member pressed in time, and is left with cancelled calls and a
-membership that runs on. It needs the database to fail at that very moment, so it is rare; but
-the right would be lost through no fault of theirs.
+CodeRabbit found it in this plan's review. A press on the last day could fail part-way: some
+coming calls were cancelled, one could not be, and the membership was not ended. The member was
+asked to press again. If the next press came after the last day (UTC), it was refused as too
+late, and the button was gone. The member had pressed in time, and was left with cancelled
+calls and a membership that ran on.
 
-**Proposed, for the website and the app alike, and to be settled before this part is built:**
-the first press that passes every rule is written down with its moment, and a later press, or
-the founder's form, counts from that moment. Until that is built, the founder's form can end
-such a membership with the day of the first press (the cancelled calls show it, if any were
-cancelled).
+**Fixed** in the piece of the server the app will use too (`fourteen-days.ts`; the account is at
+the end of `plans/46-part-3-money-owed.md`, "A gap closed afterwards"):
+
+- The first press that passes every rule is written down on the membership, with its moment,
+  before any call is cancelled.
+- A later press counts from that moment, also after the last day. Every other rule is asked
+  again at the later press.
+- The helper finishes such a request by itself, so the member need not press again at all.
+- `ownFourteenDays` keeps answering "open" while such a request is not finished, with the day
+  it counts from, so the button stays on the screen.
+- The founder's Memberships page lists what is not finished and what stops it.
+
+**For this part, when it is built:** nothing more to settle. The app shows the button whenever
+the server says it is open, and shows the server's sentence about the request on record where
+the website shows it. The app counts no days.
 
 ## Not in this part
 

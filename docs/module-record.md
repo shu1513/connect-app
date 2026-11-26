@@ -5718,3 +5718,29 @@ lawyer read the proposed wording, the procedure and section 8 of `docs/for-the-l
 a contact address for the police. And one change that was found on the way and is still open:
 "End call and report" blocks only when the form after it is sent, while the written rules say it
 blocks at the press (plan 49, "Found on the way").
+
+## Cancelling within 14 days: a press in time can always be finished (plan 46, part 3c, 26 November 2026)
+
+**Why.** "Cancel within 14 days" works in steps: a look, then the coming calls are cancelled,
+then the membership is ended. If the database failed for one call, nothing was ended and the
+member was asked to press again. A next press after the last of the 14 days was refused as too
+late, and the button was gone: the member had pressed in time and was left with cancelled calls
+and a membership that ran on. CodeRabbit found this while reading the phone apps' plan (pull
+request 107). It needs the database to fail at that very moment, so it is rare.
+
+**What was built.** The first press that passes every rule is written down on the membership
+before anything is cancelled: its moment, its month, and for the founder's form who entered it
+and the day of the request (migration 0065, four columns on `memberships`). With that on
+record, a later press by the member is not asked about the 14 days again, and the founder's
+form has the day filled in. Every other rule is asked again at the later press. The helper
+finishes such a request by itself, as whoever asked it, after leaving the press a minute. The
+member's page keeps the button, and says from which day it counts. The founder's Memberships
+page lists what is not finished and what stops it. A press made while the month's money was
+being taken, which was also answered "try again in a minute", is on record in the same way.
+All of it is in `src/lib/membership/fourteen-days.ts`; the full account is at the end of
+`plans/46-part-3-money-owed.md`.
+
+**What was not built.** A button for the founder to mark a line of that list as settled by
+hand. A cancellation after the first month has ended (still the founder, by hand, also when a
+request in time is on record). The phone apps' button (plan 45, part 13c), which will use the
+same piece of the server.

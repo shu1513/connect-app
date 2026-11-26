@@ -1458,3 +1458,74 @@ No second look was asked for. CodeRabbit read the pull request and made two poin
 taken: the order above (its point was the same as Astra's second, and showed that the first
 answer to it was not enough); and the page journey now requires the founder's form on a new
 membership (Dave's) before it posts it, so a form that went missing would fail the check.
+
+### A gap closed afterwards: a press in time that could not be finished (26 November 2026)
+
+**The gap.** CodeRabbit found it while reading the phone apps' plan for this button (pull
+request 107). The button works in steps: a look, then the coming calls are cancelled, then the
+membership is ended. If the database failed for one call, nothing was ended and the member was
+asked to press again. If that next press came after the last of the 14 days, it was refused as
+too late and the button was gone. The member had pressed in time, and was left with cancelled
+calls and a membership that ran on. Nothing recorded the first press.
+
+**What is built now.**
+
+- **The request is written down first.** The first press that passes every rule is saved on the
+  membership, with its moment and the month it was for, before any call is cancelled (four new
+  columns on `memberships`, migration 0065). For the founder's form, who entered it and the day
+  the request reached Connect are saved too. It is never cleared: on an ended membership it
+  says when the member asked.
+- **A later press counts from it.** With a request on record, the member's press is not asked
+  about the 14 days again, whatever the day is by then. The founder's form has that day filled
+  in. Every other rule is asked again at the later press, as things stand then: a first month
+  that has ended, a bank's question, a payment with a problem, a form drawn for another month.
+- **The helper finishes it by itself.** Each round it looks for requests on record whose
+  membership is still running in the month they were asked for, and finishes them as whoever
+  asked (the member's own account, or "admin" with the day entered). It leaves a press one
+  minute to finish by itself first. It never makes a request up: without one on record it
+  refuses. A case that a rule stops is left alone, for the founder.
+- **Who can put a request on record:** only the member's own press on one of the 14 days, or
+  the founder's form with a day that counts. A press that is refused leaves nothing.
+- **The same for one more moment.** A press while the month's money was being taken at that
+  very moment was also answered "try again in a minute", and could run out the same way. That
+  press is on record now too, and is finished afterwards.
+- **What the person is told** when it could not be finished: that the membership was not
+  cancelled yet, that the request is on record with the moment it was first made so the 14
+  days cannot run out on it, that Connect keeps trying by itself, and that they can press
+  again. (The founder's page no longer adds "Nothing was changed" to this: calls may have been
+  cancelled already.)
+- **The member's page** keeps the button while such a request is not finished, also after the
+  last day, and says from which day it counts.
+- **The founder's Memberships page** has a list "Cancelled within 14 days, not finished". It
+  is normally empty. It names who asked and when, and either "the helper is finishing it" or
+  the rule that stops it, which then needs the founder.
+- **Two presses of one request** (the member's second press and the helper, say) can meet. The
+  one that comes second finds the membership ended this very way and says nothing more.
+  Nothing is paid back twice: the ending is one step, and the pay-back has one line.
+
+**The builder's choices** (the founder's standing wish "everything automatic" decided the
+helper; the rest can be changed):
+
+1. The helper finishes it, without anybody pressing again.
+2. The founder's own form is put on record too, so the helper can finish that as well.
+3. A request on record stays refused after the first month has ended, like any other: the
+   unused money may already have gone to the host. The founder's list says "settle this case by
+   hand". The helper has the rest of the first month (two weeks or more) to finish it before.
+4. Such a line stays on the founder's list for as long as that membership runs. There is no
+   button to mark it as settled.
+5. The membership ends at the moment it is finished, not at the moment of the first press.
+   Time used between the two is paid for like any time used before an ending.
+
+**Checked by** `scripts/member-calls-check.ts`, journey 11 (61 checks, 23 of them new),
+against Stripe's test mode. A trigger of the script's own makes the database refuse to cancel
+one call. A press on the last day is not finished and is on record; the page and the founder's
+list show it on day 15; a stranger, a bank's question, a payment with a problem and a month that
+has ended all still refuse; the press on day 15 ends the membership and pays the month back
+once, in one line; pressed again three ways, nothing more. The helper finishes one by itself,
+after leaving it a minute. The founder's form, not finished, is on record with its day and is
+finished by the helper as the founder's, with the action on record. A press during the taking
+of the money is on record and counts two minutes later, on day 15. A press on day 20 leaves
+nothing on record, and the helper can make nothing up. The real pages:
+`scripts/membership-journey-check.ts`, part 4c: on day 20 no button; with a press of day 10 on
+record, the button and its sentence; the founder's list and the day filled in; his press ends
+it.

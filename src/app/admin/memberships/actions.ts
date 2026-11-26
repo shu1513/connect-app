@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { cancelWithin14Days } from "@/lib/membership/fourteen-days";
+import { cancelWithin14Days, NotFinishedYet } from "@/lib/membership/fourteen-days";
 import { MembershipError } from "@/lib/membership/rules";
 import { withNotice } from "@/lib/notice";
 import { requireAdmin } from "@/lib/session";
@@ -25,8 +25,10 @@ export async function cancelWithin14DaysAction(formData: FormData) {
     await cancelWithin14Days({ membershipId, by: { as: "founder", adminId: admin.id, requestDay: String(formData.get("day") ?? "").trim() }, shownMonthId: UUID.test(shown) ? shown : undefined });
     notice = "The membership is cancelled within the 14 days. The member and the host are told. A hold is let go, calls still to come are cancelled, and what goes back to the card shows under \"Pay-backs not done\" until Stripe has confirmed it.";
   } catch (error) {
-    // A MembershipError is a refusal before anything changed. Anything else may have happened after the ending was saved.
-    if (error instanceof MembershipError) notice = `${error.message} Nothing was changed.`;
+    // On record, but not finished: calls may have been cancelled already, and the helper goes on with it.
+    if (error instanceof NotFinishedYet) notice = error.message;
+    // Any other MembershipError is a refusal before anything changed. Anything else may have happened after the ending was saved.
+    else if (error instanceof MembershipError) notice = `${error.message} Nothing was changed.`;
     else {
       console.error("[membership] cancelling within 14 days failed", error);
       notice = "We could not confirm what happened. Look at the membership below: if it says \"Ended\", it was cancelled and you do not need to press again.";

@@ -754,6 +754,14 @@ first membership with a host; after that month has ended, the founder settles a 
 - A call that has already begun when the member cancels is worked out as any call (what took
   place is paid for; a member who does not come can be charged under the booking's terms).
   Calls still to come are cancelled at no charge. Is that the right line?
+- **A press in time that could not be finished at once** (added 26 November 2026). The app
+  writes the request down at the moment the member presses, before it cancels anything. If the
+  cancelling cannot be finished then (a fault on our side), the request still counts as made
+  on that day, and the app finishes it by itself, normally within a minute. The membership
+  ends at the moment it is finished, not at the moment of the press. Time the member uses
+  between the two would be paid for like any time used before the ending. Is that right, or
+  must nothing after the moment of the request be charged? And if the first month ends before
+  it could be finished, the app stops and the founder settles it by hand: is that enough?
 - Time used is kept only because the person was told of the right and asked for the service to
   start at once. The sentence they tick before joining now ends: "By joining you ask for your
   membership to start today." It is one line of a list with one tick for the whole list. Is
