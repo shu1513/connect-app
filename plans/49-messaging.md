@@ -4,8 +4,8 @@
 agents), from the code as it is on `main` after pull request 103. It starts from the two studies of
 14 November 2026 (`docs/research/messaging/compared.md`) and from the founder's rules of
 26 November 2026 (`docs/module-record.md`, module 8b). Astra (gpt-6.2-astra, high effort) checked
-it against the code twice: "not ready" with fourteen must-fix points, then "not ready" with nine.
-All are answered below; both lists are at the end.
+it against the code three times: "not ready" with fourteen must-fix points, then with nine, then
+with three. All are answered below; the lists are at the end.
 
 **Its size, said plainly:** about one module, built in two parts, each its own pull request. No chat service is rented and nothing new is installed. Messages live in the app's own
 database, and the conversation's page asks the server again every few seconds, as the pages for
@@ -144,8 +144,8 @@ and is marked **(builder)**. The founder can change any of them.
 Three plain terms, each about *this host and this customer, in these roles*:
 
 - **A call that counts:** a call between them that a customer asked for (booked, as a member, or
-  "now"), that is not cancelled, was not ended with "End call and report", and was agreed after
-  the latest "End call and report" between the two people, whoever was the host then
+  "now"), that is not cancelled and was not ended with "End call and report". After an "End
+  call and report" between the two people, whoever was the host then, fewer calls count
   (decision 21). A call made by a check script never counts.
 - **Around a call:** from the moment such a call is agreed until 7 days after its booked end. Any
   one such call is enough. A call made longer moves its end. A call that is cancelled stops
@@ -173,7 +173,8 @@ Three plain terms, each about *this host and this customer, in these roles*:
 11. **A host whose page is not public cannot write outside a call. (builder)** Not to wake a
     conversation and not to go on in one. Around a call she writes as before. The customer can
     still answer her latest message within its 7 days. The "Book a call" button is shown to him
-    only while her page can be booked; otherwise the conversation just says it is closed.
+    only while he can book her (a member can sometimes book a host whose page is hidden);
+    otherwise the conversation just says it is closed.
 12. **"At any time" means: whenever the rules allow it, within the limits below. (builder)**
 
 ### The customer's switch
@@ -198,12 +199,11 @@ Three plain terms, each about *this host and this customer, in these roles*:
     messages are counted from the other person's latest message, or from the moment the latest
     call that counts was agreed, whichever is later. So an answer or a newly agreed call lets a
     person write again, and nothing else does. This is also what stops a host from writing to
-    someone again and again. (Messages deleted after 12 months no longer count; by then that
-    does no harm.)
+    someone again and again. (Two messages of the same moment are told apart by their numbers.
+    Messages deleted after 12 months no longer count; by then that does no harm.)
 18. **A host can wake at most 20 quiet conversations in 24 hours. (builder)** A message "wakes"
-    when the host sends it outside a call and the customer could not have written just before
-    it: her first message to a past customer, or one sent 7 days or more after her last. The
-    same press sent twice counts once. This, and there being no way to choose more than one
+    when the host sends it outside a call and she has sent none in that conversation in the
+    7 days before it. The same press sent twice counts once. This, and there being no way to choose more than one
     person, is how "never one message to many" is kept.
 19. **A paused or closed account cannot write. (builder)** A paused person can still read and
     report. Nobody can write to a closed account.
@@ -215,10 +215,14 @@ Three plain terms, each about *this host and this customer, in these roles*:
     above apply again.
 21. **After "End call and report" the two are strangers again, for messages. (builder, from
     Astra's checks)** The press ends the call, but the block only comes when the form after it
-    is sent, and a person can leave that form. So for messages the press alone is enough: no
-    call agreed before it counts any more, in either conversation between the two. Nobody can
-    write until a new call is agreed between them, which takes a new request and a new yes.
-    "End call and report" itself is not changed by this plan (see "Found on the way").
+    is sent, and a person can leave that form. So for messages the press, once it is recorded
+    on the call, is enough: from then on a call counts, in either conversation between the two,
+    only if the customer asked for it after the press and the host said yes to it. A member's
+    booking does not count for this, because it needs no yes from the host. Neither does a
+    request that was already waiting at the press. So nobody can write until both have acted
+    again. (A pair who had another call booked before the press lose the messages around that
+    call. That is the price of a rule this simple.) "End call and report" itself is not changed
+    by this plan (see "Found on the way").
 22. **A report can be made from a message. (both studies)** Beside each message of the other
     person there is "Report". It uses the form and the reasons that exist, and blocks, as
     everywhere else. It works while messaging is switched off and for a paused person. If the
@@ -295,9 +299,11 @@ Part 1:
    have passed. His own messages never move that date. A message sent just before the end that
    had to wait is judged by the clock after the wait.
 4. A cancelled call stops counting at once; a first call cancelled closes the conversation for
-   both, unless another call that counts is there. After "End call and report", form or no form,
-   neither can write in either conversation, whatever calls and messages came before, until a
-   new call is agreed.
+   both, unless another call that counts is there. After a recorded "End call and report", form
+   or no form, neither can write in either conversation: not because of an earlier call, a call
+   already booked for later, a recent message of the host's, a member's new booking, or a
+   request that was waiting and is accepted afterwards. A request sent after it and accepted
+   opens the conversation of its own direction only.
 5. With the customer's switch on, the host is refused outside a call and accepted around one.
 6. After a block, in either direction, neither can send in either conversation. A message sent at
    the same moment as a block either came first or is refused.
@@ -345,14 +351,16 @@ Part 2:
 - **The facts for them, in one place** (`src/lib/conversations/facts.ts`), all read inside the
   caller's database step: the calls that count (the call joined to its booking; the host and the
   customer named; asked for by a customer; not cancelled; not ended with "End call and report";
-  agreed after the latest such ending between the two), "they have talked" (one of those calls,
+  and, when there was such an ending between the two in either direction, only a call asked for
+  after the latest one and accepted by the host, so not a member's booking), "they have talked" (one of those calls,
   over, with a "joined" line for each of the two on that same call), blocks, both accounts, the
   host's page.
 - **Opening a conversation** (`src/lib/conversations/open.ts`). The links below are small forms.
   The step works out the host and the customer itself: from the call the link names (the person
   must be one of its two), or, for a host's link beside a past customer, from the two having
-  talked with her as the host. It takes both calendar locks, makes the pair's one row or finds
-  it, and sends the person to its page. A refusal makes nothing. A conversation is listed on
+  talked with her as the host. In this order: name the pair, take both calendar locks, check
+  again that it is allowed, and only then make the pair's one row or find it. Then it sends the
+  person to its page. A refusal makes nothing. A conversation is listed on
   "Messages" only once it holds a message, so opening one never shows up for the other person.
 - **The step that sends** (`src/lib/conversations/send.ts`). One database step. It takes both
   people's calendar locks first, the same locks and the same order that blocking and booking
@@ -361,9 +369,13 @@ Part 2:
   not changed. Then the conversation's row. Only then it reads the clock, once, decides by that
   moment and everything it reads after the locks, gives the message its number, and dates it
   with that same moment.
-- **What is not locked, on purpose:** a call being cancelled, the founder's switch, an account
-  being paused, a host's page being hidden. A message sent in the very moment one of these
-  changes may go either way. None of them is a promise to a person the way a block is.
+- **What is not locked, on purpose:** a call being cancelled, the press of "End call and
+  report", the founder's switch, an account being paused, a host's page being hidden. A message
+  sent in the very moment one of these changes may go either way; one sent after it sees the
+  change. None of them is a promise to a person the way a block is. For "End call and report"
+  what counts is the press as it is recorded on the call: a press that reaches the server after
+  the room has closed records nothing, and then nothing changes for messages (the report form
+  that follows still blocks when it is sent).
 - **The customer's switch**, and marking messages as shown, take the conversation's row and
   nothing after it; a send reads the switch again after its own locks.
 - **Pages:** the conversation (`/conversations/[id]`: the latest 50 messages with "Show earlier",
@@ -379,15 +391,19 @@ Part 2:
 
 ### Part 2: safety, keeping, the wording, and switching it on
 
-- **Reporting from a message.** The form's one field for "what is this about" carries the
-  conversation and the message's number together. Inside the report's own database step, not
+- **Reporting from a message.** A kind of its own in the form's list ("message"). The form's
+  one field for "what is this about" carries the conversation and the message's number together. Inside the report's own database step, not
   before it as for the other kinds: find that message, check that the reporter is the other
   person of its conversation, take its writer as the person reported, and write what is kept
   (decision 23) into the new table `report_conversations`.
-- **When the block after a report fails** (it runs after the report is saved, for every kind of
-  report): today the reporter sees "something went wrong" and may report again, which makes a
-  second report. They are now given the report's number, told that the person is not blocked
-  yet, and shown the block button.
+- **When the block after a report runs into an error** (it runs after the report is saved, for
+  every kind of report but a diary post's): today the reporter sees "something went wrong" and
+  may report again, which makes a second report. Now the report's number is always given. The
+  step then looks whether this reporter's block of this person is there (blocking saves the
+  block first and can stumble afterwards). If it is: the usual thank-you. If it is not: "Your
+  report was saved. This person is not blocked yet", and the reporter is sent back to where the
+  report was made, where the block button is. If even that look fails: "Your report was saved.
+  We could not confirm the block." The phone app goes on reading the sentence it is given.
 - **The report form's log line** no longer writes out a raw database error, which can hold what
   was sent (the pattern of the private-note form is used).
 - **The founder's look** (decision 24).
@@ -425,7 +441,8 @@ Part 2:
 The Community Rules say of "End call and report": "The call ends for both of you, the other
 person is blocked". The code blocks only when the form after the press is sent
 (`src/lib/safety/calls.ts`, `src/lib/safety/reports.ts`). Someone who presses and then closes the
-form has ended the call and blocked nobody. This plan does not change that: making the press
+form has ended the call and blocked nobody. The Terms of Service make the same promise. This
+plan does not change that: making the press
 itself block touches the money of other calls, memberships and the phone app's screen, and Astra's
 second check showed how much has to be right for it. It is a change of its own, with its own
 check. Until then the proposed wording for the lawyer says what the code does, and decision 21
@@ -532,3 +549,26 @@ unlocked, the rule for "new", and that nothing still depends on an email).
 
 From its "worth considering": the search for contact details became one standing line
 (decision 25), and the notes for a later email were cut.
+
+## Astra's third check (26 November 2026): "not ready"
+
+Three must-fix points, all at the edges of the second rework, and six things it checked and found
+sound (how the cut after "End call and report" is worked out, decision 17, both ways of working
+out who is the host when a conversation is opened, reporting a message through the form as it
+is, the two points not taken, and the numbers of the decisions).
+
+1. *After "End call and report", one person alone could open messages again:* a member by booking
+   (the host is not asked), or the host by accepting a request that was already waiting.
+   **Taken:** only a request sent after the press and accepted by the host counts
+   (decision 21, proof 4).
+2. *The press does not take the locks a send takes, so a message can be saved in the moment of
+   the press; and a press just after the room closed records nothing.* **Taken as wording:**
+   decision 21 goes by the press as recorded, and both cases are named under "What is not
+   locked". Not taken: a lock on the call for every send, for the reason given there.
+3. *The thank-you after a report could say "not blocked" when the block was saved and only the
+   cleaning up after it failed.* **Taken:** the step looks for the block before it says so
+   (part 2).
+
+Also taken from its other points: a "wake" is defined by the host's own last message, the order
+of steps when a conversation is opened, the "Book a call" button going by whether this customer
+can book, and the Terms being named beside the Community Rules under "Found on the way".
