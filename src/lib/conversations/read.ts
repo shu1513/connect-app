@@ -118,9 +118,14 @@ export async function viewOf(conversation: Conversation, viewerId: string, now: 
   };
 }
 
-/** A message of the other person that this person has not been shown yet. For a query over conversations. */
+/**
+ * A message of the other person that this person has not been shown yet. For a query over
+ * conversations. The outer table's columns are written out with the table's name: in the list of
+ * things a query selects, a column put in by reference is written without it, and inside this
+ * inner query a bare "id" would be the message's own.
+ */
 const hasNewFor = (userId: string) =>
-  sql<boolean>`exists (select 1 from ${messages} m where m.conversation_id = ${conversations.id} and m.sender_id <> ${userId} and m.number > case when ${conversations.hostId} = ${userId} then ${conversations.hostShownNumber} else ${conversations.customerShownNumber} end)`;
+  sql<boolean>`exists (select 1 from "conversation_messages" m where m.conversation_id = "conversations"."id" and m.sender_id <> ${userId} and m.number > case when "conversations"."host_id" = ${userId} then "conversations"."host_shown_number" else "conversations"."customer_shown_number" end)`;
 
 const mineOf = (userId: string) => or(eq(conversations.hostId, userId), eq(conversations.customerId, userId));
 
@@ -143,7 +148,7 @@ export async function conversationsOf(userId: string): Promise<ListedConversatio
   const rows = await db
     .select({ conversation: conversations, hasNew: hasNewFor(userId) })
     .from(conversations)
-    .where(and(mineOf(userId), sql`exists (select 1 from ${messages} m where m.conversation_id = ${conversations.id})`))
+    .where(and(mineOf(userId), sql`exists (select 1 from "conversation_messages" m where m.conversation_id = "conversations"."id")`))
     .orderBy(desc(conversations.lastMessageAt))
     .limit(200);
   const listed: ListedConversation[] = [];

@@ -13,8 +13,13 @@ type Reader = Pick<typeof db, "select">;
 
 export type Pair = { hostId: string; customerId: string };
 
-const joined = (who: typeof schema.calls.hostId | typeof schema.calls.customerId) =>
-  sql<boolean>`exists (select 1 from ${schema.attendanceEvents} a where a.call_id = ${schema.calls.id} and a.type = 'participant_joined' and a.participant_identity = ${who})`;
+/**
+ * The video service said this person joined the call. The call's columns are written out with the
+ * table's name: put in by reference they can be written without it, and inside this inner query a
+ * bare "id" would be the attendance line's own.
+ */
+const joined = (who: "host_id" | "customer_id") =>
+  sql<boolean>`exists (select 1 from "attendance_events" a where a.call_id = "calls"."id" and a.type = 'participant_joined' and a.participant_identity = ${sql.raw(`"calls"."${who}"`)})`;
 
 /**
  * What the calls between the two say: whether a call that counts is around, whether they have
@@ -41,8 +46,8 @@ export async function callFacts(reader: Reader, pair: Pair, now: Date): Promise<
       decidedAt: schema.bookings.decidedAt,
       madeAt: schema.calls.createdAt,
       endsAt: schema.calls.endsAt,
-      hostJoined: joined(schema.calls.hostId),
-      customerJoined: joined(schema.calls.customerId),
+      hostJoined: joined("host_id"),
+      customerJoined: joined("customer_id"),
     })
     .from(schema.calls)
     .innerJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
