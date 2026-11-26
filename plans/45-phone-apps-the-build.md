@@ -169,10 +169,12 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 | 12 | Notifications | Reminders and the "call now" alert, switched on when keys exist |
 | 13 | Memberships, the member's side | Join, pay monthly, book as a member |
 | 13b | Memberships, the host's side | Her offer and her members |
+| 13c | Cancelling a new membership within 14 days (added 26 November, after plan 46 part 3c) | The member's button, as on the website |
 | 14 | Becoming a host: the profile and the photo | A new host has applied, from the app |
 | 14b | The payout account, a host's ID check, proving a social account | A new host is ready |
 | 15 | A host's hours and rules | The calendar settings |
 | 16 | A host's earnings | "Collect earnings" |
+| 16b | Money a host owes back (added 26 November, after plan 46 part 3a) | The list, one amount's screen, "I think this is wrong" |
 | 17 | Contacts, invitations, the Following page | The rest of both roles' lists |
 | 18 | The account page, blocking, the legal pages, paused accounts | Settings |
 | 19 | Deleting your own account: the request, the lock, coming calls | Built, but shown to nobody yet |
@@ -180,7 +182,8 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 | 19c | Deleting your own account: the wiping | The button can be switched on |
 | 20 | The whole journey, and getting ready for the iPhone build and the stores | One walk through everything |
 
-Twenty-seven parts. Order: 01 to 03 first, because everything stands on them. Then the
+Twenty-nine parts (13c and 16b were added later, by the builder of plan 46, and are not yet
+checked by Astra). Order: 01 to 03 first, because everything stands on them. Then the
 customer's journey to a finished call (04 to 10b), then the rest. Part 11 comes before part
 12 and works without it (in the app, "available now" then follows the website's rule); the
 locked-phone rule comes alive only when part 12 is switched on. A part can be merged while
