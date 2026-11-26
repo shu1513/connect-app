@@ -25,7 +25,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 7b. Adding time during a call | Built and merged. The founder's two-device test on 14 November ended before time could be added; still to try. |
 | 8. Ratings, search, contacts, host notes | Built and merged. |
 | 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
-| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). The research is kept in `docs/research/messaging/`. |
+| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). On 26 November the founder asked for it to be built: `plans/49-messaging.md`, a plan only so far. The research is kept in `docs/research/messaging/`. |
 | Final pass: joining everything together | Built and merged. |
 | 10. Connection check before a call | Built and merged. A weak connection, a real iPhone, hotel Wi-Fi and mobile data still need the founder's friend tests. |
 | 11. Refund requests, taking the money later, and a record of call quality | Built and merged. A real two-person call on a bad connection and a real card's hold from start to finish still need a friend test; the outside health watcher comes with the hosting. |
@@ -95,7 +95,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | Refunds | The founder decides | **Changed by the founder:** the host decides refunds directly until their share has been sent; after that the founder does it by hand. Our fee is returned in the same proportion. |
 | If money is lost through our mistake | Company pays the host by hand | Agreed. |
 | Currency and countries | US dollars; hosts in the US only; customers anywhere | Agreed. |
-| Minimum price | $5 per 15 minutes; 0 means a free call | Agreed. |
+| Minimum price | $5 per 15 minutes | Agreed. |
 | Stripe account | Use a test account now | Agreed. The live account will belong to the future company; Stripe's written approval is needed only then. |
 
 Astra reviewed these eight decisions and the recommendations before they were approved.
@@ -174,7 +174,7 @@ Left out on purpose: changing your own email address, and a self-service "close 
 | 4 | Call lengths | The host offers any of 15, 30, 45, 60 minutes. |
 | 5 | Notice and how far ahead | Notice of 1, 2 or 3 days; bookable 2, 4 or 8 weeks ahead. No same-day paid bookings in this module. |
 | 6 | Break between calls | **Founder's change:** as short as 1 minute (choices: 1, 5, 10, 15, 30). Times are laid out one after another, and the time right after an existing call is offered too. |
-| 7 | Several people, one time | **Founder's change:** several customers can ask for the same time and the host chooses. Limits: 3 waiting requests per host and 5 in total per customer, 3 upcoming free calls, 7 days before asking again after a decline, and caps to protect popular hosts. |
+| 7 | Several people, one time | **Founder's change:** several customers can ask for the same time and the host chooses. Limits: 3 waiting requests per host and 5 in total per customer, 3 upcoming calls with a price of zero (no host can offer one since plan 40; the limit still holds for older ones), 7 days before asking again after a decline, and caps to protect popular hosts. |
 | 8 | Moving a booked call | Not yet; cancel and book again. |
 | 9 | What the host sees | The customer's name and a short note. Never the email. |
 | 10 | Emails | Only the essential ones; reminders come with notifications. |
@@ -217,7 +217,7 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 | --- | --- | --- |
 | 1 | Rules for calls | Conversation only. Not allowed: nudity or sexual services, anyone under 18, pretending to be someone else, threats, scams, recording, paying outside Connect. Stripe does not allow sexual services. |
 | 2 | Host identity check | Stripe Identity (ID plus matching selfie), $1.50 per completed check, paid by the company. Chosen over Veriff ($0.80 per check but $49 a month minimum) and Persona ($250 a month). |
-| 3 | Customer age check | Option A: an identity check before a customer's first free call. Astra recommended checking every customer before their first call; the founder chose the builder's recommendation. |
+| 3 | Customer age check | Option A: an identity check before a customer's first free call. Astra recommended checking every customer before their first call; the founder chose the builder's recommendation. **No longer in force: free calls were removed on 19 November 2026 (plan 40, below), so for every new call the only thing that asks a customer for a check is a host's own "verified customers only" switch. The check itself is still in the code and still catches a call with a price of zero: one from before that day, or one made by a check script.** |
 | 4 | Recording | Calls are not recorded. |
 | 5 | Blocking | Anyone can block anyone; it ends their requests and cancels their future calls with each other for free. |
 | 6 | "End call and report" | Ends the call for both; later time is not counted; the charge goes to the founder's review list. |
@@ -233,7 +233,7 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 - Blocking in both directions, enforced wherever contact could start or continue; it ends requests between the two and cancels their future calls for free.
 - "End call and report" inside the call: ends it for both, nobody can rejoin, the charge goes to the founder's review list.
 - Reports from a host's page, a request or a call, with a reference number; urgent ones email the founder at once; a Reports page with warn, pause, suspend and close; reporters are told when a report is closed.
-- Stripe Identity for hosts (ID plus matching selfie, three tries), required before approval; also required before a customer's first free call. The name on the ID is shown to the founder only.
+- Stripe Identity for hosts (ID plus matching selfie, three tries), required before approval. The name on the ID is shown to the founder only.
 - Two emergency switches: "no new requests" and "nobody can join a call".
 
 **What the reviewers found**
@@ -458,15 +458,15 @@ Builder's own decisions after Astra's second check: a paid time can be asked for
 
 **The founder's brief (14 November 2026):** "a person can verify himself with his ID. hosts can choose to only accept calls from customers who have verified his identity."
 
-**What was already there.** The ID check itself (module 5): a photo of an ID and a matching selfie on Stripe's pages, needed by hosts and before a free call. What was missing was small: a switch for hosts, a way for a paying customer to reach the check and come back, and a mark hosts can see.
+**What was already there.** The ID check itself (module 5): a photo of an ID and a matching selfie on Stripe's pages, needed by hosts. What was missing was small: a switch for hosts, a way for a paying customer to reach the check and come back, and a mark hosts can see.
 
 **What was recommended and what was decided**
 
 | # | Topic | Decided |
 | --- | --- | --- |
-| 1 | Who pays for a customer's check ($1.50 per completed check at Stripe) | **Founder's decision, as recommended: the company pays**, as it already does for hosts and free calls. One account normally costs $1.50, at most about $4.50 with its 3 tries. |
+| 1 | Who pays for a customer's check ($1.50 per completed check at Stripe) | **Founder's decision, as recommended: the company pays**, as it already does for hosts. One account normally costs $1.50, at most about $4.50 with its 3 tries. |
 | 2 | The switch for a new host | **Founder's decision, as recommended: off.** A host turns it on in one click. |
-| 3 | Where the rule lives | In the one check every request already passes before it is sent (`checkMayAsk`): "a free call, or a host with the switch on, needs a passed ID check". That covers a booked call, a call now, and the end of the card step. |
+| 3 | Where the rule lives | In the one check every request already passes before it is sent (`checkMayAsk`): "a host with the switch on needs a passed ID check" (the same step still asks it for a call with a price of zero, which no host can offer since plan 40). That covers a booked call, a call now, and the end of the card step. |
 | 4 | Requests already on their way when a host turns it on | A request already waiting stays; the host sees who has the mark and can decline. A request still at the card step ends there with the reason, and its card is removed by the helper. Nothing is declined automatically, and nothing is checked again when the host accepts or when time is added to a call. |
 | 5 | What a host sees | "ID confirmed" next to a customer who has passed, on the requests page, the "available now" panel and the page of a single request, **whether their own switch is on or off**. Nothing is shown for anyone else. Never the ID, the photos or the name on it; only a yes or no reaches the browser. |
 | 6 | Telling people what a host sees | People who passed the check before this module did so before the mark existed. The sentence "Hosts you ask for a call can see that your ID is confirmed. They never see your ID or the name on it." is on the identity page (for everyone), the account page, and both booking forms for a customer who has passed. |
@@ -527,6 +527,21 @@ The founder had asked for two separate studies before anything was built: one by
 | Build messaging for the first version at all | **No.** The note, the reminders and the one-tap link cover the main need; what is left ("I'm running late", a short follow-up) is nice to have; similar paid-call products mostly do without chat; and the cost is ongoing, not only the build | **Agreed: left out for launch.** To be looked at again if real hosts ask for it. |
 
 **If it is built later:** start from `docs/research/messaging/compared.md`. The plan would use the points above, plus Astra's limits on sending, an emergency switch that stops all sending, new written rules that mention messages, and deleting messages 12 months after they were sent (a lawyer to confirm).
+
+**The founder's later thoughts (26 November 2026).** Messaging is not built yet. These points change two of the points above ("hosts cannot write to customers out of the blue" and "open until 7 days after the call"), and the build plan, `plans/49-messaging.md`, starts from them:
+
+- **Decided by the founder:** a host can write at any time to a customer she has had a call with. Her message opens the conversation again, and the customer can then answer for 7 days.
+- **Decided by the founder:** a customer can switch off messages from one host, not only from all hosts.
+- **Decided by the founder, as the builder recommended:** never to a stranger (not someone whose request she declined, who only follows her, or whose call never took place); and one person at a time, never one message to many customers. Blocking stays as it is.
+- **Decided by the founder:** the switch is per host only. A second switch for "no host may write to me first" (the builder's idea) is not wanted; it can be added later if customers ask.
+- **Decided by the founder:** a customer cannot open a quiet conversation again herself. To write to the host again she books another call, and the booking opens the conversation. The reason for the difference between the two sides: a host sells her time, and a line every past customer can open at any time is unpaid work for her; a line she opens herself is her own choice.
+- **Decided by the founder, as the builder recommended:** the time is 7 days (no published figures were found; it covers someone who reads email once a week, and it stays one number that is easy to change after real use). With it:
+  - A "Book a time" button inside the conversation and in the email about a waiting message, because a booking, not an answer, is what the host's message is for.
+  - A closed conversation says "Book a call to write to her again", so the closed door points at a booking.
+  - Only the host's messages start the 7 days again (and the end of a call starts them). A customer's answer does not, or she could keep the line open for ever by writing every six days.
+- **Decided by the founder, later the same day:** build it now, with the usual flow (a plan, Astra's check, then the build). Messaging is on from day one; the founder's switch is only an emergency stop. The phone apps get it later. And no email about a waiting message for now: a person sees a new message when they next open Connect. (Both studies had such an email. The builder said once what leaving it out costs; it is in the plan under "For the founder".)
+- **The plan:** `plans/49-messaging.md`, two parts. Astra checked it four times on 26 November ("not ready" with fourteen points, then nine, three and two; all answered in the plan). Found on the way, and not changed by the plan: the written rules say "End call and report" blocks the other person, and the app blocks only when the report form after it is sent.
+- For the lawyer: `docs/for-the-lawyer.md`, section 8.
 
 ---
 

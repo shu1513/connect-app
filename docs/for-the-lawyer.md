@@ -207,6 +207,20 @@ Messaging between customers and hosts is not built. If it is, the points are in
 `docs/research/messaging/compared.md`: the duty to report, how long messages are kept, what the
 terms must say about staff reading reported messages, and the UK and EU rules.
 
+One more point, from the founder's thoughts of 26 November 2026 (`docs/module-record.md`, module
+8b; plan 49): a host can write first to a customer she has had a call with, at any time. The
+customer reads it inside Connect; no email is sent about it for now (the founder's decision). Is
+a message like "I have a time free on Thursday" advertising under the rules for commercial
+messages (in the United States and, for customers there, the UK and EU)? If so, what must the
+customer have agreed to beforehand, and is his switch for each host enough as the way out? And if
+Connect later sends an email that only says "a message is waiting", with a "Book a time" link:
+does that email need the postal address and the stop link that advertising email needs?
+
+Found while planning messages (plan 49, "Found on the way"): the draft Community Rules say that
+"End call and report" ends the call and blocks the other person. The app blocks only when the
+report form that follows is sent. Until the app is changed, should the rules say what the app
+does?
+
 ## 9. The company and the founder (new, legal review of 20 November 2026)
 
 Sections 9 to 14 come from a read of the whole app on 20 November 2026, done to find what the
