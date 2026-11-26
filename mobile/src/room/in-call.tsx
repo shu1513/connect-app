@@ -29,7 +29,7 @@ function NoPictures() {
 /**
  * Inside the call (plans/45-phone-apps/09-the-call.md): the other person large, oneself small in
  * a corner, and five buttons: microphone, camera, turn the camera around, loudspeaker or
- * earpiece, leave. "End call and report" is one touch away, and asks once.
+ * earpiece, leave. "End call now" is one touch away, and asks once, saying what it costs.
  *
  * While this is on the screen the phone stays awake, and the screen is marked so that the
  * phone's own screenshots and screen recordings show black where the phone allows that. Nothing
@@ -46,7 +46,7 @@ export function InCall(props: {
   /** The connection ended without the person leaving: why, as the video service says it. */
   onLost: (reason?: DisconnectReason) => void;
   onLeave: () => void;
-  onEndAndReport: () => void;
+  onEndNow: () => void;
   onProblem: (words: string) => void;
 }) {
   const { onLost } = props;
@@ -88,12 +88,12 @@ export function InCall(props: {
   return (
     <LiveKitRoom room={room} serverUrl={props.pass.serverUrl} token={props.pass.token} connect audio={props.choices.microphone} video={video} onError={failed}>
       {PICTURES_ALLOWED ? null : <NoPictures />}
-      <Stage words={props.words} clock={props.clock} onLeave={props.onLeave} onEndAndReport={props.onEndAndReport} onProblem={props.onProblem} />
+      <Stage words={props.words} clock={props.clock} onLeave={props.onLeave} onEndNow={props.onEndNow} onProblem={props.onProblem} />
     </LiveKitRoom>
   );
 }
 
-function Stage({ words, clock, onLeave, onEndAndReport, onProblem }: { words: Words; clock: { text: string; last: boolean }; onLeave: () => void; onEndAndReport: () => void; onProblem: (words: string) => void }) {
+function Stage({ words, clock, onLeave, onEndNow, onProblem }: { words: Words; clock: { text: string; last: boolean }; onLeave: () => void; onEndNow: () => void; onProblem: (words: string) => void }) {
   const insets = useSafeAreaInsets();
   const watch = useWatch();
   const tracks = useTracks([Track.Source.Camera, Track.Source.ScreenShare]);
@@ -141,16 +141,16 @@ function Stage({ words, clock, onLeave, onEndAndReport, onProblem }: { words: Wo
       .then(() => setLoud(!loud))
       .catch(() => {});
   }
-  function endAndReport() {
+  function endNow() {
     // Asked once. The question stays up whatever happens beneath it: a "yes" only counts while this call is still the screen in front.
     const still = watch();
-    Alert.alert(words.endReport, words.endReportSure, [
-      { text: words.endReportNo, style: "cancel" },
+    Alert.alert(words.endNow, words.endNowSure, [
+      { text: words.endNowNo, style: "cancel" },
       {
-        text: words.endReportYes,
+        text: words.endNowYes,
         style: "destructive",
         onPress: () => {
-          if (still()) onEndAndReport();
+          if (still()) onEndNow();
         },
       },
     ]);
@@ -172,8 +172,8 @@ function Stage({ words, clock, onLeave, onEndAndReport, onProblem }: { words: Wo
           <Text accessibilityRole={clock.last ? "timer" : undefined} style={[styles.clock, clock.last ? styles.clockLast : null]}>
             {clock.text}
           </Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={words.endReport} onPress={endAndReport} hitSlop={8} style={styles.report}>
-            <Text style={styles.reportWords}>{words.endReport}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={words.endNow} onPress={endNow} hitSlop={8} style={styles.report}>
+            <Text style={styles.reportWords}>{words.endNow}</Text>
           </Pressable>
         </View>
         {said ? (

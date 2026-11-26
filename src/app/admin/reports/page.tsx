@@ -128,7 +128,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
           {reports.map(({ report, reporterName, reported, profile, earlierReports, callsTogether, actions, kept }) => {
             const snapshot = JSON.parse(report.snapshot) as {
               booking?: { id?: string; note?: string } | null;
-              call?: { id?: string; safetyEndedAt?: string | null } | null;
+              call?: { id?: string; safetyEndedAt?: string | null; endedNowBy?: string | null } | null;
               profile?: { displayName: string; handle: string; about: string } | null;
               post?: { id: string; projectName: string; text: string; links: string[]; pictures?: string[] } | null;
               /** The photo the reported person had: on their page when the page was reported (plans/29), or theirs when they were reported from a call or a request (plans/35). */
@@ -207,7 +207,11 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                     <Link href={`/calls/${snapshot.call.id}/results`} className="underline underline-offset-2">
                       See the call&apos;s record (who joined, when, for how long)
                     </Link>
-                    {snapshot.call.safetyEndedAt ? ". It was ended with \"End call and report\"; its charge is on your review list." : ""}
+                    {!snapshot.call.safetyEndedAt
+                      ? ""
+                      : snapshot.call.endedNowBy
+                        ? `. The ${snapshot.call.endedNowBy} ended it with "End call now"; its money settles by itself.`
+                        : ". It was ended with \"End call and report\"; its charge is on your review list."}
                   </p>
                 )}
                 {snapshot.booking?.id && !snapshot.call?.id && (

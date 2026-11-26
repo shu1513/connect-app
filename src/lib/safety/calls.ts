@@ -1,30 +1,88 @@
 /**
- * "End call and report": the call ends for both people at once, nobody can
- * come back in, time after that moment is not counted, and every payment of
- * the call goes to the founder's review list instead of being charged automatically.
+ * "End call now" (plans/50-end-call-now.md): one of the two ends the call for both at once, nobody
+ * can come back in, and time after that moment is not counted. The money of the call settles by
+ * itself, by who pressed (src/lib/payments/owed.ts). Nothing is put on the founder's review list.
+ *
+ * (Until 26 November 2026 the button was "End call and report" and sent every payment of the call
+ * to the founder's review. A call ended with that button carries the same mark without
+ * `endedNowBy`, and keeps those rules: this file never writes such a call, and never changes one.)
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, lte } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
-import { roomState, type RoomState } from "@/lib/calls";
+import { CLOSE_LATE_SECONDS, OPEN_EARLY_SECONDS, roleOnCall, roomState } from "@/lib/calls";
 import { closeRoom } from "@/lib/video/livekit";
 import { closeCallIfDue } from "@/lib/video/closing";
 
 /**
- * Only while the room is open (from 5 minutes before the start until the
- * end): that is when there is a call to end. Before that a call is
- * cancelled, with the host's cancelling rule; after it, a person reports from
- * the results page. Returns where the room stood; nothing is changed unless it was "open".
+ * What became of a press, said from what is really written on the call:
+ *   not_open_yet  the room has not opened: nothing was ended (such a call is cancelled, not ended)
+ *   over          the room had closed already, or the call was cancelled: nothing was written, and the
+ *                 call is charged as any call that ran to its end
+ *   ended         the call is ended for both. `by` is the role of the person written down as having
+ *                 pressed, `byMe` whether that is the person asking now (true also for a second press
+ *                 of theirs), `old` whether it was ended with the earlier button
  */
-export async function endCallForSafety(input: { call: Call; by: string; now: Date }): Promise<RoomState> {
-  const state = await stopCall(input);
-  if (state !== "open") return state;
+export type EndOutcome = { state: "not_open_yet" } | { state: "over" } | { state: "ended"; by: "host" | "customer"; byMe: boolean; old: boolean };
+
+/**
+ * The press itself: one update that only goes through while the call is neither ended nor
+ * cancelled and its room is open. The room's times are read from the row at that moment, so time
+ * that was added a moment ago counts (adding time holds the same row). When it changed nothing,
+ * the call is read again and the answer says what is true: who pressed is never taken from who
+ * is asking.
+ */
+async function press(input: { call: Call; by: string; now: Date }): Promise<EndOutcome> {
+  const { call, by, now } = input;
+  const role = roleOnCall(call, by);
+  if (!role) return { state: "over" };
+  // Twice at most: the second time only when the room turned out to be open after all (time was added between the two looks).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const written = await db
+      .update(schema.calls)
+      .set({ safetyEndedAt: now, safetyEndedBy: by, endedNowBy: role })
+      .where(
+        and(
+          eq(schema.calls.id, call.id),
+          isNull(schema.calls.safetyEndedAt),
+          isNull(schema.calls.cancelledAt),
+          // The room is open: from 5 minutes before the start until the end (src/lib/calls.ts, `roomState`).
+          lte(schema.calls.startsAt, new Date(now.getTime() + OPEN_EARLY_SECONDS * 1000)),
+          gt(schema.calls.endsAt, new Date(now.getTime() - CLOSE_LATE_SECONDS * 1000)),
+        ),
+      )
+      .returning({ id: schema.calls.id });
+    if (written.length > 0) return { state: "ended", by: role, byMe: true, old: false };
+
+    const [fresh] = await db.select().from(schema.calls).where(eq(schema.calls.id, call.id));
+    if (!fresh || fresh.cancelledAt) return { state: "over" };
+    if (fresh.safetyEndedAt) {
+      // Somebody's press is written down: the other person's a moment earlier, or this person's own first one.
+      const presser = fresh.endedNowBy === "host" || fresh.endedNowBy === "customer" ? fresh.endedNowBy : (roleOnCall(fresh, fresh.safetyEndedBy ?? "") ?? "host");
+      return { state: "ended", by: presser, byMe: fresh.safetyEndedBy === by, old: fresh.endedNowBy === null };
+    }
+    const state = roomState(fresh, now);
+    if (state === "not_open_yet") return { state };
+    if (state === "closed") return { state: "over" };
+  }
+  // The room read as open twice and the press went through neither time: said as "not ended", so the screen offers to try again.
+  throw new Error(`could not end call ${call.id}: the press was not written`);
+}
+
+/**
+ * For the website. Only while the room is open (from 5 minutes before the start until the end):
+ * that is when there is a call to end. Before that a call is cancelled, with the host's
+ * cancelling rule; after it, a person reports or blocks from the call's page.
+ */
+export async function endCallNow(input: { call: Call; by: string; now: Date }): Promise<EndOutcome> {
+  const outcome = await press(input);
+  if (outcome.state !== "ended") return outcome;
   const { call } = input;
   // Put both people out and cancel their entry passes. The always-on helper repeats this until the room is confirmed closed.
   await closeRoom(call.roomName, [call.hostId, call.customerId]).catch((error) => {
     console.error(`[safety] could not close the room of call ${call.id} yet; the helper will retry`, error);
   });
-  return state;
+  return outcome;
 }
 
 /**
@@ -36,9 +94,9 @@ export async function endCallForSafety(input: { call: Call; by: string; now: Dat
  * service again instead of taking the clock's word. For a room that has not opened there is
  * nothing to close.
  */
-export async function endCallForSafetyConfirmed(input: { call: Call; by: string; now: Date }): Promise<{ state: RoomState; closed: boolean }> {
-  const state = await stopCall(input);
-  if (state === "not_open_yet") return { state, closed: true };
+export async function endCallNowConfirmed(input: { call: Call; by: string; now: Date }): Promise<{ outcome: EndOutcome; closed: boolean }> {
+  const outcome = await press(input);
+  if (outcome.state === "not_open_yet") return { outcome, closed: true };
   const closed = await closeCallIfDue(input.call.id).then(
     (result) => result === "closed" || result === "already closed",
     (error) => {
@@ -46,31 +104,5 @@ export async function endCallForSafetyConfirmed(input: { call: Call; by: string;
       return false;
     },
   );
-  return { state, closed };
-}
-
-/** Marks an open call as stopped (and its payments for the founder's review). Returns where the room stood; nothing is changed unless it was "open". */
-async function stopCall(input: { call: Call; by: string; now: Date }): Promise<RoomState> {
-  const { call, by, now } = input;
-  const state = roomState(call, now);
-  if (state !== "open") return state;
-  await db.transaction(async (tx) => {
-    const marked = await tx
-      .update(schema.calls)
-      .set({ safetyEndedAt: now, safetyEndedBy: by })
-      .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.safetyEndedAt), isNull(schema.calls.cancelledAt)))
-      .returning({ id: schema.calls.id });
-    if (marked.length === 0) return;
-    // Never charged automatically: the founder decides the amount after looking at the report.
-    // That goes for every payment of the call: its own, and the one of each request for more time.
-    const payments = await tx.select().from(schema.payments).where(eq(schema.payments.callId, call.id)).orderBy(schema.payments.createdAt).for("update");
-    for (const payment of payments) {
-      if (payment.status !== "held" && payment.status !== "awaiting_payment") continue;
-      await tx
-        .update(schema.payments)
-        .set({ needsReview: true, reviewReason: "The call was ended with \"End call and report\". Decide the amount after reading the report.", updatedAt: new Date() })
-        .where(eq(schema.payments.id, payment.id));
-    }
-  });
-  return state;
+  return { outcome, closed };
 }

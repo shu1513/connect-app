@@ -199,7 +199,7 @@ export type AskFacts = {
   /** Who is looking at the call's results. */
   role: "host" | "customer" | "admin";
   cancelled: boolean;
-  /** Ended with "End call and report". */
+  /** Ended with the call's button ("End call now", or the earlier "End call and report"). */
   safetyEnded: boolean;
   /** The call's record is final and complete, as the charge judges it. A record that needs review is not. */
   recordFinal: boolean;

@@ -3,7 +3,7 @@
  * (plans/45-phone-apps/09-the-call.md): checking the server's answers before a screen reads them,
  * and the clock line. Plain logic with no phone in it, so it can be tested on its own.
  */
-import type { AppCallLive, AppEnded, AppPass, AppReportForm, AppReportSent, AppRoom } from "../../../src/lib/app-door/types";
+import type { AppBlocked, AppCallLive, AppEnded, AppEndedScreen, AppPass, AppReportForm, AppReportSent, AppRoom } from "../../../src/lib/app-door/types";
 import { isId } from "./book-rules";
 import { clockWords } from "./home-rules";
 
@@ -15,7 +15,7 @@ const isCount = (value: unknown): value is number => typeof value === "number" &
 /** Every sentence the call's screen says. A screen is only shown when all of them came. */
 export const ROOM_WORD_NAMES = [
   "check", "join", "joining", "allow", "startsIn", "timeLeft", "endsIn", "ended", "results", "oneMoment", "disconnected", "takenOver", "takenOverSmall", "useThisPhone",
-  "endReport", "endReportSure", "endReportYes", "endReportNo", "ending", "endFailed", "tryAgain", "notJoined", "left", "otherCameraOff", "sharing", "reconnecting", "joinAgain",
+  "endNow", "endNowSure", "endNowYes", "endNowNo", "ending", "endFailed", "tryAgain", "notJoined", "left", "otherCameraOff", "sharing", "reconnecting", "joinAgain",
   "cameraWhy", "microphoneWhy", "cameraRefused", "microphoneRefused", "openSettings", "cameraOn", "cameraOff", "microphoneOn", "microphoneOff", "turnCamera", "loudspeaker", "earpiece",
   "leave", "youLeft", "backToCall",
 ] as const;
@@ -47,6 +47,22 @@ export function isLive(data: unknown): data is AppCallLive {
 
 export function isEnded(data: unknown): data is AppEnded {
   return isThing(data) && data.ended === true;
+}
+
+/** Whether an answer really is the screen after "End call now": the lines, and the three choices with what each does. */
+export function isEndedScreen(data: unknown): data is AppEndedScreen {
+  const said = (value: unknown): value is string => isText(value) && value.trim() !== "";
+  if (!isThing(data) || !said(data.title) || !said(data.what)) return false;
+  if (!Array.isArray(data.lines) || !data.lines.every(said)) return false;
+  const { report, block, neither } = data;
+  if (!isThing(report) || !said(report.label) || !said(report.what) || !(report.money === null || said(report.money))) return false;
+  if (!isThing(block) || !said(block.label) || !said(block.what) || typeof block.done !== "boolean" || !said(block.doneWords) || !said(block.sure) || !said(block.yes) || !said(block.no)) return false;
+  return isThing(neither) && said(neither.label) && said(neither.what);
+}
+
+/** Whether an answer really says that "Block" went through. */
+export function isBlocked(data: unknown): data is AppBlocked {
+  return isThing(data) && isText(data.notice) && data.notice.trim() !== "";
 }
 
 /** Whether an answer really is the report form, with the parts the screen reads. */

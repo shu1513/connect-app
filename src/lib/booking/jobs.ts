@@ -268,7 +268,7 @@ async function cancelUnpaidAtCutoff(now: Date): Promise<void> {
       inArray(schema.bookings.source, ["customer", "now"]),
       eq(schema.payments.status, "awaiting_payment"),
       isNull(schema.calls.cancelledAt),
-      // (A call that was ended with "End call and report" cannot be cancelled; its unpaid payment is closed when the call is over.)
+      // (A call that was ended with "End call now" cannot be cancelled; its unpaid payment is closed when the call is over.)
       isNull(schema.calls.safetyEndedAt),
       lte(schema.bookings.payBy, now),
     ),

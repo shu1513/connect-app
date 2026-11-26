@@ -218,10 +218,11 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
     if (!call || call.cancelledAt) return;
   }
   if (call?.safetyEndedAt) {
-    // A call that was stopped with "End call and report": the stop put this payment up for the founder's review.
-    // A card the bank approved before the stop is kept for that review; so is one whose time Stripe does not give
-    // (it is not thrown away on a guess). Only one that Stripe itself dates at or after the stop, or after the
-    // booking's cut-off or the call's end, does not count.
+    // A call that was ended with its red button. A card the bank approved before that moment still counts: the
+    // payment is held, and settles by the button's own rule ("End call now": by itself, payments/owed.ts; the earlier
+    // "End call and report": after the founder's review). So does one whose time Stripe does not give (it is not
+    // thrown away on a guess). Only one that Stripe itself dates at or after the stop, or after the booking's
+    // cut-off or the call's end, does not count.
     if (dated && (authorisedAt >= call.safetyEndedAt || authorisedAt >= call.endsAt || (await tooLateToHold(tx, payment, authorisedAt)))) return;
   } else {
     if (await tooLateToHold(tx, payment, authorisedAt)) return;

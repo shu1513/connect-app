@@ -9,6 +9,7 @@
  */
 import "server-only";
 import { gatherCallPage } from "@/lib/call-page/gather";
+import { END_WORDS, endCostFor } from "@/lib/call-page/end-words";
 import { APP_ROOM_WORDS, ROOM_WORDS } from "@/lib/call-page/room-words";
 import { CALL_WORDS } from "@/lib/call-page/words";
 import { roomOpensAt, roomState } from "@/lib/calls";
@@ -51,10 +52,11 @@ export async function roomFor(person: { id: string }, callId: string, now: Date)
       takenOver: APP_ROOM_WORDS.takenOver,
       takenOverSmall: ROOM_WORDS.takenOverSmall,
       useThisPhone: APP_ROOM_WORDS.useThisPhone,
-      endReport: ROOM_WORDS.endReport,
-      endReportSure: ROOM_WORDS.endReportSure,
-      endReportYes: ROOM_WORDS.endReportYes,
-      endReportNo: ROOM_WORDS.endReportNo,
+      endNow: ROOM_WORDS.endNow,
+      // What the press costs this person, by their role on this call (plans/50-end-call-now.md, decision 18).
+      endNowSure: END_WORDS.sure(endCostFor({ role, billing: call.billing, pricePer15Cents: call.pricePer15Cents })),
+      endNowYes: ROOM_WORDS.endNowYes,
+      endNowNo: ROOM_WORDS.endNowNo,
       ending: ROOM_WORDS.ending,
       endFailed: ROOM_WORDS.endFailed,
       tryAgain: ROOM_WORDS.tryAgain,

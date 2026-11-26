@@ -41,7 +41,7 @@ export async function loadAttendance(call: Call, now: Date = new Date(), stretch
   const settledFrom = Math.max(roomClosesAt(call).getTime(), call.closedAt?.getTime() ?? 0);
   const final = now.getTime() >= settledFrom + SETTLE_SECONDS * 1000;
 
-  // A call ended with "End call and report" stops counting at that moment.
+  // A call ended with the call's button ("End call now") stops counting at that moment.
   const { start, end } = countedWindow(call, stretch);
   const result = calculateAttendance(
     { hostId: call.hostId, customerId: call.customerId, start, end },

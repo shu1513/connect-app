@@ -112,8 +112,8 @@ export function countedSeconds(call: { billing: string }, totals: { hostSeconds:
 
 /**
  * The most the founder may charge on one payment after a review: the price of
- * the stretch of the call that payment pays for, and for a call stopped with
- * "End call and report" only the part of it before the stop.
+ * the stretch of the call that payment pays for, and for a call ended with its
+ * red button only the part of it before the stop.
  */
 export function reviewChargeLimitCents(input: {
   pricePer15Cents: number;

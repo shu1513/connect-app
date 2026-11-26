@@ -12,7 +12,8 @@ import { formatDuration } from "@/lib/format";
 import { callForViewer, formatMoney } from "@/lib/payments/access";
 import { currentSplit } from "@/lib/payments/actions";
 import { paymentsOfCall } from "@/lib/payments/own";
-import { attendanceChargeCents, countedSeconds, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
+import { owedFor } from "@/lib/payments/owed";
+import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { moneyTiming } from "@/lib/payments/rules";
 import { isDecided, moneyPlan } from "@/lib/payments/take";
 import { isFrozen } from "@/lib/membership/rules";
@@ -37,6 +38,7 @@ import { firstLines } from "@/lib/projects/rules";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { conversationsOn } from "@/lib/safety/switches";
 import { WriteTo } from "@/components/write-to";
+import { END_WORDS, endMoneyFor } from "@/lib/call-page/end-words";
 import { rateCallAction, refundAction } from "../actions";
 import { SitePage } from "@/components/site-page";
 import { RefundRequest } from "./refund-request";
@@ -94,9 +96,9 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   const request = payments.length > 0 ? await requestViewOf(call) : null;
   const toBeCharged = new Map<string, number | null>();
   for (const held of plan?.held ?? []) {
-    const own = await loadAttendance(call, now, { from: held.coversFrom, until: held.coversUntil });
-    const final = own.final && call.closedAt && own.result.status === "complete" && own.result.totals;
-    const byRecord = final ? attendanceChargeCents({ pricePer15Cents: held.pricePer15Cents, bookedSeconds: own.bookedSeconds, countedSeconds: countedSeconds(call, own.result.totals!) }) : null;
+    // The same rule the money step asks (owed.ts): also "the whole booking" after the customer ended the call himself.
+    const owed = await owedFor(call, held, now);
+    const byRecord = owed.is === "amount" ? owed.cents : null;
     // Never more than was set aside for a call paid from a membership.
     const record = byRecord !== null && held.kind === "member_call" ? Math.min(byRecord, held.bookedCents) : byRecord;
     // With an answer already saved for this charge, what will be taken is what the answer allows, not what the record gives.
@@ -150,6 +152,12 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   // after a cancelled or missed call too. Fetched only for the host of this call, with the logged-in person as the
   // host, and never loaded for anyone else: a founder looking at someone else's call is "admin" here and gets nothing.
   const note = role === "host" ? await hostNoteAbout(user.id, call.customerId) : null;
+  // A call ended with the call's red button. With "End call now" (plans/50) the page says who ended it and which
+  // rule the charge follows; a host is never told here that she was reported. A call ended with the earlier
+  // button, "End call and report", keeps its own line: its charge is the founder's to decide.
+  const oldStop = call.safetyEndedAt !== null && call.endedNowBy === null;
+  const endedBy = call.safetyEndedAt && call.endedNowBy ? (call.safetyEndedBy === user.id && role !== "admin" ? "You" : (nameOf.get(call.safetyEndedBy ?? "") ?? `The ${call.endedNowBy}`)) : null;
+  const endMoney = call.endedNowBy ? END_WORDS.money(role, endMoneyFor(call), { host: nameOf.get(call.hostId) ?? "the host", customer: nameOf.get(call.customerId) ?? "the customer" }) : null;
   const who = (identity: string | null) =>
     identity === call.hostId
       ? `${nameOf.get(identity) ?? "Host"} (host)`
@@ -286,14 +294,20 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       {tips.ask && !ask && <TipAsk callId={call.id} hostName={otherName} />}
       {tips.tip && <TipLine view={tips.tip} role={role} otherName={otherName} />}
 
-      {call.safetyEndedAt && (
+      {call.safetyEndedAt && endedBy && (
+        <p className="mt-4 rounded border border-red-600 p-3 text-sm" data-ended-now={call.endedNowBy}>
+          {endedBy} ended this call for both people on <LocalTime iso={call.safetyEndedAt.toISOString()} />, with &quot;End call now&quot;. Time after that is not counted.
+          {endMoney ? ` ${endMoney}` : ""}
+        </p>
+      )}
+      {oldStop && call.safetyEndedAt && (
         <p className="mt-4 rounded border border-red-600 p-3 text-sm">
           This call was ended with &quot;End call and report&quot; on <LocalTime iso={call.safetyEndedAt.toISOString()} />. Time after that is not
           counted, and the charge is decided by a person.
         </p>
       )}
 
-      {bookAgain && !call.safetyEndedAt && (
+      {bookAgain && !oldStop && (
         <p className="mt-4 text-sm">
           <Link href={bookAgain} className="inline-flex min-h-11 items-center underline underline-offset-2">
             Book another call with {nameOf.get(call.hostId)}
@@ -301,7 +315,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
         </p>
       )}
 
-      {role !== "admin" && !call.safetyEndedAt && !call.cancelledAt && (await conversationsOn()) && (
+      {role !== "admin" && !oldStop && !call.cancelledAt && (await conversationsOn()) && (
         <div className="mt-4">
           <WriteTo callId={call.id} name={otherName} back={`/calls/${call.id}/results`} />
         </div>
@@ -542,7 +556,9 @@ function Receipt(props: {
                   : "Cancelled after the free period: the booked price"
                 : payment.chargeReason === "admin"
                   ? "Decided after a review"
-                  : `${props.billing === "together" ? "The time both people were in the call" : "The time the host was in the call"}${extra ? ", during these extra minutes" : ""}`
+                  : payment.chargeReason === "customer_ended"
+                    ? `${END_WORDS.whyWhole(role)}${extra ? ", for these extra minutes" : ""}`
+                    : `${props.billing === "together" ? "The time both people were in the call" : "The time the host was in the call"}${extra ? ", during these extra minutes" : ""}`
             }
           />
           {frozenHost !== null && frozenTogether !== null && (

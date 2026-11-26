@@ -396,23 +396,23 @@ async function main() {
       await settleFinishedCalls(new Date());
       const closed = await paymentOf(overNow.call.id);
       check("and the helper closes it unpaid and lets the approval go at Stripe", closed.status === "closed_uncharged" && (await stripe().paymentIntents.retrieve(closed.stripePaymentIntentId!)).status === "canceled", closed.status);
-      // "End call and report": a card the bank approved before the stop still counts, and waits for the founder's
-      // review; one approved after the stop does not.
+      // "End call now": a card the bank approved before the press still counts, and the call's money settles by
+      // itself (nothing waits for the founder); one approved after the press does not.
       const stopLater = await newCall(host.id, cust.id, { startsIn: 3, price: 2000, minutes: 10 });
       await step(stopLater.call.id, "pay", cust.jar);
       const beforeStop = await confirmAtStripe(stopLater.call.id, "pm_card_visa");
       await pause(1_500);
-      const stopped = await asBrowser(`/api/calls/${stopLater.call.id}/end-for-safety`, { jar: host.jar, body: {} });
+      const stopped = await asBrowser(`/api/calls/${stopLater.call.id}/end-now`, { jar: host.jar, body: {} });
       await step(stopLater.call.id, "pay-check", cust.jar);
       const reviewed = await paymentOf(stopLater.call.id);
-      check("a card approved before the call was stopped with a report is kept, for the founder's review", beforeStop.status === "requires_capture" && stopped.status === 200 && reviewed.status === "held" && reviewed.needsReview === true, `${stopped.status} ${reviewed.status} ${reviewed.needsReview}`);
+      check("a card approved before the call was ended with \"End call now\" is kept, and nothing waits for the founder's review", beforeStop.status === "requires_capture" && stopped.status === 200 && reviewed.status === "held" && reviewed.needsReview === false, `${stopped.status} ${reviewed.status} ${reviewed.needsReview}`);
       const stopFirst = await newCall(host.id, cust.id, { startsIn: 3, price: 2000, minutes: 10 });
       await step(stopFirst.call.id, "pay", cust.jar);
-      const stoppedFirst = await asBrowser(`/api/calls/${stopFirst.call.id}/end-for-safety`, { jar: host.jar, body: {} });
+      const stoppedFirst = await asBrowser(`/api/calls/${stopFirst.call.id}/end-now`, { jar: host.jar, body: {} });
       await pause(1_500);
       const afterStop = await confirmAtStripe(stopFirst.call.id, "pm_card_visa");
       await step(stopFirst.call.id, "pay-check", cust.jar);
-      check("one approved after the stop does not count", stoppedFirst.status === 200 && afterStop.status === "requires_capture" && (await paymentOf(stopFirst.call.id)).status === "awaiting_payment", `${stoppedFirst.status} ${(await paymentOf(stopFirst.call.id)).status}`);
+      check("one approved after the press does not count", stoppedFirst.status === 200 && afterStop.status === "requires_capture" && (await paymentOf(stopFirst.call.id)).status === "awaiting_payment", `${stoppedFirst.status} ${(await paymentOf(stopFirst.call.id)).status}`);
       // (A call paid from a membership has no card step: that refusal is in the one function both the website's
       // address and this one call, src/lib/payments/steps.ts. Making a member's call needs a whole membership with a
       // paid month, which the website's own member-calls-check sets up; it is not made again here.)

@@ -134,6 +134,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           role={role}
           otherName={other?.name ?? (role === "host" ? "The customer" : "The host")}
           pricePer15Cents={call.pricePer15Cents}
+          billing={call.billing}
           whileWaiting={about?.text ? <AboutCustomer name={other?.name ?? "this customer"} text={about.text} /> : null}
         />
         </>

@@ -35,7 +35,8 @@ import {
 import { settleCancelledCall } from "./cancel";
 import { settleEmptyShare } from "./collect";
 import { failOperation, failOwnedOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, RECONCILE_AFTER_MS, refusedRecently } from "./operations";
-import { attendanceChargeCents, countedSeconds } from "./pricing";
+import { owedFor } from "./owed";
+import { countedSeconds } from "./pricing";
 import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
 import { settleOrdinaryCharges } from "./take";
@@ -555,10 +556,10 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<"ordina
     return;
   }
 
-  // Each payment is charged for the time that counted inside the stretch of the call it pays for.
-  const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil });
+  // What the record gives for the stretch of the call this payment pays for, by the one rule every step asks (owed.ts).
+  const owed = await owedFor(call, payment, now);
   // Charge only once the room is confirmed closed and late messages have had time to arrive.
-  if (!attendance.final || !call.closedAt) {
+  if (owed.is === "not_final") {
     if (now >= deadline) {
       await releasePayment({ paymentId: payment.id, note: "The call's record was not final in time, so the hold was released." });
       log(`released payment ${payment.id}: record not final in time`);
@@ -566,14 +567,8 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<"ordina
     return;
   }
 
-  if (attendance.result.status === "complete" && attendance.result.totals) {
-    const totals = attendance.result.totals;
-    const amountCents = attendanceChargeCents({
-      pricePer15Cents: payment.pricePer15Cents,
-      bookedSeconds: attendance.bookedSeconds,
-      countedSeconds: countedSeconds(call, totals),
-    });
-    if (amountCents === 0) {
+  if (owed.is === "amount") {
+    if (owed.cents === 0) {
       // Nothing to wait for: nobody is asked about a charge that is nothing.
       await releasePayment({ paymentId: payment.id, note: "Nothing was owed for this call." });
       log(`released payment ${payment.id}: nothing owed`);
@@ -594,7 +589,7 @@ async function settleOne(found: Payment, call: Call, now: Date): Promise<"ordina
     if (inFlight) return;
     await tx
       .update(schema.payments)
-      .set({ needsReview: true, reviewReason: attendance.result.reasons.join(" ") || "The call's record is incomplete.", updatedAt: new Date() })
+      .set({ needsReview: true, reviewReason: owed.reason, updatedAt: new Date() })
       .where(eq(schema.payments.id, payment.id));
   });
   log(`payment ${payment.id} needs review`);
@@ -613,7 +608,9 @@ export async function flagChangedRecords(now: Date): Promise<void> {
     .where(
       and(
         eq(schema.payments.status, "charged"),
-        eq(schema.payments.chargeReason, "attendance"),
+        // Both kinds of charge that were worked out from the record: by the time that counted, and that plus the
+        // rest of the booking after the customer ended the call (plans/50).
+        inArray(schema.payments.chargeReason, ["attendance", "customer_ended"]),
         eq(schema.payments.flaggedAfterCharge, false),
         isNotNull(schema.payments.pricedThroughEventId),
         sql`exists (select 1 from ${schema.attendanceEvents} e where e.call_id = ${schema.calls.id} and e.id > ${schema.payments.pricedThroughEventId})`,

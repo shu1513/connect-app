@@ -66,7 +66,7 @@ export async function block(input: { blockerId: string; blockedId: string; now: 
           and(eq(schema.calls.hostId, blockedId), eq(schema.calls.customerId, blockerId)),
         ),
         isNull(schema.calls.cancelledAt),
-        // A call that was ended with "End call and report" is over and cannot be cancelled; its money waits for the founder.
+        // A call that was ended with "End call now" is over and cannot be cancelled; its money follows that button's own rule.
         isNull(schema.calls.safetyEndedAt),
         gt(schema.calls.startsAt, now),
       ),

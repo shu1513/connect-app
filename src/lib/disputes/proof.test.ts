@@ -12,6 +12,7 @@ const call: CallFacts = {
   addedTime: false,
   billing: "host",
   chargeReason: "attendance",
+  endedByCustomerAt: null,
   charged: { hostSeconds: 600, customerSeconds: 540, togetherSeconds: 540 },
   recordChanged: false,
   visits: [
@@ -162,6 +163,21 @@ describe("the proof for a charge the app has no totals for", () => {
   it("names no day of the service when the record shows nobody in the room", () => {
     expect(proofFrom({ ...facts, about: { ...call, charged: null, visits: [] } }).service_date).toBeUndefined();
     expect(proofFrom({ ...facts, about: { ...call, charged: null } }).service_date).toBe("2027-01-10");
+  });
+});
+
+describe("the proof for a call the customer ended with \"End call now\"", () => {
+  it("says the customer ended it and confirmed the charge, and never that only time that took place is charged", () => {
+    const ended = { ...call, chargeReason: "customer_ended", endedByCustomerAt: at("2027-01-10T20:04:00Z"), charged: { hostSeconds: 240, customerSeconds: 240, togetherSeconds: 240 } };
+    const proof = proofFrom({ ...facts, about: ended });
+    expect(proof.uncategorized_text).toContain('with the "End call now" button inside the call');
+    expect(proof.uncategorized_text).toContain("the whole booked time is still charged; the customer confirmed");
+    expect(proof.uncategorized_text).toContain("before that moment (4 min)");
+    expect(proof.uncategorized_text).toContain("$13.33 was charged under that rule");
+    expect(proof.uncategorized_text).not.toContain("Connect charges only for time that took place");
+    // It was held, so the day of the service and the room's record go with it.
+    expect(proof.service_date).toBe("2027-01-10");
+    expect(proof.access_activity_log).toBeDefined();
   });
 });
 

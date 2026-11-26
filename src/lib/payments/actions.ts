@@ -19,7 +19,11 @@ import { canMovePayment, decisionDeadline, readyToCollectAt } from "./rules";
 import { stripe } from "./stripe";
 
 export type FrozenTotals = { hostSeconds: number; customerSeconds: number; togetherSeconds: number };
-export type ChargeReason = "attendance" | "late_cancel" | "admin";
+/**
+ * Why a charge is what it is. "customer_ended": the customer ended a booked call with "End call now", and the
+ * amount includes the rest of the booking (plans/50-end-call-now.md, decision 13).
+ */
+export type ChargeReason = "attendance" | "customer_ended" | "late_cancel" | "admin";
 
 const formatCents = (cents: number) => "$" + (cents / 100).toFixed(2);
 const isForeignCard = (payment: Payment) => payment.cardCountry !== null && payment.cardCountry !== "US";

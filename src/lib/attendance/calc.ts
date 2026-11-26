@@ -171,7 +171,7 @@ export function calculateAttendance(
 
 /**
  * The part of a call in which time counts, in whole seconds: from its start to
- * its end, or to the moment it was stopped with "End call and report" if that
+ * its end, or to the moment it was ended with the call's button ("End call now") if that
  * came first. With a stretch (the part of the call one payment pays for), only
  * the part inside that stretch. A stretch that begins after the call was
  * stopped counts nothing (start and end are then the same).

@@ -149,7 +149,7 @@ async function main() {
    * agreed call leaves them. `startsInDays` may be negative (it was that long ago). `joined`:
    * who the video service says joined it.
    */
-  async function agreed(input: { hostId: string; customerId: string; startsInDays: number; joined?: string[]; source?: string; begunAt?: Date; agreedAt?: Date; cancelled?: boolean; safetyEnded?: Date }) {
+  async function agreed(input: { hostId: string; customerId: string; startsInDays: number; joined?: string[]; source?: string; begunAt?: Date; agreedAt?: Date; cancelled?: boolean; safetyEnded?: Date; endedNow?: "host" | "customer" }) {
     const startsAt = new Date(Math.floor((Date.now() + input.startsInDays * DAY) / 1000) * 1000);
     const endsAt = new Date(startsAt.getTime() + 30 * MINUTE);
     const agreedAt = input.agreedAt ?? new Date(Math.min(Date.now(), startsAt.getTime()) - DAY);
@@ -165,8 +165,11 @@ async function main() {
         closedAt: endsAt.getTime() < Date.now() ? new Date(endsAt.getTime() + 1000) : null,
         cancelledAt: input.cancelled ? new Date() : null,
         cancelledBy: input.cancelled ? "host" : null,
+        // Ended with the call's button. With `endedNow` it was "End call now" (plans/50), pressed by that person; without,
+        // the earlier "End call and report".
         safetyEndedAt: input.safetyEnded ?? null,
-        safetyEndedBy: input.safetyEnded ? input.hostId : null,
+        safetyEndedBy: input.safetyEnded ? (input.endedNow === "customer" ? input.customerId : input.hostId) : null,
+        endedNowBy: input.safetyEnded ? (input.endedNow ?? null) : null,
         createdAt: agreedAt,
       })
       .returning();
@@ -659,8 +662,23 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
-    console.log('\n9. After "End call and report" the two are strangers again, for messages');
+    console.log('\n9. "End call now" closes nothing; a block does. After an old "End call and report" the two are strangers again');
     {
+      // A plain "End call now" (plans/50-end-call-now.md, decision 22): the call counts like any other that was not cancelled.
+      const hostNow = await asHost(await person("nowh"), "nowh", `Now Host ${RUN}`);
+      const guestNow = await person("nowc");
+      const endedCall = await agreed({ hostId: hostNow.id, customerId: guestNow.id, startsInDays: -1, joined: [hostNow.id, guestNow.id], safetyEnded: new Date(Date.now() - DAY + 10 * MINUTE), endedNow: "customer" });
+      const open = (await openConversation({ userId: hostNow.id, callId: endedCall.id }))!;
+      check('after a plain "End call now", with no report and no block, both can still write', open !== null && sent(await say(open, hostNow.id, "Are you all right?")) && sent(await say(open, guestNow.id, "Yes, my connection broke.")));
+      const nowView = (await viewFor(guestNow.id, open, new Date()))!;
+      check("the conversation does not count as stopped, and the call counts as one they talked in", !nowView.facts.stopped && nowView.facts.aroundCall && nowView.facts.talked && nowView.shownRefusal === null);
+      const { block: blockNow } = await import("../src/lib/safety/blocks");
+      await blockNow({ blockerId: guestNow.id, blockedId: hostNow.id, now: new Date() });
+      check("a block (and so a report, which blocks) closes it for both", refusedAs(await say(open, guestNow.id)) === "you_blocked" && refusedAs(await say(open, hostNow.id)) === "not_taking");
+    }
+    {
+      // A call ended with the earlier button, "End call and report": that press did not block, so the two are cut off
+      // until both have acted again (plans/49-messaging.md, decision 21, kept for such calls only).
       const host = await asHost(await person("stoph"), "stoph", `Stop Host ${RUN}`);
       const guest = await asHost(await person("stopc"), "stopc", `Stop Guest ${RUN}`);
       await talkedPair(host.id, guest.id);
@@ -671,7 +689,7 @@ async function main() {
       await say(one, host.id, "Hello");
       await say(two, guest.id, "Hello");
       check("before it, both can write in both conversations", sent(await say(one, guest.id)) && sent(await say(two, host.id)));
-      // A request the customer began before the press and that is agreed after it.
+      // A request the customer began before the old press and that is agreed after it.
       const begunBefore = new Date(Date.now() - 10 * MINUTE);
       const stop = new Date(Date.now() - 5 * MINUTE);
       await agreed({ hostId: host.id, customerId: guest.id, startsInDays: -1, joined: [host.id, guest.id], safetyEnded: stop });

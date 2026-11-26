@@ -16,7 +16,6 @@
 import { and, asc, eq, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Payment, RefundRequest } from "@/db/schema";
-import { loadAttendance } from "@/lib/attendance/load";
 import { closeMemberPayment, monthIsFrozen } from "@/lib/membership/calls";
 import { lockMonthsOfCall } from "@/lib/membership/locks";
 import { capturePlan, releasePlan, type Lowered } from "./actions";
@@ -30,8 +29,9 @@ import {
   type OperationPlan,
   type Tx,
 } from "./operations";
+import { owedFor } from "./owed";
 import { ownPaymentOf } from "./own";
-import { attendanceChargeCents, countedSeconds, MIN_CHARGE_CENTS } from "./pricing";
+import { MIN_CHARGE_CENTS } from "./pricing";
 import { moneyTiming, takeDecision } from "./rules";
 
 type Reader = Pick<Tx, "select">;
@@ -177,24 +177,18 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
       // so that an answer already saved is still applied to the record as it stands once the dispute is won.
       if (fromMonth && (!payment.monthId || (await monthIsFrozen(payment.monthId, tx)))) continue;
 
-      // Before any money is taken, the record is looked at again.
-      const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil }, tx);
-      if (!attendance.final || !call.closedAt) continue; // never charged on a guess
-      const totals = attendance.result.totals;
-      if (attendance.result.status !== "complete" || !totals) {
+      // Before any money is taken, the record is looked at again: what it gives for this payment's stretch, by the
+      // one rule every step asks (owed.ts). A report the customer made after ending the call himself is written on
+      // the call's row, which this step holds, so it is either in this amount or came too late for it.
+      const owed = await owedFor(call, payment, now, tx);
+      if (owed.is === "not_final") continue; // never charged on a guess
+      if (owed.is === "review") {
         // It was fine after the call and no longer adds up: the founder reviews it. An answer already given cannot override that.
-        await tx
-          .update(schema.payments)
-          .set({ needsReview: true, reviewReason: attendance.result.reasons.join(" ") || "The call's record is incomplete.", updatedAt: new Date() })
-          .where(eq(schema.payments.id, payment.id));
+        await tx.update(schema.payments).set({ needsReview: true, reviewReason: owed.reason, updatedAt: new Date() }).where(eq(schema.payments.id, payment.id));
         continue;
       }
-
-      const byRecord = attendanceChargeCents({
-        pricePer15Cents: payment.pricePer15Cents,
-        bookedSeconds: attendance.bookedSeconds,
-        countedSeconds: countedSeconds(call, totals),
-      });
+      const totals = owed.totals;
+      const byRecord = owed.cents;
       // Never more than was set aside for a member's call (which is rounded down when it is booked).
       const recordCents = fromMonth ? Math.min(byRecord, payment.bookedCents) : byRecord;
       // "In full" is what the record gives now, never the larger amount that was held.
@@ -212,7 +206,7 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
           payment,
           amountCents < MIN_CHARGE_CENTS
             ? { usedCents: 0, note: nothingNote, lowered, what: "settled", hostCaused: "all" }
-            : { usedCents: amountCents, reason: "attendance", frozen: totals, pricedThroughEventId: attendance.events.reduce((max, e) => Math.max(max, e.id), 0), lowered, what: "settled", hostCaused: "all" },
+            : { usedCents: amountCents, reason: owed.reason, frozen: totals, pricedThroughEventId: owed.pricedThroughEventId, lowered, what: "settled", hostCaused: "all" },
           now,
         );
         continue;
@@ -232,11 +226,11 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
         capturePlan({
           paymentId: payment.id,
           amountCents,
-          reason: "attendance",
+          reason: owed.reason,
           frozen: totals,
           callEndsAt: call.endsAt,
           // Remember which messages the amount was based on, so later ones can be noticed.
-          pricedThroughEventId: attendance.events.reduce((max, e) => Math.max(max, e.id), 0),
+          pricedThroughEventId: owed.pricedThroughEventId,
           now,
           lowered,
         }),

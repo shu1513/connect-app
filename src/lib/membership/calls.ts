@@ -12,12 +12,12 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
-import { loadAttendance } from "@/lib/attendance/load";
 import type { MemberMoney } from "@/lib/booking/emails";
 import type { ChargeReason, FrozenTotals, Lowered } from "@/lib/payments/actions";
 import { addLedgerEntry, lockPayment, MoneyError, type Tx } from "@/lib/payments/operations";
 import { ownPaymentOf } from "@/lib/payments/own";
-import { attendanceChargeCents, countedSeconds, splitCharge } from "@/lib/payments/pricing";
+import { owedFor } from "@/lib/payments/owed";
+import { splitCharge } from "@/lib/payments/pricing";
 import { readyToCollectAt, REVIEW_WINDOW_MS } from "@/lib/payments/rules";
 import { lockMonthsOfCall, type LockedMonth } from "./locks";
 import { canBookFrom, comeBack, finishIfSettled, spendSetAside } from "./months";
@@ -150,12 +150,9 @@ export async function monthIsFrozen(monthId: string, reader: Pick<Tx, "select"> 
 /** The last moment a member's call can wait for the founder's decision or for its record: 3 days after the call. There is no hold that could end sooner. */
 export const memberDecisionDeadline = (call: Pick<Call, "endsAt">): Date => new Date(call.endsAt.getTime() + REVIEW_WINDOW_MS);
 
-/** What a call's record says about one payment's stretch right now: not final yet, for the founder to review, or an amount. */
+/** What a call's record says about one payment's stretch right now: not final yet, for the founder to review, or an amount (owed.ts, the one rule every money step asks). */
 async function recordOf(reader: Pick<Tx, "select">, call: Call, payment: Payment, now: Date): Promise<{ is: "not_final" } | { is: "review"; reason: string } | { is: "amount"; cents: number }> {
-  const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil }, reader);
-  if (!attendance.final || !call.closedAt) return { is: "not_final" };
-  if (attendance.result.status !== "complete" || !attendance.result.totals) return { is: "review", reason: attendance.result.reasons.join(" ") || "The call's record is incomplete." };
-  return { is: "amount", cents: attendanceChargeCents({ pricePer15Cents: payment.pricePer15Cents, bookedSeconds: attendance.bookedSeconds, countedSeconds: countedSeconds(call, attendance.result.totals) }) };
+  return owedFor(call, payment, now, reader);
 }
 
 /**

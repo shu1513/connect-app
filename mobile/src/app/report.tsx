@@ -12,8 +12,8 @@ import { type, useColors } from "@/ui/theme";
 
 /**
  * The report form (plans/45-phone-apps/09-the-call.md, decision 9): the website's form, with its
- * reasons and its rules, as a screen of the app. It is opened from a call ("End call and report"
- * leads here), a request or a host's page; who the report is about is worked out on the server
+ * reasons and its rules, as a screen of the app. It is opened from a call (the screen after
+ * "End call now" leads here), a request or a host's page; who the report is about is worked out on the server
  * from that place. Reporting a person also blocks them, as the form says.
  */
 export default function ReportScreen() {

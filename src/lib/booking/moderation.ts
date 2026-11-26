@@ -16,7 +16,7 @@ export async function endBookingsOfSuspendedHost(hostId: string, now: Date): Pro
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
     .leftJoin(schema.payments, ownPaymentOn(schema.calls.id))
-    // (Not a call that was ended with "End call and report": it is over and cannot be cancelled; its money waits for the founder.)
+    // (Not a call that was ended with the call's button, "End call now": it is over and cannot be cancelled; its money follows that button's own rule.)
     .where(and(eq(schema.calls.hostId, hostId), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt), gt(schema.calls.startsAt, now)));
   let failed = 0;
   for (const { call, payment } of upcoming) {

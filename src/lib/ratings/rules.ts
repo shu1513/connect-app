@@ -31,7 +31,7 @@ export function rateState(input: {
   /** Where the call came from: "customer" (a request), "now" (a call now), "admin" (a call made by a check script), or null for a call with no booking. */
   source: string | null;
   cancelled: boolean;
-  /** Ended with "End call and report": that goes to the founder as a report, not into stars. */
+  /** Ended with the call's button ("End call now", or the earlier "End call and report"): a call that was cut short is not asked about in stars. */
   safetyEnded: boolean;
   /** The room is confirmed closed. */
   roomClosed: boolean;

@@ -53,6 +53,8 @@ function Opened() {
           <Stack.Screen name="calls/[id]" />
           {/* The call itself: no swiping back out of it by accident (the buttons on the screen leave it). */}
           <Stack.Screen name="room/[id]" options={{ gestureEnabled: false }} />
+          {/* The screen after "End call now": no swipe back into the room that was just left. */}
+          <Stack.Screen name="ended" options={{ gestureEnabled: false }} />
           <Stack.Screen name="report" />
           <Stack.Screen name="identity" />
         </Stack.Protected>

@@ -596,10 +596,11 @@ export type AppRoom = {
     takenOver: string;
     takenOverSmall: string;
     useThisPhone: string;
-    endReport: string;
-    endReportSure: string;
-    endReportYes: string;
-    endReportNo: string;
+    endNow: string;
+    /** The question before the press, with what it costs this person on this call. */
+    endNowSure: string;
+    endNowYes: string;
+    endNowNo: string;
     ending: string;
     endFailed: string;
     tryAgain: string;
@@ -634,13 +635,31 @@ export type AppPass = { token: string; serverUrl: string; endsAt: string; server
 /** Where a call stands, asked near its end and after a lost connection. */
 export type AppCallLive = { endsAt: string; serverNow: string; cancelled: boolean; safetyEnded: boolean };
 
-/** "End call and report" went through: the call is ended for both. */
+/** "End call now" went through: the call is ended for both (or was over already). The screen after it is read on its own. */
 export type AppEnded = { ended: true };
+
+/**
+ * The screen after "End call now" (plans/50-end-call-now.md, decision 19): who ended the call,
+ * what that means for the money, and the three choices with what each does. No account id travels:
+ * "Block" names only the call, and the server works out who the other person is.
+ */
+export type AppEndedScreen = {
+  title: string;
+  lines: string[];
+  what: string;
+  report: { label: string; what: string; money: string | null };
+  /** `done`: this person has blocked the other one already. `sure`, `yes`, `no`: the question the app asks once more before it blocks. */
+  block: { label: string; what: string; done: boolean; doneWords: string; sure: string; yes: string; no: string };
+  neither: { label: string; what: string };
+};
+
+/** "Block" from that screen went through: what to say. */
+export type AppBlocked = { notice: string };
 
 /** The report form (the website's, without reports about diary posts, which the app does not have). */
 export type AppReportForm = {
   title: string;
-  /** Said only when true: the call really was ended with "End call and report". */
+  /** Said only when true: the call really was ended with the call's button. */
   stopped: string | null;
   words: string;
   /** "Read the rules.": the middle part opens the website's rules page. */

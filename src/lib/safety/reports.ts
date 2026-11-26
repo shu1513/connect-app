@@ -19,6 +19,8 @@ import { linksOf } from "@/lib/projects/rules";
 import { hasBlocked } from "@/lib/follows/follows";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
+import type { EndReportEffect } from "./end-guard";
+import { decideEndReport } from "./end-report";
 import { keepMessages, type KeptSummary, keptSummaries, MessageGoneError, reportableMessage } from "./kept-messages";
 import { type ReportBlock, REPORT_TEXT_MAX } from "./report-words";
 
@@ -51,7 +53,8 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
     return {
       reportedId,
       snapshot: {
-        call: { id: call.id, startsAt: call.startsAt, endsAt: call.endsAt, safetyEndedAt: call.safetyEndedAt, safetyEndedBy: call.safetyEndedBy },
+        // `endedNowBy`: who ended it with "End call now" ("host" or "customer"). Null with `safetyEndedAt` set: the earlier button, whose money the founder decides.
+        call: { id: call.id, startsAt: call.startsAt, endsAt: call.endsAt, safetyEndedAt: call.safetyEndedAt, safetyEndedBy: call.safetyEndedBy, endedNowBy: call.endedNowBy },
         booking: booking ? { id: booking.id, note: booking.note } : null,
         // The id of the photo the reported person had (plans/35). The photo itself is not copied: one they remove or replace afterwards is gone.
         photoId: (await photosOf([reportedId])).get(reportedId) ?? null,
@@ -103,13 +106,24 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
   throw new ReportError("Report not understood.");
 }
 
-export type ReportOutcome = { reference: number; reportedId: string; block: ReportBlock; callsNotCancelled: number };
+export type ReportOutcome = {
+  reference: number;
+  reportedId: string;
+  block: ReportBlock;
+  callsNotCancelled: number;
+  /** For a customer's report after his own "End call now": what it did to that call's charge (plans/50). Null for every other report. */
+  endEffect: EndReportEffect | null;
+};
 
 /**
  * Files a report. Reporting a person (from a call, a request or their page) also blocks them for
  * the reporter. Reporting a post of a diary does not: it is about what was written, and a block
  * would end things between the two that the reporter did not ask to end (plans/23, choice G).
  * Urgent reports email every admin at once.
+ *
+ * A report made from a call by the customer who ended that call with "End call now" also decides,
+ * in this same step, whether the call is charged by the minutes instead of the whole booking
+ * (end-report.ts). No other report touches money.
  */
 export async function createReport(input: { reporterId: string; context: string; contextId: string; reason: string; text: string; now: Date }): Promise<ReportOutcome> {
   const reason = REPORT_REASONS.find((r) => r.key === input.reason);
@@ -121,6 +135,7 @@ export async function createReport(input: { reporterId: string; context: string;
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, reportedId));
   const full = { ...snapshot, profile: profile ? { displayName: profile.displayName, handle: profile.handle, about: profile.about } : null };
 
+  let endEffect: EndReportEffect | null = null;
   const report = await db.transaction(async (tx) => {
     // One reporter at a time, so many reports sent at the same moment cannot slip past the daily limit together.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`reports:${input.reporterId}`}))`);
@@ -145,6 +160,8 @@ export async function createReport(input: { reporterId: string; context: string;
         throw error instanceof MessageGoneError ? new ReportError(error.message) : error;
       });
     }
+    // Last of what this step locks: the call's row, which the money step holds too (see end-report.ts).
+    if (input.context === "call") endEffect = await decideEndReport(tx, { callId: input.contextId, reporterId: input.reporterId, now: input.now });
     if (reason.urgent) {
       for (const admin of await adminsIn(tx)) {
         await queueEmail(tx, {
@@ -157,19 +174,19 @@ export async function createReport(input: { reporterId: string; context: string;
     }
     return row;
   });
-  if (input.context === "post") return { reference: report.reference, reportedId, block: "none", callsNotCancelled: 0 };
+  if (input.context === "post") return { reference: report.reference, reportedId, block: "none", callsNotCancelled: 0, endEffect };
   // The report is saved. The block that follows can stumble by itself, and the reporter is then told what is
   // true, with the report's number, in place of "something went wrong" (which made people report twice).
   // Blocking saves the block first and cleans up afterwards, so after an error the block may well be there.
   try {
     const { callsNotCancelled } = await block({ blockerId: input.reporterId, blockedId: reportedId, now: input.now });
-    return { reference: report.reference, reportedId, block: "done", callsNotCancelled };
+    return { reference: report.reference, reportedId, block: "done", callsNotCancelled, endEffect };
   } catch (error) {
     console.error(`[safety] the block after report R-${report.reference} ran into an error (${errorSummary(error)})`);
     const stands = await hasBlocked(input.reporterId, reportedId).catch(() => null);
     // A block that stands after an error was saved before the step got to the calls still to come: whether those
     // were cancelled is not known, and is not called done.
-    return { reference: report.reference, reportedId, block: stands === null ? "unknown" : stands ? "done_unsure" : "not_done", callsNotCancelled: 0 };
+    return { reference: report.reference, reportedId, block: stands === null ? "unknown" : stands ? "done_unsure" : "not_done", callsNotCancelled: 0, endEffect };
   }
 }
 

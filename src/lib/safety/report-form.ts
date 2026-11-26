@@ -1,7 +1,7 @@
 /**
  * The two things the report form does besides showing itself, for the website's page and for the
  * phone app's screen alike (plans/45-phone-apps/09-the-call.md): saying whether a call was
- * really ended with "End call and report", and filing the report with its thank-you.
+ * really ended with the call's button, and filing the report with its thank-you.
  */
 import "server-only";
 import { and, eq } from "drizzle-orm";
@@ -10,7 +10,7 @@ import { callForParticipant } from "@/lib/payments/access";
 import { reportNotice } from "./report-words";
 import { createReport } from "./reports";
 
-/** Whether this call, one of this person's, was ended with "End call and report". False for anybody else's call. */
+/** Whether this call, one of this person's, was ended with the call's button ("End call now", or the earlier "End call and report"). False for anybody else's call. */
 export async function callWasStopped(userId: string, callId: string): Promise<boolean> {
   const access = await callForParticipant(callId, userId);
   return access !== null && access.call.safetyEndedAt !== null;

@@ -32,7 +32,7 @@ export type AfterCallFacts = {
   /** Where the call came from: "customer" (a request), "now" (a call now), "member" (a membership booking), "admin" (a check script), or null for a call with no booking. */
   source: string | null;
   cancelled: boolean;
-  /** Ended with "End call and report". */
+  /** Ended with the call's button ("End call now", or the earlier "End call and report"). */
   safetyEnded: boolean;
   /** The call's record is final and complete, as the charge judges it. A record that needs review is not. */
   recordComplete: boolean;

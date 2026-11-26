@@ -49,7 +49,7 @@ async function main() {
   const { paymentBlocksJoin } = await import("../src/lib/payments/rules");
   const { refreshPayoutsReady } = await import("../src/lib/payments/hosts");
   const { loadAttendance } = await import("../src/lib/attendance/load");
-  const { endCallForSafety } = await import("../src/lib/safety/calls");
+  const { endCallNow } = await import("../src/lib/safety/calls");
   const { setSwitches, switches } = await import("../src/lib/safety/switches");
   const { closeCallIfDue } = await import("../src/lib/video/closing");
   const X = await import("../src/lib/extend/extend");
@@ -310,8 +310,8 @@ async function main() {
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
 
       const stoppedAt = await beforeEnd(callId, 50);
-      await endCallForSafety({ call: await callOf(callId), by: cust.id, now: stoppedAt });
-      check("the call is stopped with \"End call and report\" while the request waits", (await callOf(callId)).safetyEndedAt !== null);
+      await endCallNow({ call: await callOf(callId), by: cust.id, now: stoppedAt });
+      check("the call is ended with \"End call now\" while the request waits", (await callOf(callId)).safetyEndedAt !== null && (await callOf(callId)).endedNowBy === "customer");
       check("the request can no longer be accepted", await refusedWith(answer(asked.extensionId, callId, fred, true, 40), "ended"));
       await X.closeFinishedExtensions(stoppedAt);
       check("and it is closed by the helper", (await extensionOf(asked.extensionId)).status === "ran_out");
@@ -537,19 +537,19 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
-    console.log("\n10. \"End call and report\" on a paid call with more time");
+    console.log("\n10. \"End call now\" on a paid call with more time (plans/50-end-call-now.md)");
     {
       const cust = await person("p6");
       const { callId } = await instantCall(hana, cust, slot(18), 2000);
       const asked = await ask(callId, cust, 10, 80);
       const stoppedAt = await beforeEnd(callId, 60);
-      await endCallForSafety({ call: await callOf(callId), by: cust.id, now: stoppedAt });
+      await endCallNow({ call: await callOf(callId), by: cust.id, now: stoppedAt });
       const own = async () => (await ownPaymentOf(callId))!;
-      check("stopped while a request waits: every payment of the call goes to review", (await own()).needsReview && (await paymentOfExtension(asked.extensionId)).needsReview);
+      check("ended while a request waits: no payment of the call goes to the founder's review", !(await own()).needsReview && !(await paymentOfExtension(asked.extensionId)).needsReview && (await callOf(callId)).endedNowBy === "customer");
       await allJobs(stoppedAt);
       const waiting = await paymentOfExtension(asked.extensionId);
       check("the request that was never accepted is closed and its hold let go", (await extensionOf(asked.extensionId)).status === "ran_out" && waiting.status === "closed_uncharged" && (await intentOf(waiting)).status === "canceled");
-      check("the call's own payment stays held for the founder to decide", (await own()).status === "held" && (await own()).needsReview);
+      check("the call's own payment stays on hold until its usual moment, with nothing for the founder to decide", (await own()).status === "held" && !(await own()).needsReview);
       await releasePayment({ paymentId: (await own()).id, note: "Released by the check." });
 
       const cust2 = await person("p7");
@@ -557,25 +557,24 @@ async function main() {
       const more = await ask(second.callId, cust2, 10, 80);
       await answer(more.extensionId, second.callId, hana, true, 40);
       const longer = await callOf(second.callId);
-      // Stopped 6 minutes into the 10 added minutes.
+      // Ended by the host 6 minutes into the 10 added minutes.
       const stop = new Date(longer.endsAt.getTime() - 4 * MINUTE);
-      await endCallForSafety({ call: longer, by: hana.id, now: stop });
+      await endCallNow({ call: longer, by: hana.id, now: stop });
       const stopped = await callOf(second.callId);
       const ownTwo = async () => (await ownPaymentOf(second.callId))!;
       const extraTwo = async () => paymentOfExtension(more.extensionId);
       const upToStop = (stop.getTime() - stopped.startsAt.getTime()) / 1000;
       await attend(second.callId, [["host", 0, upToStop], ["customer", 0, upToStop]]);
       await settleFinishedCalls(new Date(longer.endsAt.getTime() + 5 * MINUTE));
-      check("stopped during the added time: neither payment is charged automatically", (await ownTwo()).status === "held" && (await ownTwo()).needsReview && (await extraTwo()).status === "held" && (await extraTwo()).needsReview);
+      check("ended during the added time: minutes after the call both charges are on hold, and neither is under review", (await ownTwo()).status === "held" && !(await ownTwo()).needsReview && (await extraTwo()).status === "held" && !(await extraTwo()).needsReview && stopped.endedNowBy === "host");
       const counted = await loadAttendance(stopped, new Date(longer.endsAt.getTime() + 5 * MINUTE), { from: (await extraTwo()).coversFrom, until: (await extraTwo()).coversUntil });
-      check("only the 6 minutes of added time before the stop count for the extra payment", counted.bookedSeconds === 360 && counted.result.totals?.togetherSeconds === 360, `${counted.bookedSeconds}`);
-      const limit = reviewChargeLimitCents({ pricePer15Cents: 2000, coversFrom: (await extraTwo()).coversFrom, coversUntil: (await extraTwo()).coversUntil, callEndsAt: stopped.endsAt, safetyEndedAt: stopped.safetyEndedAt });
-      const decideAt = new Date(longer.endsAt.getTime() + 10 * MINUTE);
-      const tooMuch = await capturePayment({ paymentId: (await extraTwo()).id, amountCents: limit + 1, reason: "admin", frozen: null, callEndsAt: stopped.endsAt, maxCents: limit, now: decideAt }).catch((e) => e);
-      check("the founder can charge the extra payment for at most those 6 minutes: $8.00", limit === 800 && tooMuch instanceof MoneyError, `${limit}`);
-      await capturePayment({ paymentId: (await extraTwo()).id, amountCents: limit, reason: "admin", frozen: null, callEndsAt: stopped.endsAt, maxCents: limit, now: decideAt });
-      check("and exactly that goes through", (await extraTwo()).status === "charged" && (await extraTwo()).chargedCents === 800);
-      await releasePayment({ paymentId: (await ownTwo()).id, note: "Released by the check." });
+      check("only the 6 minutes of added time before the end count for the extra payment", counted.bookedSeconds === 360 && counted.result.totals?.togetherSeconds === 360, `${counted.bookedSeconds}`);
+      // Taken by itself at the call's usual moment, 24 hours and 3 minutes after its start: nobody decides anything.
+      await settleFinishedCalls(new Date(longer.startsAt.getTime() + 24 * HOUR + 3 * MINUTE));
+      const [chargedOwn, chargedExtra] = [await ownTwo(), await extraTwo()];
+      check("the call's own payment is charged by itself, in full for its 15 minutes: $20.00", chargedOwn.status === "charged" && chargedOwn.chargedCents === 2000 && chargedOwn.chargeReason === "attendance", `${chargedOwn.status} ${chargedOwn.chargedCents}`);
+      check("the extra payment is charged by itself for the 6 minutes before the end: $8.00", chargedExtra.status === "charged" && chargedExtra.chargedCents === 800 && chargedExtra.chargeReason === "attendance", `${chargedExtra.status} ${chargedExtra.chargedCents}`);
+      check("Stripe charged exactly those two amounts", (await intentOf(chargedOwn)).amount_received === 2000 && (await intentOf(chargedExtra)).amount_received === 800);
     }
 
     // ----------------------------------------------------------------------

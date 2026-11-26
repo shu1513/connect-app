@@ -53,7 +53,7 @@ async function main() {
   const { mayKeepMemberHours, addWeeklyHours } = await import("../src/lib/booking/calendar");
   const { block } = await import("../src/lib/safety/blocks");
   const { closeAccount } = await import("../src/lib/profiles/closing");
-  const { endCallForSafety } = await import("../src/lib/safety/calls");
+  const { endCallNow } = await import("../src/lib/safety/calls");
   const { askForRefund, answerRequest, askBy, requestViewOf, RequestError } = await import("../src/lib/refunds/requests");
   const { rateCall } = await import("../src/lib/ratings/ratings");
   const { addTimeChoices, askForMoreTime, answerExtension, closeFinishedExtensions, WayChanged, ExtendError } = await import("../src/lib/extend/extend");
@@ -911,18 +911,58 @@ async function main() {
   });
 
   // ========================================================================
+  journey('"End call now" on a member\'s call', async () => {
+    // plans/50-end-call-now.md, decision 10: the member ends the call, and his whole booked time is used from his
+    // month; the host ends it, and only her minutes are used and the rest comes back. Nobody decides anything.
+    const host = await newHost();
+    const m = await member(host);
+    const a = await booked(m, { nth: 0 });
+    const b = await booked(m, { nth: 1 });
+    const c = await booked(m, { nth: 2 });
+    const start = await places(m.monthId);
+    const end = async (call: Call, by: string) => {
+      await endCallNow({ call, by, now: new Date(call.startsAt.getTime() + 10 * MIN) }).catch((error: unknown) => console.log(`   (the room could not be closed from a script: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+      const ended = (await db.select().from(schema.calls).where(eq(schema.calls.id, call.id)))[0];
+      await attend(ended, [[host.id, 0, 600], [m.member.id, 0, 600]]);
+      return ended;
+    };
+    // The member ends the first call 10 minutes into its 30.
+    const byMember = await end(a.call, m.member.id);
+    check("the press puts nothing under review", byMember.endedNowBy === "customer" && !(await pay(a.call)).needsReview && (await pay(a.call)).status === "held" && (await places(m.monthId)) === start);
+    await settle(byMember);
+    const used = await pay(a.call);
+    check("the member ended it: his whole booked time is used from his month, $15.00, and nothing comes back", used.status === "charged" && used.chargedCents === 1500 && used.chargeReason === "customer_ended" && !used.needsReview && (await places(m.monthId)) === "1500/3000/1500/0/0/0", `${used.status} ${used.chargedCents} ${used.chargeReason} ${await places(m.monthId)}`);
+    // The host ends the second call 10 minutes into its 30.
+    const byHost = await end(b.call, host.id);
+    await settle(byHost);
+    const partly = await pay(b.call);
+    check("the host ended it: only her 10 minutes are used, $5.00, and $10.00 comes back to his month because of the host", partly.status === "charged" && partly.chargedCents === 500 && partly.chargeReason === "attendance" && (await places(m.monthId)) === "2500/1500/2000/0/0/0" && (await M(m.monthId)).hostCausedCents === 1000, `${partly.chargedCents} ${await places(m.monthId)} ${(await M(m.monthId)).hostCausedCents}`);
+    // The member ends the third and then reports the host: only the minutes, as if she had ended it.
+    const reportedCall = await end(c.call, m.member.id);
+    const { createReport } = await import("../src/lib/safety/reports");
+    const sent = await createReport({ reporterId: m.member.id, context: "call", contextId: c.call.id, reason: "other", text: "Check.", now: new Date() });
+    await settle(reportedCall);
+    const lowered = await pay(c.call);
+    check("the member ended it and reported the host: only the 10 minutes are used, and the rest comes back", (sent.endEffect === "minutes" || sent.endEffect === "minutes_uncounted") && lowered.status === "charged" && lowered.chargedCents === 500 && lowered.chargeReason === "attendance" && !lowered.needsReview, `${sent.endEffect} ${lowered.chargedCents}`);
+    await audit("after End call now", m);
+  });
+
+  // ========================================================================
   journey("The founder's review of a member's call", async () => {
     const host = await newHost();
     const m = await member(host);
     const a = await booked(m, { nth: 0 });
     const b = await booked(m, { nth: 1 });
     const c = await booked(m, { nth: 2 });
-    // "End call and report", 10 minutes into the first call.
+    // A call ended with the earlier button, "End call and report", 10 minutes in: the mark without `endedNowBy`, and
+    // its payment under the founder's review (plans/50-end-call-now.md, decision 21). The button of today, "End call
+    // now", writes no such call: it has its own journey below.
     const during = new Date(a.call.startsAt.getTime() + 10 * MIN);
-    await endCallForSafety({ call: a.call, by: m.member.id, now: during }).catch((error) => console.log(`   (the room could not be closed from a script: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+    await db.update(schema.calls).set({ safetyEndedAt: during, safetyEndedBy: m.member.id }).where(eq(schema.calls.id, a.call.id));
+    await db.update(schema.payments).set({ needsReview: true, reviewReason: 'The call was ended with "End call and report". Decide the amount after reading the report.' }).where(eq(schema.payments.id, (await pay(a.call)).id));
     const stopped = (await db.select().from(schema.calls).where(eq(schema.calls.id, a.call.id)))[0];
     const aPay = await pay(a.call);
-    check("\"End call and report\" sends the member's payment to the founder's review", Boolean(stopped.safetyEndedAt) && aPay.needsReview && aPay.status === "held");
+    check("a call ended with the earlier \"End call and report\" has the member's payment under the founder's review", Boolean(stopped.safetyEndedAt) && stopped.endedNowBy === null && aPay.needsReview && aPay.status === "held");
     await attend(stopped, [[host.id, 0, 600], [m.member.id, 0, 600]]);
     await settle(stopped);
     check("it is not used by itself", (await pay(a.call)).status === "held");
@@ -960,16 +1000,19 @@ async function main() {
     check("past 3 days after the call the founder can no longer decide", /deadline/.test((await refused(decideMemberReview({ paymentId: cPay.id, amountCents: 700, frozen: null, now: new Date(c.call.endsAt.getTime() + 3 * DAY + MIN) }))) ?? ""));
     await decide(cPay.id, 700, c.call);
     check("at the ceiling it is used", (await pay(c.call)).chargedCents === 700);
-    // "End call and report" in the 5 minutes before the start, and then a cancellation from a page that was still open.
+    // "End call now" by the host in the 5 minutes before the start, and then a cancellation from a page that was still open.
     const d = await booked(m, { nth: 3 });
     const soon = await moveCall(d.call, new Date(Date.now() + 3 * MIN));
-    await endCallForSafety({ call: soon, by: host.id, now: new Date() }).catch((error) => console.log(`   (the room could not be closed from a script: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+    await endCallNow({ call: soon, by: host.id, now: new Date() }).catch((error: unknown) => console.log(`   (the room could not be closed from a script: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
     const beforeCancel = await places(m.monthId);
-    check("(the call was ended before its start, and its money waits for review)", (await pay(soon)).needsReview && Boolean((await db.select().from(schema.calls).where(eq(schema.calls.id, soon.id)))[0].safetyEndedAt));
+    check("(the call was ended before its start; its money is not under review)", !(await pay(soon)).needsReview && (await db.select().from(schema.calls).where(eq(schema.calls.id, soon.id)))[0].endedNowBy === "host");
     const sneaky = await refused(cancelCall({ call: soon, payment: await pay(soon), by: "customer", now: new Date() }));
     const still = await pay(soon);
-    check("a call that was ended with \"End call and report\" cannot be cancelled: its money stays for the founder's review", /no longer be cancelled/.test(sneaky ?? "") && still.status === "held" && still.needsReview && (await places(m.monthId)) === beforeCancel && !(await db.select().from(schema.calls).where(eq(schema.calls.id, soon.id)))[0].cancelledAt, `${sneaky} ${still.status} ${still.needsReview}`);
-    await decideMemberReview({ paymentId: still.id, amountCents: null, frozen: null, now: new Date() });
+    check("a call that was ended with \"End call now\" cannot be cancelled: its money follows that button's rule", /no longer be cancelled/.test(sneaky ?? "") && still.status === "held" && !still.needsReview && (await places(m.monthId)) === beforeCancel && !(await db.select().from(schema.calls).where(eq(schema.calls.id, soon.id)))[0].cancelledAt);
+    // The host ended it before it began: nothing is used, and all of it comes back.
+    await db.update(schema.calls).set({ closedAt: new Date() }).where(eq(schema.calls.id, soon.id));
+    await settleFinishedCalls(new Date(soon.endsAt.getTime() + 10 * MIN));
+    check("ended by the host before its start: nothing is used, and the time set aside comes back", (await pay(soon)).status === "closed_uncharged" && (await places(m.monthId)) !== beforeCancel, await places(m.monthId));
     await audit("after the reviews", m);
   });
 

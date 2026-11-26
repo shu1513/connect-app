@@ -116,7 +116,7 @@ describe("what stops everybody", () => {
   });
 
   it("a blocked host and a switched-off host get the same answer whatever else is true of her", () => {
-    // Also when the two no longer count as having talked (after "End call and report") and his switch is still on.
+    // Also when the two no longer count as having talked (after an old "End call and report") and his switch is still on.
     for (const more of [{ paused: true }, { hostPagePublic: false }, { otherClosed: true }, { closed: true }, { hostLastWroteAt: ago(1000) }, { talked: false }, { talked: false, paused: true }] as Partial<Facts>[]) {
       expect(mayWrite(host({ ...more, muted: true }), now)).toEqual(mayWrite(host({ ...more, blockedByOther: true }), now));
       expect(mayWrite(host({ ...more, muted: true }), now)).toEqual({ ok: false, why: "not_taking" });
@@ -210,7 +210,7 @@ describe("the calls that count", () => {
     expect(callsThatCount([call(), call({ source: "now" }), call({ source: "member" }), call({ source: "admin" })], null)).toHaveLength(3);
   });
 
-  it('after "End call and report" only a request begun after the press counts, and never a member\'s booking', () => {
+  it('after an old "End call and report" only a request begun after the press counts, and never a member\'s booking', () => {
     const stop = ago(10 * 24 * 3_600_000);
     const before = call({ begunAt: new Date(stop.getTime() - 1) });
     const atThePress = call({ begunAt: stop });

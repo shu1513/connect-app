@@ -4,7 +4,7 @@
  * through the reader it is given: the sending step passes its own database step, so what it
  * decides by is what it read after its locks.
  */
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { switches } from "@/lib/safety/switches";
 import { callsThatCount, callTerms, type Facts, type PairCall, type Role } from "./rules";
@@ -23,22 +23,34 @@ const joined = (who: "host_id" | "customer_id") =>
 
 /**
  * What the calls between the two say: whether a call that counts is around, whether they have
- * talked, when the latest call that counts was agreed, and whether an "End call and report" stands
- * between them with no call that counts since (then the conversation is simply closed).
+ * talked, when the latest call that counts was agreed, and whether an old "End call and report"
+ * stands between them with no call that counts since (then the conversation is simply closed).
+ *
+ * A call ended with "End call now" (plans/50-end-call-now.md, decision 22) counts like any other
+ * call that was not cancelled: a plain end closes nothing, and a block or a report closes the
+ * conversation by itself. Only a call ended with the earlier button, "End call and report"
+ * (the mark without `endedNowBy`), still cuts the two off until both have acted again
+ * (plans/49-messaging.md, decision 21): that press did not block, and the person may have left
+ * the form that followed.
  */
 export async function callFacts(reader: Reader, pair: Pair, now: Date): Promise<{ aroundCall: boolean; talked: boolean; latestAgreedAt: Date | null; stopped: boolean }> {
-  // The latest "End call and report" between the two people, whoever was the host then.
+  /** Ended with the earlier button: the mark, and nothing that says it was "End call now". */
+  const oldStop = and(isNotNull(schema.calls.safetyEndedAt), isNull(schema.calls.endedNowBy));
+  // The latest such press between the two people, whoever was the host then.
   const [stop] = await reader
     .select({ at: sql<Date | null>`max(${schema.calls.safetyEndedAt})`.mapWith(schema.calls.safetyEndedAt) })
     .from(schema.calls)
     .where(
-      or(
-        and(eq(schema.calls.hostId, pair.hostId), eq(schema.calls.customerId, pair.customerId)),
-        and(eq(schema.calls.hostId, pair.customerId), eq(schema.calls.customerId, pair.hostId)),
+      and(
+        oldStop,
+        or(
+          and(eq(schema.calls.hostId, pair.hostId), eq(schema.calls.customerId, pair.customerId)),
+          and(eq(schema.calls.hostId, pair.customerId), eq(schema.calls.customerId, pair.hostId)),
+        ),
       ),
     );
   const latestStop = stop?.at ?? null;
-  // The pair's calls in these roles that are not cancelled and were not ended that way, each with its booking.
+  // The pair's calls in these roles that are not cancelled and were not ended with the earlier button, each with its booking.
   const rows = await reader
     .select({
       source: schema.bookings.source,
@@ -51,7 +63,7 @@ export async function callFacts(reader: Reader, pair: Pair, now: Date): Promise<
     })
     .from(schema.calls)
     .innerJoin(schema.bookings, eq(schema.bookings.callId, schema.calls.id))
-    .where(and(eq(schema.calls.hostId, pair.hostId), eq(schema.calls.customerId, pair.customerId), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt)));
+    .where(and(eq(schema.calls.hostId, pair.hostId), eq(schema.calls.customerId, pair.customerId), isNull(schema.calls.cancelledAt), or(isNull(schema.calls.safetyEndedAt), isNotNull(schema.calls.endedNowBy))));
   const calls: PairCall[] = rows.map((row) => ({
     source: row.source,
     begunAt: row.begunAt,
@@ -67,7 +79,7 @@ export async function callFacts(reader: Reader, pair: Pair, now: Date): Promise<
 export type ConversationFacts = Facts & {
   /** When the latest call that counts was agreed: where the count of messages in a row starts again. */
   latestAgreedAt: Date | null;
-  /** An "End call and report" stands between the two with no call that counts since. */
+  /** An old "End call and report" stands between the two with no call that counts since. */
   stopped: boolean;
 };
 

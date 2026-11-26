@@ -109,8 +109,8 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
       .update(schema.calls)
       // Dated by the same clock the decision was made by, so the record never shows a late charge inside the free period.
       .set({ cancelledAt: at, cancelledBy: by, cancelledLate: outcome === "late_charge" })
-      // Not a call that was ended with "End call and report" (possible from 5 minutes before the start): it is over,
-      // and its money waits for the founder's review. A cancellation must never decide it instead.
+      // Not a call that was ended with "End call now" (possible from 5 minutes before the start): it is over, and its
+      // money follows that button's own rule (payments/owed.ts). A cancellation must never decide it instead.
       .where(and(eq(schema.calls.id, call.id), isNull(schema.calls.cancelledAt), isNull(schema.calls.safetyEndedAt), neverPaid ? isNull(schema.calls.closedAt) : gt(schema.calls.startsAt, at)))
       .returning();
     if (marked.length === 0) return { refused: new MoneyError("This call can no longer be cancelled.") };

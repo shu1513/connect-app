@@ -1,4 +1,4 @@
-import { clockLine, isEnded, isLive, isPass, isReportForm, isReportSent, isRoom, laterEnd, reportPlace, ROOM_WORD_NAMES } from "./room-rules";
+import { clockLine, isBlocked, isEnded, isEndedScreen, isLive, isPass, isReportForm, isReportSent, isRoom, laterEnd, reportPlace, ROOM_WORD_NAMES } from "./room-rules";
 
 const ID = "3f2c1b7a-9d4e-4f6a-8b1c-2d3e4f5a6b7c";
 const words = Object.fromEntries(ROOM_WORD_NAMES.map((name) => [name, `${name} words`]));
@@ -63,6 +63,28 @@ describe("where a call stands, and the end of a call", () => {
     expect(isEnded({ ended: true })).toBe(true);
     expect(isEnded({ ended: "yes" })).toBe(false);
     expect(isEnded({})).toBe(false);
+  });
+  it('the screen after "End call now" is read only with its lines and all three choices', () => {
+    const screen = {
+      title: "The call has ended",
+      lines: ["You ended this call for both of you. Nobody can come back in."],
+      what: "Is there anything else you want to do?",
+      report: { label: "Report Maya", what: "Tell us what happened.", money: null },
+      block: { label: "Block Maya", what: "Maya can no longer ask you for calls.", done: false, doneWords: "Blocked.", sure: "Maya can no longer ask you for calls.", yes: "Block", no: "Not now" },
+      neither: { label: "Neither", what: "Nothing else happens." },
+    };
+    expect(isEndedScreen(screen)).toBe(true);
+    expect(isEndedScreen({ ...screen, report: { ...screen.report, money: "If you report Maya, this call is charged only for the time it lasted." } })).toBe(true);
+    expect(isEndedScreen({ ...screen, lines: [] })).toBe(true);
+    expect(isEndedScreen({ ...screen, lines: [""] })).toBe(false);
+    expect(isEndedScreen({ ...screen, report: { ...screen.report, money: "" } })).toBe(false);
+    expect(isEndedScreen({ ...screen, block: { ...screen.block, done: "no" } })).toBe(false);
+    expect(isEndedScreen({ ...screen, block: { ...screen.block, sure: " " } })).toBe(false);
+    expect(isEndedScreen({ ...screen, neither: undefined })).toBe(false);
+    expect(isEndedScreen(null)).toBe(false);
+    expect(isBlocked({ notice: "Blocked." })).toBe(true);
+    expect(isBlocked({ notice: " " })).toBe(false);
+    expect(isBlocked({})).toBe(false);
   });
   it("the end only ever moves later", () => {
     const known = Date.parse(room.endsAt);

@@ -45,8 +45,9 @@ export async function chargeReviewed(formData: FormData) {
   try {
     if (!Number.isFinite(dollars) || dollars <= 0) throw new MoneyError("Enter an amount to charge.");
     await recordAdminAction({ adminId: admin.id, action: "payment charged after review", targetUserId: call.customerId, targetId: payment.id, detail: `$${dollars.toFixed(2)}` });
-    // A call stopped with "End call and report" can only be charged for the time before the stop,
-    // and each payment only for the stretch of the call it pays for.
+    // A call ended with the call's red button (the earlier "End call and report", whose money always comes here, or
+    // "End call now" when its record did not add up) can only be charged for the time before the stop, and each
+    // payment only for the stretch of the call it pays for.
     const maxCents = reviewChargeLimitCents({ pricePer15Cents: payment.pricePer15Cents, coversFrom: payment.coversFrom, coversUntil: payment.coversUntil, callEndsAt: call.endsAt, safetyEndedAt: call.safetyEndedAt });
     if (payment.kind === "member_call") {
       // Booked from a membership: the amount is used from what was set aside in the month, with the same ceilings. Nothing is asked of Stripe.
