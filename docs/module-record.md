@@ -5422,3 +5422,103 @@ taken back, paid back, waived, and a waiver taken off again; the file's columns)
 script `scripts/statement-check.ts`, 17 checks, with a share that goes back the year after it
 was sent. Not looked at in a browser: only two sentences and one column changed on the page.
 
+## Earnings not collected for 12 months (plan 46, part 3b, 21 November 2026)
+
+**Why.** The draft Host Agreement (7.7) says that earnings a host does not collect for 12
+months are sent to her without being asked. Until now nothing was ever sent without a press,
+so a host who forgot would have left her money with Connect for good.
+
+**What was built.** The always-on helper has a loop for it. About once a day it looks at every
+host who has a share whose date has come. One whose last collection that went through is more
+than 12 months ago (or who never had one, and whose oldest such share is more than 12 months
+old) gets a try: a line in `uncollected_tries`, written under her lock before Stripe is asked
+anything. The try then runs what her own button runs (`collectEarnings`), under the try's own
+id, with nobody as the one who pressed; `collections.started_as` (worked out by the database
+from who pressed) says "helper". What decides is asked in the step that accepts the
+collection: the account is open, the try is still open, and the 12 months hold for the shares
+that are really ready, and no collection of the last 12 months is still without its answer;
+the try is marked "collected" in that same step. A try that makes no collection is written
+down with the reason, and the next one is at the first daily round at least seven days later. About once a
+minute, in a loop of its own, the helper runs a try again that it stopped in the middle of,
+and, in another, tells a host whose shares all have their answer what was sent, what the
+charge was, what was not sent and what is still being checked (from 26 hours after the
+collection also with something still open). Her Hosting page says beside her last collection that Connect started it.
+Migration 0062.
+
+**What was not built.** No page for the founder that lists the tries that sent nothing. No
+warning before the 12 months are over. Nothing about the law on unclaimed property (in the
+lawyer's file, section 22).
+
+**How it was checked.** Type check, lint, the automatic tests (the 12 months to the moment,
+the week between tries, every sentence of the message). The real script
+`scripts/payments-check.ts --payouts` (all of it passes, 183 checks; section 29 is new), against Stripe's
+test mode: a host at 11
+months is left and at 12 months and a day is sent everything, once; one whose collection in
+between sent nothing counts from the one before; a refused try is written down and tried again
+after a week and not before; two helpers at once and her own button in the same minute make
+one collection; a closed account and a held-back share are left; an old share that is held
+back does not get a fresh one sent early; one try run by two helpers at once makes one
+collection; a share that only carries the charge keeps the message back until it is answered;
+her own collection whose answer was lost keeps the helper away;
+the message names a transfer that did not go as not sent and an unanswered one as still being
+checked.
+
+**What the reviewer found.** Astra said "hold the merge" with nine points, all taken (the list
+is at the end of the plan). The ones about money: an account closed during the accepting step;
+the 12 months judged before the shares were locked; two helpers on one try; and an older
+weakness in the recovery of a transfer whose answer was lost, which the button had too. Its
+second look held the merge again with five points: a "no" to a repeated transfer was still
+taken as final too early; a collection of the last days whose answer was lost did not count as
+"collected"; two points of words; and the documents. All taken but one part of the first,
+which is left as it is on the builder's own judgment and written in the plan (a "no" to the
+very first request still ends the transfer at once). No third look was asked for. CodeRabbit
+found seven points, all taken (the list is in the plan): among them, a notice with something
+still open is now counted from the collection and goes at 26 hours; telling has a loop of its
+own; a daily round that fails is tried again in ten minutes; and a failure while writing down
+a "no" from Stripe no longer stops the round's other money work.
+
+## Cancelling a new membership within 14 days (plan 46, part 3c, 26 November 2026)
+
+**Why.** The draft Payment Terms (12.3) give a member 14 days to cancel a new membership. There
+was no way to do that in the app. The plan first had only a button for the founder, for members
+in the United Kingdom and Europe who write in. The founder then decided two things: the member
+cancels themselves, and every member has the 14 days, wherever they live.
+
+**What was built.** One action (`src/lib/membership/fourteen-days.ts`) with two ways in.
+"Cancel within 14 days" on the member's own membership page, shown for a new membership in its
+first 14 days. And a form on the founder's Memberships page for a request that came in writing,
+with the day it arrived. The action refuses, with a sentence for whoever pressed: after the 14
+days; someone still at the card step (nothing was paid); a membership that was resumed or is
+the two people's second; a first month that has ended; a month a bank has a question about, or
+whose payment has a problem; and a form drawn for another month. Calls still to come are
+cancelled first, and the membership is ended only then, so no call can start and be charged
+between the ending and its clean-up. Otherwise it ends the membership with a reason of
+its own and runs the clean-up every ending has: the hold let go, calls still to come cancelled,
+unused money back to the card. Time used and a charged late cancellation stay paid for; the
+member's email names them. The sentence before joining is the new one, for everyone, with a new
+version. No migration.
+
+**What was not built.** A cancellation after the first month has ended (the founder, by hand).
+Anything that works out a sum of its own. A button in the phone apps.
+
+**What the reviewer found.** Astra said "hold the merge" with ten points, all taken, two of
+them in another way than it proposed (the list is at the end of the plan). The ones about
+money: a month of which Stripe took only a part would have been called "nothing charged"; a
+call starting seconds after the cancellation could still have been charged; and the clock was
+read before the month was locked. No second look was asked for. CodeRabbit made two points,
+both taken: the first answer to that call (a refusal for 10 minutes) was not enough, so the
+coming calls are now cancelled before the membership ends; and the page check requires the
+founder's form before posting it.
+
+**How it was checked.** Type check, lint, the automatic tests (the days, to the day; every
+sentence of the note; a sentence for the member and one for the founder for every refusal; the
+calls the note lists). The real pages and forms, in `scripts/membership-journey-check.ts` (118
+checks in all): the button on a member's page, a stranger's post, a form for another month,
+her own press, and the founder's form posted with another month and with a day that cannot be.
+The action itself, in `scripts/member-calls-check.ts`, a journey of its own (38 checks), against
+Stripe's test mode: only held; still to be paid; paid and nothing used; paid with one call used, one
+cancelled late and one to come; the member's button on day 20; a written request of day 15, of
+a future day, of a day before joining, and of day 14 handled on day 20; the first month ended; a
+resumed membership; a second membership; a bank on the month; a payment with a problem; a call
+in five minutes (cancelled) and one under way (worked out as usual); the card step; somebody else's membership; pressed twice; the sentence and its
+version.

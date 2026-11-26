@@ -42,7 +42,7 @@ export async function pauseMembership(tx: Tx, membership: Membership, reason: st
  * Called inside the step that saves whatever causes the ending (a block, a paused or closed
  * account, a suspension, a dispute), so the two cannot come apart. Returns false if it was already ended.
  */
-export async function endMembership(tx: Tx, membership: Membership, input: { by: string; reason: string }, now: Date): Promise<boolean> {
+export async function endMembership(tx: Tx, membership: Membership, input: { by: string; reason: string; /** More for the member's email alone: a cancellation within 14 days says what goes back and what stays paid for. */ memberNote?: string }, now: Date): Promise<boolean> {
   if (membership.status === "ended") return false;
   const [ended] = await tx
     .update(schema.memberships)
@@ -56,7 +56,7 @@ export async function endMembership(tx: Tx, membership: Membership, input: { by:
     .set({ endedHow: "ending", updatedAt: now })
     .where(and(eq(schema.membershipMonths.membershipId, membership.id), inArray(schema.membershipMonths.status, ["to_pay", "held"]), isNull(schema.membershipMonths.endedHow)));
   // Someone who was only invited, or at the card step for the first time, was never a member: nothing to announce.
-  if (membership.since) await queueEndedEmail(tx, ended, input.reason);
+  if (membership.since) await queueEndedEmail(tx, ended, input.reason, input.memberNote);
   return true;
 }
 

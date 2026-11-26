@@ -662,3 +662,83 @@ Added with the yearly statement's new columns (plan 46, part 3a, step 2b, 22 Nov
   ("Taken back or paid back") and what Connect carried. It is a summary for her own records,
   not a tax form. Is that split the right one for her tax return in each country hosts are in?
 
+## 22. Earnings a host has not collected for 12 months (new, plan 46 part 3b, 21 November 2026)
+
+How it works since this change: when a host with an open account has not had a collection that
+went through for more than 12 months (or never had one, and her oldest ready share is more than
+12 months old), the app starts the collection for her. It is the same collection her own button
+makes: to her own Stripe payout account, with the collection charge (25 cents; less when the
+shares are very small), and nothing is sent that a bank dispute, a refund on its way or a
+refund request holds back. She is told once, by email and in the app, what was sent; if a
+transfer still has no clear answer 26 hours after the collection was accepted, she is told
+what is known by then, with that part named as still being checked. If nothing can be sent (her payout account is not ready,
+say), the app writes that down and tries again at its first daily round at least seven days
+later, for as long as it lasts. A collection is never started for a closed account (the
+founder's final collection is for it); one that was accepted while the account was open is
+finished, and its message written, also if the account is closed afterwards.
+
+- Is 12 months the right period (Host Agreement 7.7 as drafted says "[12]")?
+- The app does this today whether or not a Host Agreement has been published and accepted. The
+  money is the host's own and goes to her own account; the 25-cent charge is taken as with her
+  own button. Is a charge on a collection she did not ask for all right before 7.7 is in force
+  for her, or should the charge be waived for these?
+- A host whose payout account never becomes ready keeps her earnings with Connect, and the app
+  only keeps trying. The law on unclaimed property (in the United States, by state; elsewhere,
+  its like) may ask for more: a notice to her, and after some years handing the money to the
+  state. Nothing of that is built. From what amount and after how long does it apply to us?
+- For a host abroad the email says that Stripe turns the dollars into her own money when it
+  pays her bank, at Stripe's rate. She did not choose the day. Is that all right, or should she
+  be warned before, with time to collect herself?
+- No warning is sent before the 12 months are over. Should one be (30 days before, say)?
+
+## 23. A new membership cancelled within 14 days (new, plan 46 part 3c, 26 November 2026)
+
+How it works since this change: every member, wherever they live, can cancel a new membership
+within 14 days of joining. The founder decided to give this to everyone, so that nobody is
+asked for their country. The member presses "Cancel within 14 days" on their membership's page;
+or writes to us, and the founder presses a button with the day the request arrived. The
+membership ends at once. An amount that was only held is let go. If the month was paid, what
+was not used goes back to the card and calls still to come are cancelled. Time that was really
+used stays paid at the member price, and so does a call the member cancelled late or missed, if
+it was already charged under the booking's terms. It is only for the first month of a member's
+first membership with a host; after that month has ended, the founder settles a case by hand.
+
+- The Payment Terms as drafted (12.3) give this right under the heading for the United Kingdom
+  and Europe. The app now gives it to **everyone**, as a promise of ours. The first published
+  version should say so. Does giving it to everyone create any duty elsewhere that we do not
+  see (in the United States, say)?
+- **Days are counted in UTC.** The member's button is open on the day of joining and the 14
+  days after it, by the UTC calendar. Whose calendar should count (the member's own time
+  zone?), and is "day of joining plus 14" the right way to count the period?
+- "Joining" is taken as the moment the bank authorised the first month's amount. Is that the
+  day the contract was concluded, or is it the moment the person ticked the box? (Someone who
+  ticked the box and never finished the card step has paid nothing; the app has nothing to
+  cancel for them.)
+- **People who joined before this change** ticked the earlier sentence ("Where a 14-day right
+  to cancel applies to you (in the United Kingdom and Europe) ... Time you booked or used in
+  those days is paid for at the member price"), not the new one with "By joining you ask for
+  your membership to start today". The button works for them too if they are still in their
+  first 14 days, and their used time stays paid. Is that all right for those few?
+- The button refuses for a month whose payment has a problem we must look at first (then the
+  member is asked to write to us). Does such a refusal make the cancellation "not as easy as
+  joining"?
+- A call that has already begun when the member cancels is worked out as any call (what took
+  place is paid for; a member who does not come can be charged under the booking's terms).
+  Calls still to come are cancelled at no charge. Is that the right line?
+- Time used is kept only because the person was told of the right and asked for the service to
+  start at once. The sentence they tick before joining now ends: "By joining you ask for your
+  membership to start today." It is one line of a list with one tick for the whole list. Is
+  that an express request, or does it need a tick of its own?
+- A call the member cancelled late or missed, and that was already charged, stays charged
+  after they cancel. Is that "service supplied" that may be kept, or must it go back?
+- For a request in writing: a call that takes place between the day the request arrived and
+  the moment the founder presses the button stays paid for. Must everything after the request
+  go back?
+- The right is given once per member and host: not for a membership that was resumed, and not
+  for a second membership with the same host. Is a new invitation after an ending a new
+  contract with a new 14 days?
+- We believe a newer European rule asks for a "withdraw from the contract" button on the
+  website for contracts made online (Directive (EU) 2023/2673, applied from June 2026). This
+  was not checked by a lawyer. Does the member's button meet it (its name, where it is, the
+  confirmation the member gets), and does the model withdrawal form have to be offered too?
+- The phone apps have no such button yet; a member there uses the website or writes to us.

@@ -1059,6 +1059,176 @@ async function main() {
   });
 
   // ========================================================================
+  journey("A new membership cancelled within 14 days of joining: the member's own button, and the founder's (plans/46, part 3c)", async () => {
+    const F = await import("../src/lib/membership/fourteen-days");
+    const W = await import("../src/lib/membership/wording");
+    const [founder] = await db.select().from(schema.user).where(eq(schema.user.email, "admin@test.local"));
+    if (!founder) throw new Error("This journey needs the test admin (admin@test.local).");
+    const today = () => F.dayOf(new Date());
+    const byFounder: string[] = [];
+    /** The member presses their own button. Gives back the refusal in words, or null when the membership was cancelled. */
+    const own = (m: { membershipId: string; member: Person }, opts: { now?: Date; as?: Person; shown?: string } = {}) => refused(F.cancelWithin14Days({ membershipId: m.membershipId, by: { as: "member", memberId: (opts.as ?? m.member).id }, shownMonthId: opts.shown, now: opts.now }));
+    /** The founder presses, for a request that came in writing. */
+    const press = (membershipId: string, opts: { day?: string; now?: Date; shown?: string } = {}) => {
+      byFounder.push(membershipId);
+      return refused(F.cancelWithin14Days({ membershipId, by: { as: "founder", adminId: founder.id, requestDay: opts.day ?? today() }, shownMonthId: opts.shown, now: opts.now }));
+    };
+    const intentOf = async (monthId: string) => stripe().paymentIntents.retrieve((await M(monthId)).stripePaymentIntentId!);
+    const host = await newHost({ freeCancelMinutes: 60 });
+
+    console.log("   …the sentence before joining");
+    const sentences = W.agreementSentences({ hostName: "Host", monthlyCents: 6000, includedMinutes: 120 });
+    check("the sentence people tick is the new one, for everyone, with a new version", sentences.some((line) => line.includes('You can cancel your first membership with Host within 14 days of joining: with "Cancel within 14 days" on your membership\'s page, or by writing to us') && line.includes("Time you used before it ends, and a call you cancelled late or missed if it was charged under your booking's terms, is paid for at the member price; the rest of what you paid is given back.") && line.includes("By joining you ask for your membership to start today.")) && WORDING === "2026-11-26" && !sentences.some((line) => line.includes("in the United Kingdom and Europe")));
+    const reader = await person("member");
+    await talked(host, reader);
+    const shown = await J.invite({ hostId: host.id, customerId: reader.id, now: new Date() });
+    const stale = await refused(J.join({ customerId: reader.id, inviteId: shown.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: "2026-11-20", now: new Date() }));
+    check("a page that still showed the old sentence cannot be agreed to", /wording of this page has changed/.test(stale ?? ""), stale);
+
+    console.log("   …at the card step: not a member yet, nothing was paid, so there is nothing to cancel");
+    const atCard = await J.join({ customerId: reader.id, inviteId: shown.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
+    const toPay = await press(atCard.membershipId);
+    const toPayOwn = await own({ membershipId: atCard.membershipId, member: reader });
+    check("both buttons refuse, each with its own sentence, and nothing changes; the page offers no button", /Nobody has joined this membership yet/.test(toPay ?? "") && /has not started yet: nothing was held on your card or charged/.test(toPayOwn ?? "") && (await MS(atCard.membershipId)).status === "joining" && (await M(atCard.monthId)).status === "to_pay" && (await F.ownFourteenDays(await MS(atCard.membershipId), new Date())) === null, `${toPay} | ${toPayOwn}`);
+
+    console.log("   …the member's own button: the money only held");
+    const h = await member(host, { take: false });
+    const stranger = await person("member");
+    const notTheirs = await own(h, { as: stranger });
+    check("somebody else's membership: not found, nothing changed", /Membership not found/.test(notTheirs ?? "") && (await MS(h.membershipId)).status === "active", notTheirs);
+    check("the member's page offers the button, and says until which day", (await F.ownFourteenDays(await MS(h.membershipId), new Date()))?.lastDay === F.lastDayFor((await M(h.monthId)).authorisedAt!));
+    const otherMonth = await own(h, { shown: randomUUID() });
+    check("a form drawn for another month cancels nothing", /has moved on since this page was opened/.test(otherMonth ?? "") && (await MS(h.membershipId)).status === "active", otherMonth);
+    const heldOnly = await own(h, { shown: h.monthId });
+    await helper(new Date());
+    const heldIntent = await intentOf(h.monthId);
+    check("the hold is let go, nothing is charged, and the membership is ended (not paused), by the member", heldOnly === null && (await MS(h.membershipId)).status === "ended" && (await MS(h.membershipId)).endedBy === h.member.id && (await MS(h.membershipId)).endedReason === F.FOURTEEN_DAYS_REASON && (await M(h.monthId)).status === "given_up" && heldIntent.status === "canceled" && heldIntent.amount_received === 0, `${heldOnly} ${(await MS(h.membershipId)).status} ${(await M(h.monthId)).status} ${heldIntent.status}`);
+    check("the member is told they cancelled within the 14 days and that nothing was charged; the host is told why it ended", /You cancelled your new membership within 14 days of joining\./.test(await emailText(h.member.email, "has ended")) && /Nothing was charged for it: the amount that was only held on your card is let go/.test(await emailText(h.member.email, "has ended")) && !/paid back to your card; you get an email/.test(await emailText(h.member.email, "has ended")) && /cancelled within 14 days of joining, as the member asked/.test(await emailText(host.email, `${h.member.name}'s membership has ended`)));
+    check("after it has ended, the page offers the button no more", (await F.ownFourteenDays(await MS(h.membershipId), new Date())) === null);
+
+    console.log("   …the member's own button: taken, nothing used");
+    const n = await member(host);
+    const nothingUsed = await own(n);
+    await helper(new Date());
+    check("the whole month goes back to the card, and nothing renews", nothingUsed === null && (await places(n.monthId)) === "0/0/0/0/0/6000" && (await MS(n.membershipId)).status === "ended" && (await MS(n.membershipId)).currentMonthId === null, `${nothingUsed} ${await places(n.monthId)}`);
+    check("the email says the month is given back, with no list", /What you paid for this month is given back to your card\. Each amount/.test(await emailText(n.member.email, "has ended")) && !/listed below/.test(await emailText(n.member.email, "has ended")));
+    await audit("after a 14-day cancellation with nothing used", n);
+
+    console.log("   …the member's own button: one call used, one cancelled late, one still to come");
+    const m = await member(host);
+    const usedCall = await booked(m, { nth: 0 });
+    const lateCall = await booked(m, { nth: 1 });
+    const coming = await booked(m, { nth: 2 });
+    // The first call took place: both were there for all 30 minutes, and it is worked out.
+    const took = await moveCall(usedCall.call, new Date(Date.now() - 40 * MIN));
+    await bothThere(m, took);
+    await settle(took);
+    // The second was cancelled by the member inside the host's last free hour: charged under the booking's terms.
+    await cancelCall({ call: lateCall.call, payment: await pay(lateCall.call), by: "customer", now: new Date(lateCall.call.startsAt.getTime() - 30 * MIN) });
+    const before = { used: await pay(took), late: await pay(lateCall.call) };
+    check("(before the button: $15.00 used, $15.00 charged for the late cancellation, $15.00 set aside, $15.00 free)", (await places(m.monthId)) === "1500/1500/3000/0/0/0" && before.used.status === "charged" && before.late.chargeReason === "late_cancel", await places(m.monthId));
+    const pressed = await own(m);
+    await helper(new Date());
+    const after = { used: await pay(took), late: await pay(lateCall.call), coming: await pay(coming.call) };
+    check("the call that took place stays paid at the member price, and the host's share of it is untouched", pressed === null && after.used.status === "charged" && after.used.chargedCents === 1500 && after.used.originalHostShareCents === before.used.originalHostShareCents && after.used.refundedCents === 0 && after.used.transferStatus === before.used.transferStatus, `${pressed} ${after.used.status} ${after.used.chargedCents}`);
+    check("the late cancellation that was charged stays charged", after.late.status === "charged" && after.late.chargedCents === 1500 && after.late.refundedCents === 0);
+    // The coming call is cancelled BEFORE the membership ends. The proof is where its money went: back into the month
+    // first (a call cancelled after the ending would go straight to the card, in a line of its own), and from there to
+    // the card in the one line of the month's free money.
+    const backLines = await refundsOf(m.monthId);
+    check("the call still to come is cancelled before the membership ends, and its money goes back once, with the rest of the month's free money", Boolean((await callOf(coming.booking)).cancelledAt) && after.coming.status === "closed_uncharged" && backLines.length === 1 && backLines[0].sourceKey === `ending:${m.monthId}` && backLines[0].amountCents === 3000, JSON.stringify(backLines.map((line) => [line.sourceKey, line.amountCents])));
+    check("the rest goes back to the card: $30.00 used stays, $30.00 is paid back, nothing expires to the host", (await places(m.monthId)) === "0/0/3000/0/0/3000", await places(m.monthId));
+    const told = await emailText(m.member.email, "has ended");
+    check("the email that confirms it names the calls that stayed paid for", /These stay paid for, at the member price, under your booking's terms:/.test(told) && /\$15\.00 \(charged for the call\)/.test(told) && /\$15\.00 \(charged because it was cancelled late\)/.test(told) && /What you paid for this month is given back to your card, except for what is listed below/.test(told), told);
+    const linesBefore = (await refundsOf(m.monthId)).length;
+    const again = await own(m);
+    const againByFounder = await press(m.membershipId);
+    await helper(new Date());
+    check("pressed again, by the member and by the founder: refused, and nothing is paid back twice", /already ended/.test(again ?? "") && /already ended/.test(againByFounder ?? "") && (await refundsOf(m.monthId)).length === linesBefore && (await places(m.monthId)) === "0/0/3000/0/0/3000", `${again} | ${againByFounder}`);
+    await audit("after a 14-day cancellation with time used", m);
+
+    console.log("   …a call that starts in five minutes, and one that is under way");
+    const near = await member(host);
+    const nearly = await booked(near, { nth: 0 });
+    const underWay = await booked(near, { nth: 1 });
+    await moveCall(nearly.call, new Date(Date.now() + 5 * MIN));
+    const live = await moveCall(underWay.call, new Date(Date.now() - 10 * MIN));
+    const withCalls = await own(near);
+    await helper(new Date());
+    const nearLines = await refundsOf(near.monthId);
+    check("the call in five minutes is cancelled before the membership ends (its money went into the month, then to the card with the rest), so it can never be charged afterwards", withCalls === null && (await MS(near.membershipId)).status === "ended" && Boolean((await callOf(nearly.booking)).cancelledAt) && (await pay(nearly.call)).status === "closed_uncharged" && nearLines.length === 1 && nearLines[0].sourceKey === `ending:${near.monthId}` && nearLines[0].amountCents === 4500, `${withCalls} ${JSON.stringify(nearLines.map((line) => [line.sourceKey, line.amountCents]))}`);
+    check("the call under way is left alone, with its money still set aside, and the email says it is worked out as usual", !(await callOf(underWay.booking)).cancelledAt && (await pay(live)).status === "held" && (await places(near.monthId)) === "0/1500/0/0/0/4500" && /One call that had already begun or taken place is not worked out yet/.test(await emailText(near.member.email, "has ended")), await places(near.monthId));
+    await attend(live, [[host.id, 0, 1800], [near.member.id, 0, 1800]]);
+    await settleFinishedCalls(new Date(live.startsAt.getTime() + DAY + 4 * MIN));
+    await helper(new Date(live.startsAt.getTime() + DAY + HOUR));
+    check("when that call is worked out, what it used stays paid and nothing more goes back", (await places(near.monthId)) === "0/0/1500/0/0/4500", await places(near.monthId));
+
+    console.log("   …the 14 days: the member's button, and the day the founder enters");
+    const d = await member(host);
+    const joinedAt = (await M(d.monthId)).authorisedAt!;
+    const lastDay = F.lastDayFor(joinedAt);
+    const day15 = F.dayOf(new Date(Date.parse(`${lastDay}T00:00:00Z`) + DAY));
+    const onDay20 = new Date(Date.now() + 20 * DAY);
+    const ownTooLate = await own(d, { now: onDay20 });
+    check("the member's own button on day 20: refused, with the normal way named, and nothing changed", /The 14 days after joining are over/.test(ownTooLate ?? "") && /normal way of cancelling is still there/.test(ownTooLate ?? "") && (await MS(d.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(d.membershipId), onDay20)) === null, ownTooLate);
+    const tooLate = await press(d.membershipId, { day: day15, now: onDay20 });
+    check("a written request that reached Connect on day 15: refused", /more than 14 days after joining/.test(tooLate ?? "") && (await MS(d.membershipId)).status === "active", tooLate);
+    const future = await press(d.membershipId, { day: F.dayOf(new Date(Date.now() + DAY)) });
+    check("a day in the future: refused", /cannot be later than today/.test(future ?? ""), future);
+    const early = await press(d.membershipId, { day: F.dayOf(new Date(joinedAt.getTime() - DAY)) });
+    check("a day before joining: refused", /before the day of joining/.test(early ?? ""), early);
+    const notADay = await press(d.membershipId, { day: "soon" });
+    check("something that is not a day: refused", /Enter the day/.test(notADay ?? "") && (await MS(d.membershipId)).status === "active", notADay);
+    const onTime = await press(d.membershipId, { day: lastDay, now: onDay20 });
+    await helper(new Date());
+    check("a written request of day 14 that the founder handles on day 20: done, and the month goes back", onTime === null && (await MS(d.membershipId)).status === "ended" && (await MS(d.membershipId)).endedBy === "admin" && (await places(d.monthId)) === "0/0/0/0/0/6000", `${onTime} ${await places(d.monthId)}`);
+    check("the member is told the day their request arrived", new RegExp(`your request reached us on ${lastDay}`).test(await emailText(d.member.email, "has ended")));
+    const [record] = await db.select().from(schema.adminActions).where(and(eq(schema.adminActions.targetId, d.membershipId), eq(schema.adminActions.action, "membership cancelled within 14 days")));
+    check("the founder's action is on record, with the day", Boolean(record) && record.adminId === founder.id && record.detail.includes(`The request reached Connect on ${lastDay}`), record?.detail);
+
+    console.log("   …what it is not for");
+    const over = await member(host);
+    const afterEnd = new Date((await M(over.monthId)).endsAt!.getTime() + HOUR);
+    const founderAfterEnd = await press(over.membershipId, { now: afterEnd });
+    const memberAfterEnd = await own(over, { now: afterEnd });
+    check("the first month has already ended: both refused, each with its own sentence", /first month has already ended/.test(founderAfterEnd ?? "") && /settle this case by hand/.test(founderAfterEnd ?? "") && /first 14 days of a new membership/.test(memberAfterEnd ?? "") && !/by hand/.test(memberAfterEnd ?? "") && (await MS(over.membershipId)).status === "active", `${founderAfterEnd} | ${memberAfterEnd}`);
+
+    const banked = await member(host);
+    // A month whose payment has a problem the founder must look at (Stripe took a part of it, say).
+    await db.update(months).set({ problem: "Stripe took $20.00 of $60.00." }).where(eq(months.id, banked.monthId));
+    const odd = await own(banked);
+    const oddFounder = await press(banked.membershipId);
+    check("a month whose payment has a problem: the member is sent to us, the founder told to settle it by hand, and the page offers no button", /please write to us/.test(odd ?? "") && /settle the payment by hand/.test(oddFounder ?? "") && (await MS(banked.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(banked.membershipId), new Date())) === null, `${odd} | ${oddFounder}`);
+    await db.update(months).set({ problem: null }).where(eq(months.id, banked.monthId));
+    await db.update(months).set({ dispute: "open" }).where(eq(months.id, banked.monthId)); // stands in for a bank's dispute
+    const withBank = await own(banked);
+    check("anything about a bank on the month: refused, and the page offers no button", /Your bank is looking at this month's payment/.test(withBank ?? "") && (await MS(banked.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(banked.membershipId), new Date())) === null, withBank);
+    await db.update(months).set({ dispute: "none" }).where(eq(months.id, banked.monthId));
+
+    const back = await member(host, { take: false });
+    await E.cancelNow({ membershipId: back.membershipId, memberId: back.member.id, now: new Date() });
+    await helper(new Date());
+    const resumed = await refused(J.resume({ customerId: back.member.id, membershipId: back.membershipId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, offerVersion: (await db.select().from(schema.membershipOffers).where(eq(schema.membershipOffers.hostId, host.id)))[0].version, now: new Date() }));
+    const onResumed = await own(back);
+    check("a membership that was resumed: refused", resumed === null && /this one was resumed/.test(onResumed ?? "") && (await MS(back.membershipId)).status !== "ended", `${resumed} | ${onResumed}`);
+
+    const first = await member(host);
+    await E.endByHost({ membershipId: first.membershipId, hostId: host.id, now: new Date() });
+    await helper(new Date());
+    const secondInvite = await J.invite({ hostId: host.id, customerId: first.member.id, now: new Date() });
+    const second = await J.join({ customerId: first.member.id, inviteId: secondInvite.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
+    // (Paid, so that it is a membership: its month is held on the card.)
+    await C.payNow({ monthId: second.monthId, memberId: first.member.id });
+    await stripe().paymentIntents.confirm((await M(second.monthId)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+    await C.syncMonth(second.monthId, new Date());
+    const onSecond = await own({ membershipId: second.membershipId, member: first.member });
+    check("a second membership of the same two people: refused", second.membershipId !== first.membershipId && /your first membership with this host/.test(onSecond ?? "") && (await MS(second.membershipId)).status !== "ended", onSecond);
+
+    // What this journey itself wrote to the founder's record goes with it.
+    await db.delete(schema.adminActions).where(and(eq(schema.adminActions.action, "membership cancelled within 14 days"), inArray(schema.adminActions.targetId, [...new Set(byFounder)])));
+  });
+
+  // ========================================================================
   journey("At the same moment: two bookings, a booking and \"Cancel now\", a booking and the timed taking", async () => {
     const host = await newHost();
     const m = await member(host);

@@ -1,7 +1,8 @@
 /**
  * Hosts collect their earnings with a button. There is no payday: nothing is
  * sent to a host unless the host pressed (or the founder did, for a host who
- * can no longer log in).
+ * can no longer log in). The one exception is a host who has not collected for
+ * 12 months: the helper then starts the same collection for her (uncollected.ts).
  *
  * A press is accepted in one locked step, which writes down the collection and
  * every transfer it will make before Stripe is asked anything. Sending comes
@@ -11,10 +12,10 @@
  * reaches more than 23 hours later is not repeated. If Stripe never made it,
  * that share is ready again for the host's next collection.
  */
-import { and, asc, desc, eq, inArray, isNotNull, isNull, like, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, inArray, isNotNull, isNull, like, lte, min, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
-import type { Call, MembershipMonth, Payment } from "@/db/schema";
+import type { Call, Collection, MembershipMonth, Payment } from "@/db/schema";
 import { isFrozen } from "@/lib/membership/rules";
 import { countPair, freshNow, syncPayment } from "@/lib/contributions/charge";
 import { lockContribution, lockContributionPayment, lockPair } from "@/lib/contributions/locks";
@@ -37,6 +38,7 @@ import { canCollectAgainAt, heldBack, type HeldBack } from "./rules";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_VALID = "This request is not valid. Reload the page and try again.";
+export const CLOSED_ACCOUNT = "This account is closed. The founder's final collection is for it.";
 export const DISPUTE_MESSAGE_WAITING =
   "Stripe has told us about a disputed charge and we are still checking which one. Please try again in a few minutes.";
 
@@ -114,6 +116,29 @@ export async function disputeMessageWaiting(reader: Reader = db): Promise<boolea
 // ---------------------------------------------------------------------------
 
 type StartedTransfer = StartedOperation<TransferParams> & { paymentId: string };
+
+/** What starts a collection. */
+export type CollectionInput = {
+  /** Made when the button was shown (for the helper: when its try was written down). */
+  collectionId: string;
+  hostId: string;
+  /** Who pressed: the host, or the founder for a host who can no longer log in. Nobody (null) when the helper starts it. */
+  startedBy: string | null;
+  /**
+   * Only for an account that is open. Asked with the person's own row held, so that an account cannot be closed
+   * between the look and the acceptance. (The helper asks for this; a host presses while logged in, and the
+   * founder's final collection is for a closed account.)
+   */
+  openAccountOnly?: boolean;
+  /**
+   * Asked last, with every lock held and every share judged, before anything is accepted: the shares that would
+   * be sent, as they stand now. Words of refusal, or null to go on. What it writes is saved with the collection
+   * or not at all. Not asked again when this same collection was already made.
+   */
+  onlyIf?: (tx: Tx, now: Date, ready: Payment[]) => Promise<string | null>;
+  /** Only the check scripts pass this, to pretend it is another day. */
+  now?: Date;
+};
 
 /**
  * Whose money a payment is: the host of its call; for expired member time, the host of its month's
@@ -206,15 +231,7 @@ async function countPairsOf(hostId: string, now: Date): Promise<Set<string>> {
  * From then on the app's standing rule applies to each of those payments: one
  * money action at a time. Nothing has been asked of Stripe yet.
  */
-export async function acceptCollection(input: {
-  /** Made when the button was shown. */
-  collectionId: string;
-  hostId: string;
-  /** The host, or the founder for a host who can no longer log in. */
-  startedBy: string;
-  /** Only the check scripts pass this, to pretend it is another day. */
-  now?: Date;
-}): Promise<{ existing: boolean; started: StartedTransfer[] }> {
+export async function acceptCollection(input: CollectionInput): Promise<{ existing: boolean; started: StartedTransfer[] }> {
   if (!UUID.test(input.collectionId)) throw new MoneyError(NOT_VALID);
   // The $1,000 rule's count for her contribution shares, written in steps of its own first, so that the later
   // dates it finds are kept also when this press ends up with nothing to collect. (The step below counts
@@ -222,6 +239,13 @@ export async function acceptCollection(input: {
   const notAsked = await countPairsOf(input.hostId, input.now ?? new Date());
 
   return db.transaction(async (tx) => {
+    if (input.openAccountOnly) {
+      // The person's row is held (shared) until this step ends: closing the account changes that row, so it
+      // either is seen here or waits until the collection is accepted. Taken before the host's collection row:
+      // person rows come first in the one order of locks (membership/locks.ts).
+      const [person] = await tx.select({ closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.hostId)).for("share");
+      if (!person || person.closedAt) throw new MoneyError(CLOSED_ACCOUNT);
+    }
     const [host] = await tx.select().from(schema.hostSettings).where(eq(schema.hostSettings.userId, input.hostId)).for("update");
     // The moment of acceptance is read here, with the host's row locked, not when the press arrived:
     // the 24 hours until the next collection are counted from it.
@@ -310,6 +334,12 @@ export async function acceptCollection(input: {
       );
     }
 
+    // What only this starter asks for, now that it is known what would be sent: the helper asks here that the 12
+    // months still hold for the shares that are really ready.
+    const refusal = await input.onlyIf?.(tx, now, ready.map((share) => share.payment));
+    if (refusal) throw new MoneyError(refusal);
+
+    // (Who started it is worked out by the database from who pressed: nobody is the helper.)
     await tx.insert(schema.collections).values({ id: input.collectionId, hostId: input.hostId, startedBy: input.startedBy, acceptedAt: now });
     const started: StartedTransfer[] = [];
     for (const [index, { payment }] of ready.entries()) {
@@ -393,7 +423,7 @@ export async function sendCollection(started: StartedTransfer[]): Promise<void> 
  * person, when there is no collection: then nothing was charged and the 24
  * hours were not used up.
  */
-export async function collectEarnings(input: { collectionId: string; hostId: string; startedBy: string; now?: Date }): Promise<void> {
+export async function collectEarnings(input: CollectionInput): Promise<void> {
   if (!UUID.test(input.collectionId)) throw new MoneyError(NOT_VALID);
   const [known] = await db.select({ id: schema.collections.id }).from(schema.collections).where(eq(schema.collections.id, input.collectionId));
   // Never trust the saved "ready" flag when money is about to move: ask Stripe now.
@@ -482,9 +512,36 @@ export type CollectionView = {
   feeCents: number;
   /** Written down, with no clear answer from Stripe yet. */
   checkingCents: number;
+  /** The collection charge carried by shares with no clear answer yet: not known to be taken or not. */
+  checkingFeeCents: number;
+  /** How many of its shares have no clear answer yet (one that only carries the charge is one of them, with nothing in `checkingCents`). */
+  unanswered: number;
   /** Stripe refused these; they stay ready for a later collection. */
   refusedCents: number;
+  /** Who started it: the host, the founder for a closed account, or the helper after 12 months without a collection. */
+  startedAs: Collection["startedAs"];
 };
+
+/** One collection as it stands now: what was sent, what is being checked, what Stripe refused. */
+export async function viewOfCollection(collection: Pick<Collection, "id" | "acceptedAt" | "startedAs">, reader: Reader = db): Promise<CollectionView> {
+  const items = await reader
+    .select({ amountCents: schema.collectionItems.amountCents, payoutFeeCents: schema.collectionItems.payoutFeeCents, status: schema.moneyOperations.status })
+    .from(schema.collectionItems)
+    .innerJoin(schema.moneyOperations, eq(schema.moneyOperations.id, schema.collectionItems.operationId))
+    .where(eq(schema.collectionItems.collectionId, collection.id));
+  const view: CollectionView = { id: collection.id, acceptedAt: collection.acceptedAt, sentCents: 0, feeCents: 0, checkingCents: 0, checkingFeeCents: 0, unanswered: 0, refusedCents: 0, startedAs: collection.startedAs };
+  for (const item of items) {
+    if (item.status === "succeeded") {
+      view.sentCents += item.amountCents;
+      view.feeCents += item.payoutFeeCents;
+    } else if (item.status === "started") {
+      view.checkingCents += item.amountCents;
+      view.checkingFeeCents += item.payoutFeeCents;
+      view.unanswered += 1;
+    } else view.refusedCents += item.amountCents + item.payoutFeeCents;
+  }
+  return view;
+}
 
 /** The host's latest collection, as it stands now, and when they can collect again. */
 export async function lastCollectionOf(hostId: string): Promise<{ last: CollectionView; againAt: Date } | null> {
@@ -495,18 +552,82 @@ export async function lastCollectionOf(hostId: string): Promise<{ last: Collecti
     .orderBy(desc(schema.collections.acceptedAt))
     .limit(1);
   if (!last) return null;
-  const items = await db
-    .select({ amountCents: schema.collectionItems.amountCents, payoutFeeCents: schema.collectionItems.payoutFeeCents, status: schema.moneyOperations.status })
+  return { last: await viewOfCollection(last), againAt: canCollectAgainAt(last.acceptedAt)! };
+}
+
+// ---------------------------------------------------------------------------
+// What the helper asks about a host who has not collected for a long time (uncollected.ts)
+// ---------------------------------------------------------------------------
+
+/** A share of this host that is not sent and whose date has come. (Something else may still hold it back.) */
+const datedReady = (hostId: string, now: Date) => and(sql`${hostOfPayment} = ${hostId}`, UNSENT, lte(schema.payments.transferDueAt, now));
+
+/** Every host who has a share that is not sent and whose date has come. */
+export async function hostsWithDatedShares(now: Date): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ hostId: hostOfPayment })
+    .from(schema.payments)
+    .leftJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
+    .leftJoin(schema.memberships, eq(schema.memberships.id, schema.membershipMonths.membershipId))
+    .leftJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.payments.contributionPaymentId))
+    .leftJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
+    .where(and(UNSENT, lte(schema.payments.transferDueAt, now)));
+  return rows.map((row) => row.hostId).filter(Boolean);
+}
+
+/** The date carried by this host's oldest share that is not sent and whose date has come, or null when she has none. */
+export async function oldestDatedShare(reader: Reader, hostId: string, now: Date): Promise<Date | null> {
+  const [row] = await reader
+    .select({ oldest: min(schema.payments.transferDueAt) })
+    .from(schema.payments)
+    .leftJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
+    .leftJoin(schema.membershipMonths, eq(schema.membershipMonths.id, schema.payments.monthId))
+    .leftJoin(schema.memberships, eq(schema.memberships.id, schema.membershipMonths.membershipId))
+    .leftJoin(schema.contributionPayments, eq(schema.contributionPayments.id, schema.payments.contributionPaymentId))
+    .leftJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
+    .where(datedReady(hostId, now));
+  return row?.oldest ?? null;
+}
+
+/**
+ * When this host's last collection **that went through** was accepted, or null when she never had one. "Went
+ * through": one of the collection's own shares, for more than nothing, has a transfer that succeeded. A collection
+ * that was accepted and of which Stripe refused everything is not one.
+ */
+export async function lastCollectionThrough(reader: Reader, hostId: string): Promise<Date | null> {
+  const through = reader
+    .select({ one: sql`1` })
     .from(schema.collectionItems)
     .innerJoin(schema.moneyOperations, eq(schema.moneyOperations.id, schema.collectionItems.operationId))
-    .where(eq(schema.collectionItems.collectionId, last.id));
-  const view: CollectionView = { id: last.id, acceptedAt: last.acceptedAt, sentCents: 0, feeCents: 0, checkingCents: 0, refusedCents: 0 };
-  for (const item of items) {
-    if (item.status === "succeeded") {
-      view.sentCents += item.amountCents;
-      view.feeCents += item.payoutFeeCents;
-    } else if (item.status === "started") view.checkingCents += item.amountCents;
-    else view.refusedCents += item.amountCents + item.payoutFeeCents;
-  }
-  return { last: view, againAt: canCollectAgainAt(last.acceptedAt)! };
+    .where(and(eq(schema.collectionItems.collectionId, schema.collections.id), gt(schema.collectionItems.amountCents, 0), eq(schema.moneyOperations.status, "succeeded")));
+  const [row] = await reader
+    .select({ acceptedAt: schema.collections.acceptedAt })
+    .from(schema.collections)
+    .where(and(eq(schema.collections.hostId, hostId), exists(through)))
+    .orderBy(desc(schema.collections.acceptedAt))
+    .limit(1);
+  return row?.acceptedAt ?? null;
+}
+
+/**
+ * When each collection of this host was accepted that has a share, for more than nothing, whose transfer has no
+ * answer yet. Such a collection may turn out to have gone through: until it is answered, nobody can say that she
+ * has not collected since then. (There are never many: an unanswered transfer is settled within about a day.)
+ */
+export async function unansweredCollectionsOf(reader: Reader, hostId: string): Promise<Date[]> {
+  const rows = await reader
+    .select({ id: schema.collections.id, acceptedAt: schema.collections.acceptedAt })
+    .from(schema.collections)
+    .innerJoin(schema.collectionItems, eq(schema.collectionItems.collectionId, schema.collections.id))
+    .innerJoin(schema.moneyOperations, eq(schema.moneyOperations.id, schema.collectionItems.operationId))
+    .where(and(eq(schema.collections.hostId, hostId), gt(schema.collectionItems.amountCents, 0), eq(schema.moneyOperations.status, "started")));
+  // (One line for each such share; the same collection's moment more than once changes nothing for who asks.)
+  return rows.map((row) => row.acceptedAt);
+}
+
+/** When this host's latest collection of any kind was accepted: her 24 hours count from it. */
+export async function lastAcceptedAt(reader: Reader, hostId: string): Promise<Date | null> {
+  const [row] = await reader.select({ acceptedAt: schema.collections.acceptedAt }).from(schema.collections).where(eq(schema.collections.hostId, hostId)).orderBy(desc(schema.collections.acceptedAt)).limit(1);
+  return row?.acceptedAt ?? null;
 }

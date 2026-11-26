@@ -169,12 +169,12 @@ The 14 points, and where each stands. The plan is `plans/46-agreements-live.md`.
 | 6 | Closing your own account and deleting your details | Plan 45, parts 19 to 19c (the phone-apps work). Until then: "write to us", and the founder closes the account. |
 | 7 | End dates for records | **Built** (part 4) for two of them: an email is emptied two years after it was sent, and a login record is deleted twelve months after it ran out. The other periods of the privacy policy are proposals and are **not built**. |
 | 8 | Business or private host | **Built** (part 1): asked when applying, shown on the host's page and where a call is asked for. |
-| 9 | The 14-day sentence | **Built** (pull request 80). The founder's tool for a new membership cancelled within 14 days is plan 46, part 3. |
+| 9 | The 14-day sentence | **Built** (pull request 80). Cancelling a new membership within 14 days is **built** (plan 46, part 3c): the member's own button, for every member wherever they live (the founder's decision), and a button for the founder when the request came in writing. The sentence people tick before joining says so, and names time used and a late cancellation or missed call that was charged. |
 | 10 | Reasons when a host's page is declined or suspended | **Built** (part 1): saved, emailed and shown; closing an account takes a reason too. |
 | 11 | Tax details from hosts and the yearly reports | No code: Stripe's tools on the company's own Stripe account. See `docs/research/tax-forms-for-hosts.md`. A yearly statement a host can download is **built** (plan 46, part 5); it is a summary, not a tax form. |
 | 12 | Refunds by Connect in the host's place, also after she collected | **Built for a call's payment** (part 3a, steps 1 and 2a): the founder refunds from a page of their own, names the ground, and the host then owes what her share lost; it is taken back through Stripe after 14 days' written notice, and she can object. Under a draft agreement it is written down and told, and never taken by the app. A contribution or a tip refunded after collection stays Connect's own cost, as before (left out on purpose; see the plan). |
 | 13 | "It renews every month until I cancel" | **Built** (pull request 80). |
-| 14 | Sending earnings not collected for 12 months | Planned in detail (`plans/46-part-3-money-owed.md`, part 3b); not built. |
+| 14 | Sending earnings not collected for 12 months | **Built** (part 3b): the helper starts the host's own collection for her, with the same charge and the same rules, tries again no sooner than a week later when nothing could be sent, tells her once what went (and what is still being checked), and never starts one for a closed account. |
 
 **To carry into the first published version** (a merged version is never edited, so these wait
 for the next one):
@@ -195,7 +195,10 @@ for the next one):
   owes what her share of that payment lost (never more than was sent to her).
 - Host Agreement, section 7.7: "[12]" becomes 12.
 - Payment Terms, section 12.3: name the late cancellation and the missed call beside "time you
-  used".
+  used". And say what the app now does: **every** member, not only one in the United Kingdom
+  or Europe, can cancel a new membership within 14 days, with a button on the membership's
+  page or in writing; the membership then ends at once; and it is for the first membership
+  with a host, not for one that was resumed.
 
 ## 8. Astra's drafts, and where they differ from these
 

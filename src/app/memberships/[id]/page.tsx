@@ -13,7 +13,8 @@ import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
 import { membershipsOnFor } from "@/lib/safety/switches";
 import { requireUser } from "@/lib/session";
-import { acceptOfferAction, cancelAction, cancelNowAction, declineOfferAction, keepAction } from "./actions";
+import { ownFourteenDays } from "@/lib/membership/fourteen-days";
+import { acceptOfferAction, cancelAction, cancelNowAction, cancelWithin14DaysAction, declineOfferAction, keepAction } from "./actions";
 
 // The same title whoever asks: nothing is given away before it is known who may see the page.
 export const metadata: Metadata = { title: "Your membership" };
@@ -51,6 +52,8 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
   const notice = readNotice(`/memberships/${membership.id}`, query) ?? readNotice(here, query);
   const askedOffer = typeof query.offer === "string" ? query.offer : "";
   const now = new Date();
+  // A new membership in its first 14 days can be cancelled at once by its member (plans/46, part 3c).
+  const fourteen = await ownFourteenDays(membership, now);
 
   // The host as this member may see her (also when her page is hidden). An ended membership still names her.
   const [host, [profile], open, [hostOffer], payBacks] = await Promise.all([
@@ -113,7 +116,7 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
           </p>
         )}
 
-        {membership.status === "active" && started && <Running membership={membership} month={started} hostName={hostName} hostHandle={host?.handle ?? null} canBook={host?.canBook ?? false} open={open} offerOn={Boolean(hostOffer?.on)} frozen={frozen} nextCents={nextCents} now={now} />}
+        {membership.status === "active" && started && <Running membership={membership} month={started} hostName={hostName} hostHandle={host?.handle ?? null} canBook={host?.canBook ?? false} open={open} offerOn={Boolean(hostOffer?.on)} frozen={frozen} nextCents={nextCents} fourteenUntil={fourteen?.lastDay ?? null} now={now} />}
 
         {membership.status === "active" && !started && (
           <>
@@ -253,8 +256,8 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
 const lastFreeMoment = (month: MembershipMonth): Date | null => (month.authorisedAt && month.holdExpiresAt ? holdTiming({ authorisedAt: month.authorisedAt, holdExpiresAt: month.holdExpiresAt }).offeredUntil : month.takeAt);
 
 /** A membership with a month that has started: the time, the hold, whether and when it renews, and the buttons. */
-function Running(props: { membership: Membership; month: MembershipMonth; hostName: string; hostHandle: string | null; canBook: boolean; open: boolean; offerOn: boolean; frozen: boolean; nextCents: number; now: Date }) {
-  const { membership, month, hostName, now } = props;
+function Running(props: { membership: Membership; month: MembershipMonth; hostName: string; hostHandle: string | null; canBook: boolean; open: boolean; offerOn: boolean; frozen: boolean; nextCents: number; /** The last day (UTC) "Cancel within 14 days" is open for this new membership, or null when it is not. */ fourteenUntil: string | null; now: Date }) {
+  const { membership, month, hostName, now, fourteenUntil } = props;
   // A month whose payment has a problem the founder must look at (Stripe took a part, or holds more than one payment): its time is not there to book.
   const troubled = Boolean(month.problem);
   const held = month.status === "held";
@@ -352,7 +355,7 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
         </form>
       )}
 
-      {(!membership.memberStoppedAt || canCancelNow) && (
+      {(!membership.memberStoppedAt || canCancelNow || fourteenUntil) && (
         <details className="mt-6">
           <summary className="cursor-pointer underline underline-offset-2">Cancel membership</summary>
           <p className="mt-2">
@@ -377,8 +380,25 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
                 </button>
               </form>
             )}
+            {fourteenUntil && (
+              <form action={cancelWithin14DaysAction} data-fourteen-days>
+                <input type="hidden" name="membership" value={membership.id} />
+                {/* The month this button is about: the first month of a new membership. */}
+                <input type="hidden" name="month" value={month.id} />
+                <button type="submit" className={button}>
+                  Cancel within 14 days
+                </button>
+              </form>
+            )}
           </div>
           <ul className="mt-3 list-disc space-y-1 pl-5 opacity-80">
+            {fourteenUntil && (
+              <li>
+                &quot;Cancel within 14 days&quot; is for a new membership, until the end of {fourteenUntil} (UTC). It <strong>ends your membership at once, for good</strong>: to come back you would need a new invitation from{" "}
+                {hostName}. {held ? "If this month's amount is still only held on your card at that moment, it is let go and nothing is charged; if it has been taken by then, what you have not used goes back to your card." : "What you paid for this month goes back to your card, except for time you have used and for a call you cancelled late or missed that was already charged; those stay paid for at the member price."}{" "}
+                Calls you have booked from your membership that are still to come are cancelled; one that has already begun is worked out as usual.
+              </li>
+            )}
             {!membership.memberStoppedAt && (
               <li>
                 &quot;Cancel at the end of the month&quot; stops the renewal. Until <LocalTime iso={endsAt.toISOString()} /> nothing changes; that day your membership is paused.{held ? " The amount held for this month is still taken: the month is yours." : ""}

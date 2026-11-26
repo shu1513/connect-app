@@ -108,8 +108,8 @@ export async function queuePausedEmail(tx: Writer, membership: Membership, reaso
   });
 }
 
-/** The membership has ended for good. To both. */
-export async function queueEndedEmail(tx: Writer, membership: Membership, reason: string): Promise<void> {
+/** The membership has ended for good. To both. `memberNote` is more for the member alone (a cancellation within 14 days says what goes back and what stays paid for). */
+export async function queueEndedEmail(tx: Writer, membership: Membership, reason: string, memberNote?: string): Promise<void> {
   const found = await peopleOf(tx, membership);
   if (!found) return;
   const { member, host, hostName } = found;
@@ -118,7 +118,7 @@ export async function queueEndedEmail(tx: Writer, membership: Membership, reason
     to: member.email,
     key: `${key}:member`,
     subject: `Your membership with ${hostName} has ended`,
-    text: `Hi ${member.name},\n\nYour membership with ${hostName} has ended: ${reason}.\n\nYou will not be charged for it again. Member calls that were still to come are cancelled. Membership time you had not used is paid back to your card; you get an email when that has gone through. (If your bank is disputing a payment, that month's money stays where it is until the bank has decided.)\n\n${memberPage(membership)}\n`,
+    text: `Hi ${member.name},\n\nYour membership with ${hostName} has ended: ${reason}.\n\n${memberNote ? `${memberNote}\n\nYou will not be charged for it again. Member calls that were still to come are cancelled.` : `You will not be charged for it again. Member calls that were still to come are cancelled. Membership time you had not used is paid back to your card; you get an email when that has gone through. (If your bank is disputing a payment, that month's money stays where it is until the bank has decided.)`}\n\n${memberPage(membership)}\n`,
   });
   await queueEmail(tx, {
     to: host.email,
