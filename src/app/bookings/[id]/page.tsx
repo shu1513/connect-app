@@ -189,9 +189,9 @@ export default async function BookingPage(props: PageProps<"/bookings/[id]">) {
       {note?.allowed && <NoteForm customerId={booking.customerId} name={otherName ?? "this customer"} text={note.text} max={NOTE_MAX} />}
 
       {canWrite && booking.callId && (
-        <p className="mt-6">
+        <div className="mt-6">
           <WriteTo callId={booking.callId} name={otherName ?? "this person"} back={`/bookings/${booking.id}`} />
-        </p>
+        </div>
       )}
 
       {booking.stage !== "card" && (

@@ -39,6 +39,7 @@ const messages = schema.conversationMessages;
  */
 export async function openConversation(input: { userId: string; callId?: string; customerId?: string }): Promise<string | null> {
   let pair: Pair | null = null;
+  const byCall = Boolean(input.callId);
   if (input.callId) {
     if (!UUID.test(input.callId)) return null;
     const [call] = await db.select({ hostId: schema.calls.hostId, customerId: schema.calls.customerId }).from(schema.calls).where(eq(schema.calls.id, input.callId));
@@ -55,7 +56,8 @@ export async function openConversation(input: { userId: string; callId?: string;
     // One that is there stays reachable for its two people, whatever has happened since: reading is never taken away.
     const [existing] = await tx.select({ id: conversations.id }).from(conversations).where(ofPair);
     if (existing) return existing.id;
-    // A new one only where the two could write at all: a call that counts is around, or they have talked.
+    // A new one only where the two could write at all. From a call's page: a call that counts is around, or they
+    // have talked. From a host's link beside a past customer: they have talked, with her as the host.
     const now = new Date();
     if ((await switches(tx)).conversationsOff) return null;
     if (await isBlockedEitherWay(found.hostId, found.customerId, tx)) return null;
@@ -66,7 +68,7 @@ export async function openConversation(input: { userId: string; callId?: string;
       .where(and(or(eq(schema.user.id, found.hostId), eq(schema.user.id, found.customerId)), isNull(schema.user.closedAt)));
     if (open.length !== 2) return null;
     const calls = await callFacts(tx, found, now);
-    if (!calls.aroundCall && !calls.talked) return null;
+    if (!calls.talked && !(byCall && calls.aroundCall)) return null;
     await tx.insert(conversations).values({ hostId: found.hostId, customerId: found.customerId }).onConflictDoNothing();
     const [made] = await tx.select({ id: conversations.id }).from(conversations).where(ofPair);
     return made?.id ?? null;

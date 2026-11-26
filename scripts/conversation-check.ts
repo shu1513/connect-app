@@ -12,7 +12,8 @@
  *              is done by moving a call's or a message's time back.
  *
  * It makes its own people, touches no other account, needs no Stripe, and removes what it made.
- * Messages are switched off on `main` while part 1 is alone there, so the script switches them on
+ * Like the other check scripts it clears the local "too many attempts" counters at the start and
+ * the end, because every request here comes from one network address. Messages are switched off on `main` while part 1 is alone there, so the script switches them on
  * for its run and puts the switch back where it was.
  *
  * What it does not cover: what only happens in a browser (the box keeping what was typed, the
@@ -26,11 +27,13 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
 const BASE = process.argv.find((arg) => arg.startsWith("--app="))?.slice("--app=".length).replace(/\/$/, "") ?? "http://localhost:3000";
+// People are signed up through the app, so the app must be a local one, like the database.
+if (!/^http:\/\/(localhost|127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?$/.test(BASE)) throw new Error(`This script only runs against a local app, not ${BASE}.`);
 const RUN = randomUUID().slice(0, 8);
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -78,11 +81,10 @@ async function main() {
   requireLocalDatabase();
   const { db, schema } = await import("../src/db");
   const { openConversation, sendMessage } = await import("../src/lib/conversations/send");
-  const { conversationFor, conversationsOf, markShownUpTo, newConversationCount, setMuted, viewOf } = await import("../src/lib/conversations/read");
+  const { conversationFor, conversationsOf, markShownUpTo, newConversationCount, setMuted, topBarCount, viewFor } = await import("../src/lib/conversations/read");
   const { CONVERSATION } = await import("../src/lib/conversations/rules");
   const { block, unblock } = await import("../src/lib/safety/blocks");
   const { setSwitches, switches } = await import("../src/lib/safety/switches");
-  const { unreadCount } = await import("../src/lib/messages/messages");
 
   const up = await send("/login").catch(() => null);
   if (!up || up.status !== 200) throw new Error(`The app is not running at ${BASE}. Start it first.`);
@@ -161,6 +163,27 @@ async function main() {
     }
     return call;
   }
+  /**
+   * Holds these people's calendar locks, the ones a send and a block take first, until the
+   * function it gives back is called. So a step can be made to wait, and what happens meanwhile
+   * can be chosen.
+   */
+  async function holdLocks(ids: string[]) {
+    let release!: () => void;
+    let ready!: () => void;
+    const until = new Promise<void>((resolve) => (release = resolve));
+    const got = new Promise<void>((resolve) => (ready = resolve));
+    const done = db.transaction(async (tx) => {
+      for (const id of [...new Set(ids)].sort()) await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`calendar:${id}`}))`);
+      ready();
+      await until;
+    });
+    await got;
+    return async () => {
+      release();
+      await done;
+    };
+  }
   /** A pair who talked ten days ago: the call is over, both joined it, and its 7 days have passed. */
   const talkedPair = async (hostId: string, customerId: string) => agreed({ hostId, customerId, startsInDays: -10, joined: [hostId, customerId] });
 
@@ -206,6 +229,7 @@ async function main() {
 
       const coming = await agreed({ hostId: hana.id, customerId: cory.id, startsInDays: 2 });
       check("someone who is not in the call cannot open it by naming the call", (await openConversation({ userId: olga.id, callId: coming.id })) === null);
+      check("the host's link beside a past customer opens nothing before a call has taken place", (await openConversation({ userId: hana.id, customerId: cory.id })) === null && (await conversationsBetween(hana.id, cory.id)).length === 0);
       const [first, second] = await Promise.all([openConversation({ userId: hana.id, callId: coming.id }), openConversation({ userId: cory.id, callId: coming.id })]);
       check("once the call is agreed, both can open it, and at the same moment they get the same one", first !== null && first === second);
       check("there is one row for the pair", (await conversationsBetween(hana.id, cory.id)).length === 1);
@@ -257,8 +281,7 @@ async function main() {
     {
       const a = await person("newa");
       const host = await asHost(await person("newh"), "newh", `New Host ${RUN}`);
-      await agreed({ hostId: host.id, customerId: a.id, startsInDays: 1 });
-      const id = (await openConversation({ userId: host.id, customerId: a.id }))!;
+      const id = (await openConversation({ userId: host.id, callId: (await agreed({ hostId: host.id, customerId: a.id, startsInDays: 1 })).id }))!;
       await say(id, host.id, "one");
       check("a message of the other person counts as new, in the top bar's count and in the list", (await newConversationCount(a.id)) === 1 && (await conversationsOf(a.id))[0]?.hasNew === true);
       check("a person's own message never counts as new for them", (await newConversationCount(host.id)) === 0 && (await conversationsOf(host.id))[0]?.hasNew === false);
@@ -276,23 +299,53 @@ async function main() {
 
       // Sixty new messages: all of them are on the page, so none can count as shown that was not there.
       await rawMessages(id, host.id, 60);
-      const view = await viewOf((await conversationFor(a.id, id))!, a.id, new Date());
+      const view = (await viewFor(a.id, id, new Date()))!;
       check("with 60 new messages, all 60 are on the page", view.messages.filter((m) => m.senderId === host.id && m.number > 2).length === 60 && view.messages[0].number <= 3);
       // The host's own browser has shown her everything (it says so after every message of hers that is drawn).
       await markShownUpTo(host.id, id, 62);
-      const short = await viewOf((await conversationFor(host.id, id))!, host.id, new Date());
+      const short = (await viewFor(host.id, id, new Date()))!;
       check("someone with nothing new gets the latest 50, and the page knows there are earlier ones", short.messages.length === CONVERSATION.shown && short.hasEarlier && short.firstNumber === 62 - CONVERSATION.shown + 1);
-      const earlier = await viewOf((await conversationFor(host.id, id))!, host.id, new Date(), 1);
-      check("Show earlier brings the rest", earlier.messages.length === 62 && !earlier.hasEarlier);
+      const earlier = (await viewFor(host.id, id, new Date(), { from: 1 }))!;
+      check("Show earlier brings the rest", earlier.messages.length === 62 && !earlier.hasEarlier && !earlier.hasLater);
+      check("nobody else is given any of it", (await viewFor(olga.id, id, new Date())) === null && (await viewFor(olga.id, randomUUID(), new Date())) === null);
+
+      // A message that arrives between the page being drawn and the browser saying what it showed.
+      await markShownUpTo(a.id, id, 62);
+      check("everything on the page shown, nothing is new", (await newConversationCount(a.id)) === 0);
+      // He answers (so that she may write again: she has sent more than five in a row), and she writes once more.
+      await say(id, a.id, "an answer to all that");
+      const late = await say(id, host.id, "written after the page was drawn");
+      await markShownUpTo(a.id, id, 63);
+      check("a message that came after the page was drawn stays new when the page says what it showed", late.ok && late.number === 64 && (await newConversationCount(a.id)) === 1, refusedAs(late));
+      await db.delete(schema.conversationMessages).where(and(eq(schema.conversationMessages.conversationId, id), eq(schema.conversationMessages.number, 64)));
+      check("when the last new message is deleted, nothing is new any more", (await newConversationCount(a.id)) === 0 && (await conversationsOf(a.id))[0]?.hasNew === false);
+      const next = await say(id, host.id, "the one after");
+      check("and its number is never used again", next.ok && next.number === 65, refusedAs(next));
+
+      // More than a page can hold: "Show earlier" reaches every message, a stretch at a time.
+      const long = await person("newl");
+      const longId = (await openConversation({ userId: host.id, callId: (await agreed({ hostId: host.id, customerId: long.id, startsInDays: 1 })).id }))!;
+      await rawMessages(longId, host.id, 600);
+      await markShownUpTo(host.id, longId, 600);
+      const oldest = (await viewFor(host.id, longId, new Date(), { from: 1 }))!;
+      const middle = (await viewFor(host.id, longId, new Date(), { from: 101 }))!;
+      check("of 600 messages, asking from the first gives the first 500 and says there are later ones", oldest.messages.length === 500 && oldest.messages[0].number === 1 && oldest.messages[499].number === 500 && oldest.hasLater && !oldest.hasEarlier);
+      check("and asking from the 101st gives the rest, up to the latest", middle.messages.length === 500 && middle.messages[0].number === 101 && middle.messages[499].number === 600 && !middle.hasLater && middle.hasEarlier);
+
+      // The list: a conversation with something new comes before a later one with nothing new.
+      await say(id, a.id, "new for the host");
+      await rawMessages(longId, host.id, 1, { minutesAgo: 0 });
+      const listed = await conversationsOf(host.id);
+      check("in the list, the conversation with something new comes first", listed[0]?.id === id && listed[0].hasNew && listed[1]?.id === longId && !listed[1].hasNew);
 
       // In the pages: the count in the top bar, the list, and that drawing a page marks nothing.
       await say(talk, hana.id, "Something new for Cory");
       const before = await newConversationCount(cory.id);
       // What Connect itself wrote to him and he has not read is counted in the same number.
-      const total = before + (await unreadCount(cory.id));
+      const total = await topBarCount(cory.id);
       const list = await page("/messages", cory.jar);
       const read = await page(`/conversations/${talk}`, cory.jar);
-      check("the top bar's Messages counts the conversation", before === 1 && new RegExp(`data-messages-link[^>]*data-unread="${total}"`).test(list.html) && list.words.includes(`Messages (${total})`), `${before} of ${total}`);
+      check("the top bar's Messages counts the conversation", before === 1 && total >= 1 && new RegExp(`data-messages-link[^>]*data-unread="${total}"`).test(list.html) && list.words.includes(`Messages (${total})`), `${before} of ${total}`);
       check("the Messages page lists it under Conversations, marked New, before what Connect wrote", list.html.includes("data-conversations") && list.html.includes('data-conversation="new"') && list.html.indexOf("Conversations") < list.html.indexOf("From Connect") && list.words.includes(hana.displayName));
       check("drawing the conversation's page marks nothing as shown", read.status === 200 && (await newConversationCount(cory.id)) === 1);
       check("someone with no conversation sees the Messages page as before", !(await page("/messages", olga.jar)).html.includes("data-conversations"));
@@ -314,6 +367,15 @@ async function main() {
       await hostWroteDaysAgo(id, 8);
       await say(id, guest.id).then((r) => check("eight days after her last message he cannot write again: his own answers did not move the date", refusedAs(r) === "book_again"));
       check("and she can wake it once more", sent(await say(id, host.id, "Still free on Friday")) && (await messagesIn(id)).at(-1)?.woke === true);
+      {
+        // His answer has to wait for its turn, and while it waits her 7 days run out.
+        const release = await holdLocks([host.id, guest.id]);
+        const waiting = say(id, guest.id, "sent just in time, or so he thought");
+        await pause(300);
+        await hostWroteDaysAgo(id, 8);
+        await release();
+        check("a message that had to wait is judged by what is true after the wait", refusedAs(await waiting) === "book_again" && (await messagesIn(id)).every((m) => !m.body.includes("just in time")));
+      }
 
       // A call that the customer did not come to: its 7 days ran, and nothing after them.
       const noShow = await person("noshow");
@@ -367,7 +429,7 @@ async function main() {
       check("the customer can still answer her latest message", sent(await say(quiet, talked.id, "Hi")));
       check("around a call she writes as before", sent(await say(id, host.id, "About our call")));
       await hostWroteDaysAgo(quiet, 9);
-      const view = await viewOf((await conversationFor(talked.id, quiet))!, talked.id, new Date());
+      const view = (await viewFor(talked.id, quiet, new Date()))!;
       check("a closed conversation with a host he cannot book just says it is closed, with no button", view.shownRefusal === "closed" && view.bookHref === null);
       await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, host.id));
     }
@@ -401,6 +463,7 @@ async function main() {
       const his = await page(`/conversations/${quiet}`, olga.jar);
       check("the host reads that he is not taking messages right now, and has no box", hers.words.includes(`${olga.name} is not taking messages right now.`) && !hers.html.includes("data-composer") && hers.html.includes('data-closed="not_taking"'));
       check("the customer sees his switch as on, with the way to switch it back", his.html.includes('data-mute="on"') && his.words.includes(`Allow messages from ${hana.displayName} again`));
+      check("and can still book her from there", his.html.includes("data-book-a-time") && his.html.includes(`href="/h/${hana.handle}"`));
       await setMuted(olga.id, quiet, false, new Date());
     }
 
@@ -415,11 +478,29 @@ async function main() {
       const two = (await openConversation({ userId: guest.id, customerId: host.id }))!;
       await say(one, host.id, "Hello");
       await say(two, guest.id, "Hello back");
-      // A send and a block at the same moment happen in one order or the other.
-      const [atOnce] = await Promise.all([say(one, host.id, "At the very moment"), block({ blockerId: guest.id, blockedId: host.id, now: new Date() })]);
-      const last = (await messagesIn(one)).at(-1)!;
-      const [blockRow] = await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, guest.id), eq(schema.blocks.blockedId, host.id)));
-      check("a message sent at the moment of a block either came first or was refused", atOnce.ok ? last.body === "At the very moment" && last.createdAt.getTime() <= blockRow.createdAt.getTime() + 5 : refusedAs(atOnce) === "not_taking" && last.body !== "At the very moment", refusedAs(atOnce));
+      // A send and a block at the same moment happen in one order or the other. Both wait for the same locks,
+      // and they get them in the order they asked: so here the order is chosen, both ways round.
+      {
+        const release = await holdLocks([host.id, guest.id]);
+        const sending = say(one, host.id, "Sent before the block");
+        await pause(300);
+        const blocking = block({ blockerId: guest.id, blockedId: host.id, now: new Date() });
+        await pause(300);
+        await release();
+        const [first] = await Promise.all([sending, blocking]);
+        check("a message that asked first, with a block right behind it, is saved, and the block then stands", first.ok && (await messagesIn(one)).at(-1)?.body === "Sent before the block" && refusedAs(await say(one, host.id)) === "not_taking");
+        await unblock(guest.id, host.id);
+      }
+      {
+        const release = await holdLocks([host.id, guest.id]);
+        const blocking = block({ blockerId: guest.id, blockedId: host.id, now: new Date() });
+        await pause(300);
+        const sending = say(one, host.id, "Sent behind the block");
+        await pause(300);
+        await release();
+        const [, second] = await Promise.all([blocking, sending]);
+        check("a message right behind a block is refused, and nothing of it is saved", refusedAs(second) === "not_taking" && (await messagesIn(one)).every((m) => m.body !== "Sent behind the block"));
+      }
       check("after the block the blocked host is refused in both conversations, with the answer of the switch", refusedAs(await say(one, host.id)) === "not_taking" && refusedAs(await say(two, host.id)) === "closed");
       check("the one who blocked is told that they blocked, in both", refusedAs(await say(one, guest.id)) === "you_blocked" && refusedAs(await say(two, guest.id)) === "you_blocked");
       check("no new conversation can be opened across a block", (await openConversation({ userId: host.id, customerId: guest.id })) === one);
@@ -442,10 +523,7 @@ async function main() {
       const host = await asHost(await person("limh"), "limh", `Limit Host ${RUN}`);
       const guests = [await person("lim1"), await person("lim2"), await person("lim3")];
       const ids: string[] = [];
-      for (const guest of guests) {
-        await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 2 });
-        ids.push((await openConversation({ userId: host.id, customerId: guest.id }))!);
-      }
+      for (const guest of guests) ids.push((await openConversation({ userId: host.id, callId: (await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 2 })).id }))!);
       // Eight at once into one conversation: five go through.
       const burst = await Promise.all(Array.from({ length: 8 }, () => say(ids[0], host.id)));
       check("of eight messages sent at once with no answer, five go through and three are refused", burst.filter(sent).length === CONVERSATION.inARow && burst.filter((r) => refusedAs(r) === "in_a_row").length === 3);
@@ -461,8 +539,7 @@ async function main() {
       // A newly agreed call starts the count of five again; nothing else does.
       const second = await asHost(await person("limh2"), "limh2", `Limit Host Two ${RUN}`);
       const guest = await person("lim4");
-      await agreed({ hostId: second.id, customerId: guest.id, startsInDays: 2, agreedAt: new Date(Date.now() - 2 * DAY) });
-      const id = (await openConversation({ userId: second.id, customerId: guest.id }))!;
+      const id = (await openConversation({ userId: second.id, callId: (await agreed({ hostId: second.id, customerId: guest.id, startsInDays: 2, agreedAt: new Date(Date.now() - 2 * DAY) })).id }))!;
       await rawMessages(id, second.id, 5, { minutesAgo: 600 });
       check("five unanswered messages from hours ago still hold", refusedAs(await say(id, second.id)) === "in_a_row");
       await agreed({ hostId: second.id, customerId: guest.id, startsInDays: 4, agreedAt: new Date(Date.now() - 1000) });
@@ -472,24 +549,41 @@ async function main() {
       const busy = await asHost(await person("limh3"), "limh3", `Limit Host Three ${RUN}`);
       const sink = await person("lim5");
       const far = await rawConversation(busy.id, sink.id);
-      await rawMessages(far.id, busy.id, CONVERSATION.perDay, { minutesAgo: 120 });
+      await rawMessages(far.id, busy.id, CONVERSATION.perDay - 1, { minutesAgo: 120 });
       const target = await person("lim6");
-      await agreed({ hostId: busy.id, customerId: target.id, startsInDays: 2 });
-      const day = (await openConversation({ userId: busy.id, customerId: target.id }))!;
+      const day = (await openConversation({ userId: busy.id, callId: (await agreed({ hostId: busy.id, customerId: target.id, startsInDays: 2 })).id }))!;
+      // The last free place of the day, asked for twice at once: as a host in one conversation, as a customer in another.
+      const herHost = await asHost(await person("limh5"), "limh5", `Limit Host Five ${RUN}`);
+      const asCustomer = (await openConversation({ userId: busy.id, callId: (await agreed({ hostId: herHost.id, customerId: busy.id, startsInDays: 2 })).id }))!;
+      const lastOfDay = await Promise.all([say(day, busy.id), say(asCustomer, busy.id)]);
+      check("the hundredth message of a day, sent twice at once in her two roles, goes through once", lastOfDay.filter(sent).length === 1 && lastOfDay.filter((r) => refusedAs(r) === "day").length === 1);
       check("after a hundred messages in a day the next one is refused", refusedAs(await say(day, busy.id)) === "day");
+
+      // The last free place of a minute, the same way.
+      const quick = await asHost(await person("limh6"), "limh6", `Limit Host Six ${RUN}`);
+      const quickFar = await rawConversation(quick.id, sink.id);
+      await rawMessages(quickFar.id, quick.id, CONVERSATION.perMinute - 1, { minutesAgo: 0.2 });
+      const q1 = (await openConversation({ userId: quick.id, callId: (await agreed({ hostId: quick.id, customerId: (await person("lim9")).id, startsInDays: 2 })).id }))!;
+      const q2 = (await openConversation({ userId: quick.id, callId: (await agreed({ hostId: herHost.id, customerId: quick.id, startsInDays: 2 })).id }))!;
+      const lastOfMinute = await Promise.all([say(q1, quick.id), say(q2, quick.id)]);
+      check("the tenth message of a minute, sent twice at once in two conversations, goes through once", lastOfMinute.filter(sent).length === 1 && lastOfMinute.filter((r) => refusedAs(r) === "minute").length === 1);
 
       // Twenty quiet conversations woken in a day.
       const waker = await asHost(await person("limh4"), "limh4", `Limit Host Four ${RUN}`);
       const woken = await rawConversation(waker.id, sink.id);
       // One each, as twenty wakes are twenty conversations; here they are counted, so one row holds them.
-      for (let i = 0; i < CONVERSATION.wakesPerDay; i++) await rawMessages(woken.id, waker.id, 1, { woke: true, minutesAgo: 600 - i });
+      for (let i = 0; i < CONVERSATION.wakesPerDay - 1; i++) await rawMessages(woken.id, waker.id, 1, { woke: true, minutesAgo: 600 - i });
       const past = await person("lim7");
+      const pastToo = await person("lim7b");
       await talkedPair(waker.id, past.id);
+      await talkedPair(waker.id, pastToo.id);
       const quiet = (await openConversation({ userId: waker.id, customerId: past.id }))!;
-      check("after twenty conversations woken in a day, the twenty-first is refused", refusedAs(await say(quiet, waker.id)) === "wakes");
+      const quietToo = (await openConversation({ userId: waker.id, customerId: pastToo.id }))!;
+      const lastWake = await Promise.all([say(quiet, waker.id), say(quietToo, waker.id)]);
+      check("the twentieth conversation woken in a day, tried twice at once, is woken once", lastWake.filter(sent).length === 1 && lastWake.filter((r) => refusedAs(r) === "wakes").length === 1);
+      check("after twenty conversations woken in a day, the twenty-first is refused", refusedAs(await say(lastWake[0].ok ? quietToo : quiet, waker.id)) === "wakes");
       const near = await person("lim8");
-      await agreed({ hostId: waker.id, customerId: near.id, startsInDays: 2 });
-      const around = (await openConversation({ userId: waker.id, customerId: near.id }))!;
+      const around = (await openConversation({ userId: waker.id, callId: (await agreed({ hostId: waker.id, customerId: near.id, startsInDays: 2 })).id }))!;
       check("a message around a call wakes nothing and still goes through", sent(await say(around, waker.id)));
     }
 
@@ -511,7 +605,7 @@ async function main() {
       const stop = new Date(Date.now() - 60_000);
       await agreed({ hostId: host.id, customerId: guest.id, startsInDays: -1, joined: [host.id, guest.id], safetyEnded: stop });
       check("the press alone, with no report sent, closes both conversations for both", refusedAs(await say(one, host.id)) === "closed" && refusedAs(await say(one, guest.id)) === "book_again" && refusedAs(await say(two, guest.id)) === "closed" && refusedAs(await say(two, host.id)) === "book_again");
-      const view = await viewOf((await conversationFor(guest.id, one))!, guest.id, new Date());
+      const view = (await viewFor(guest.id, one, new Date()))!;
       check("an earlier call, a call already booked and her recent message do not keep it open, and no booking button is offered", view.shownRefusal === "closed" && view.bookHref === null && view.facts.stopped && booked.cancelledAt === null);
       await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 3, source: "member", begunAt: new Date(), agreedAt: new Date() });
       check("a member's new booking, which the host is not asked about, opens nothing", refusedAs(await say(one, guest.id)) === "book_again");
@@ -527,20 +621,20 @@ async function main() {
     {
       const host = await asHost(await person("offh"), "offh", `Off Host ${RUN}`);
       const guest = await person("offc");
-      await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 2 });
-      const id = (await openConversation({ userId: host.id, customerId: guest.id }))!;
+      const id = (await openConversation({ userId: host.id, callId: (await agreed({ hostId: host.id, customerId: guest.id, startsInDays: 2 })).id }))!;
       await say(id, host.id, "Hello");
       await db.update(schema.user).set({ pausedAt: new Date(), pausedReason: "check" }).where(eq(schema.user.id, guest.id));
       check("a paused person cannot write, and the other one still can", refusedAs(await say(id, guest.id)) === "paused" && sent(await say(id, host.id)));
       await db.update(schema.user).set({ pausedAt: null, pausedReason: null, closedAt: new Date() }).where(eq(schema.user.id, guest.id));
       check("nobody can write to a closed account", refusedAs(await say(id, host.id)) === "closed");
+      check("and a closed account cannot write either (it can close while a message of its own waits)", refusedAs(await say(id, guest.id)) === "closed");
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, guest.id));
 
       await setSwitches({ conversationsOff: true });
       check("with the founder's switch off nothing can be sent", refusedAs(await say(id, host.id)) === "switched_off" && refusedAs(await say(talk, cory.id)) === "switched_off");
       const fresh = await person("offn");
-      await agreed({ hostId: host.id, customerId: fresh.id, startsInDays: 2 });
-      check("and no new conversation is opened", (await openConversation({ userId: host.id, customerId: fresh.id })) === null);
+      const freshCall = await agreed({ hostId: host.id, customerId: fresh.id, startsInDays: 2 });
+      check("and no new conversation is opened", (await openConversation({ userId: host.id, callId: freshCall.id })) === null);
       const off = await page(`/conversations/${talk}`, cory.jar);
       check("the conversation can still be read, and says that messages are switched off", off.status === 200 && off.words.includes("Looking forward to it.") && off.words.includes("Messages are switched off for the moment.") && !off.html.includes("data-composer"));
       check("it is still listed on Messages", (await page("/messages", cory.jar)).html.includes("data-conversations"));
@@ -549,6 +643,8 @@ async function main() {
     }
   } finally {
     await setSwitches({ conversationsOff: wasOff });
+    // Also a sign-up whose person was never written down here, because its confirmation failed.
+    for (const row of await db.select({ id: schema.user.id }).from(schema.user).where(like(schema.user.email, `talkcheck-${RUN}-%`))) if (!made.includes(row.id)) made.push(row.id);
     const ids = made.length ? made : ["-"];
     const callIds = calls.length ? calls : [randomUUID()];
     const mine = (await db.select({ id: schema.conversations.id }).from(schema.conversations).where(or(inArray(schema.conversations.hostId, ids), inArray(schema.conversations.customerId, ids)))).map((row) => row.id);

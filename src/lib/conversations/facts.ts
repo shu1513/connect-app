@@ -104,6 +104,7 @@ export async function factsFor(
     blockedByOther: blocks.some((block) => block.blockerId === otherId),
     paused: Boolean(me?.pausedAt),
     // Someone whose row is not there is treated as gone.
+    closed: !me || Boolean(me.closedAt),
     otherClosed: !other || Boolean(other.closedAt),
     aroundCall: calls.aroundCall,
     talked: calls.talked,

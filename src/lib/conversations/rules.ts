@@ -43,6 +43,8 @@ export type Facts = {
   blockedByOther: boolean;
   /** This person's own account is paused. */
   paused: boolean;
+  /** This person's own account is closed (it can close while a message of theirs waits for its turn). */
+  closed: boolean;
   /** The other person's account is closed. */
   otherClosed: boolean;
   /** A call that counts is agreed, and its booked end is less than 7 days ago. */
@@ -83,6 +85,10 @@ export function mayWrite(facts: Facts, now: Date): Verdict {
   if (!facts.switchOn) return { ok: false, why: "switched_off" };
   if (facts.blockedByMe) return { ok: false, why: "you_blocked" };
   if (facts.blockedByOther) return { ok: false, why: facts.role === "host" ? "not_taking" : "closed" };
+  // The customer's switch is said before anything about the host's own account, exactly where a block is said:
+  // whatever else is true of her, the two read the same (decision 15).
+  if (facts.role === "host" && !facts.aroundCall && facts.talked && facts.muted) return { ok: false, why: "not_taking" };
+  if (facts.closed) return { ok: false, why: "closed" };
   if (facts.paused) return { ok: false, why: "paused" };
   if (facts.otherClosed) return { ok: false, why: "closed" };
   // Around a call both may write, whatever the customer's switch says (decision 14).
@@ -91,7 +97,6 @@ export function mayWrite(facts: Facts, now: Date): Verdict {
   if (facts.role === "host") {
     // Outside a call she writes only to someone she has talked with (decision 6), with her page public (decision 11).
     if (!facts.talked) return { ok: false, why: "closed" };
-    if (facts.muted) return { ok: false, why: "not_taking" };
     if (!facts.hostPagePublic) return { ok: false, why: "page_not_public" };
     // It "wakes" when she has sent nothing here in the 7 days before (decision 18).
     return { ok: true, wakes: !hostWokeIt(facts.hostLastWroteAt, now) };

@@ -2,7 +2,7 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
-import { conversationFor, markShownUpTo, setMuted, shownRefusalFor, viewOf } from "@/lib/conversations/read";
+import { markShownUpTo, setMuted, shownRefusalFor, viewFor } from "@/lib/conversations/read";
 import { isConversationId, openConversation, sendMessage, type SendResult } from "@/lib/conversations/send";
 import { CONVERSATION_WORDS, limitWords, refusalWords } from "@/lib/conversations/words";
 import { withNotice } from "@/lib/notice";
@@ -14,9 +14,9 @@ import type { ComposerState } from "./composer-state";
 async function refusedWords(userId: string, conversationId: string, result: Extract<SendResult, { ok: false }>): Promise<string> {
   if (result.kind === "not_found") return CONVERSATION_WORDS.notFound;
   if (result.kind === "text") return result.which === "too_long" ? CONVERSATION_WORDS.tooLong : result.which === "empty" ? CONVERSATION_WORDS.empty : CONVERSATION_WORDS.wrong;
-  const conversation = await conversationFor(userId, conversationId);
-  if (!conversation) return CONVERSATION_WORDS.notFound;
-  const view = await viewOf(conversation, userId, new Date());
+  // Only the name and whether he can book are needed here, not the messages.
+  const view = await viewFor(userId, conversationId, new Date(), { messages: false });
+  if (!view) return CONVERSATION_WORDS.notFound;
   if (result.kind === "limit") return limitWords(result.problem, view.other.name);
   // The same sentence the page itself shows for this state: a form sent a moment too late gives nothing else away.
   return refusalWords(shownRefusalFor(result.why, view.bookHref !== null, result.stopped), view.other.name);

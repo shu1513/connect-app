@@ -302,9 +302,9 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       )}
 
       {role !== "admin" && !call.safetyEndedAt && !call.cancelledAt && (await conversationsOn()) && (
-        <p className="mt-4">
+        <div className="mt-4">
           <WriteTo callId={call.id} name={otherName} back={`/calls/${call.id}/results`} />
-        </p>
+        </div>
       )}
 
       {role !== "admin" && (

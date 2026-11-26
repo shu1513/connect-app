@@ -7,11 +7,12 @@ import { CONVERSATION_WORDS } from "@/lib/conversations/words";
  * host beside a past customer, that customer; who is the host and whether the two may write at
  * all is worked out on the server.
  *
- * A page draws this only while messages are switched on.
+ * A page draws this only while messages are switched on, and inside a block of its own, never
+ * inside a paragraph: a form cannot sit in one.
  */
 export function WriteTo(props: { name: string; back: string } & ({ callId: string } | { customerId: string })) {
   return (
-    <form action={openConversationAction} className="inline" data-write-to>
+    <form action={openConversationAction} data-write-to>
       {"callId" in props ? <input type="hidden" name="callId" value={props.callId} /> : <input type="hidden" name="customerId" value={props.customerId} />}
       <input type="hidden" name="back" value={props.back} />
       <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 text-sm">

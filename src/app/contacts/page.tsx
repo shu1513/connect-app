@@ -56,9 +56,9 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
                 </p>
               )}
               {canWrite && contact.wasMyCustomer && (
-                <p className="mt-3">
+                <div className="mt-3">
                   <WriteTo customerId={contact.userId} name={contact.name} back="/contacts" />
-                </p>
+                </div>
               )}
               {contact.wasMyCustomer && <Membership link={inviting.byCustomer.get(contact.userId) ?? null} canInvite={inviting.canInvite} customerId={contact.userId} name={contact.name} now={now} />}
               {contact.wasMyCustomer && <NoteForm customerId={contact.userId} name={contact.name} text={contact.note} max={NOTE_MAX} />}

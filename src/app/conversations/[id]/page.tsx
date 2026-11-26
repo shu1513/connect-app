@@ -6,7 +6,7 @@ import { LocalTime } from "@/components/local-time";
 import { RefreshEvery } from "@/components/refresh-every";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
-import { conversationFor, viewOf } from "@/lib/conversations/read";
+import { viewFor } from "@/lib/conversations/read";
 import { CONVERSATION } from "@/lib/conversations/rules";
 import { CONVERSATION_WORDS, refusalWords } from "@/lib/conversations/words";
 import { readNotice } from "@/lib/notice";
@@ -30,18 +30,19 @@ const REFRESH_SECONDS = 5;
 export default async function ConversationPage(props: PageProps<"/conversations/[id]">) {
   const { id } = await props.params;
   const user = await requireUser(`/conversations/${id}`);
-  const conversation = await conversationFor(user.id, id);
-  if (!conversation) notFound();
   const query = await props.searchParams;
   const from = typeof query.from === "string" && /^[0-9]{1,9}$/.test(query.from) ? Number(query.from) : undefined;
-  const view = await viewOf(conversation, user.id, new Date(), from);
+  const view = await viewFor(user.id, id, new Date(), { from });
+  if (!view) notFound();
   const notice = readNotice(`/conversations/${id}`, query);
-  const { other, role, verdict, shownRefusal, bookHref, messages } = view;
+  const { conversation, other, role, verdict, shownRefusal, bookHref, messages } = view;
   const here = `/conversations/${conversation.id}`;
   const highest = messages.length > 0 ? messages[messages.length - 1].number : 0;
   const shownUpTo = role === "host" ? conversation.hostShownNumber : conversation.customerShownNumber;
   // The customer's switch is his to see once it can mean something: the two have talked, or it is on.
   const showSwitch = role === "customer" && (view.facts.talked || view.facts.muted) && !view.facts.blockedByMe && !view.facts.blockedByOther;
+  // A quiet conversation, for the customer: the closed door points at a booking (the founder's decision).
+  const bookToWrite = shownRefusal === "book_again" && bookHref !== null;
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
@@ -90,26 +91,26 @@ export default async function ConversationPage(props: PageProps<"/conversations/
         </ol>
       )}
 
+      {view.hasLater && (
+        <p className="mt-4 text-sm">
+          <Link href={here} className="inline-flex min-h-11 items-center underline underline-offset-2" data-show-latest>
+            These are older messages. Back to the latest
+          </Link>
+        </p>
+      )}
+
+      {/* Always drawn, open or not: what someone typed stays when the conversation closes under them (composer.tsx). */}
+      <Composer conversationId={conversation.id} name={other.name} max={CONVERSATION.maxChars} open={verdict.ok} />
+
       {verdict.ok ? (
-        <>
-          <Composer conversationId={conversation.id} name={other.name} max={CONVERSATION.maxChars} />
-          <p className="mt-2 text-sm opacity-70">
-            {CONVERSATION_WORDS.staysOnConnect}{" "}
-            <Link href="/rules" className="underline underline-offset-2">
-              Read the rules
-            </Link>
-            .
-          </p>
-          {bookHref && (
-            <p className="mt-4 text-sm">
-              <Link href={bookHref} className="inline-flex min-h-11 items-center rounded border border-neutral-500 px-3" data-book-a-time>
-                {CONVERSATION_WORDS.bookATime(other.name)}
-              </Link>
-            </p>
-          )}
-        </>
-      ) : shownRefusal === "book_again" && bookHref ? (
-        // A quiet conversation, for the customer: the closed door points at a booking (the founder's decision).
+        <p className="mt-2 text-sm opacity-70">
+          {CONVERSATION_WORDS.staysOnConnect}{" "}
+          <Link href="/rules" className="underline underline-offset-2">
+            Read the rules
+          </Link>
+          .
+        </p>
+      ) : bookToWrite ? (
         <p className="mt-6 text-sm" data-closed="book_again">
           <Link href={bookHref} className="inline-flex min-h-11 items-center rounded bg-blue-600 px-4 font-medium text-white" data-book-to-write>
             {CONVERSATION_WORDS.bookToWrite(other.name)}
@@ -118,6 +119,15 @@ export default async function ConversationPage(props: PageProps<"/conversations/
       ) : (
         <p className="mt-6 rounded border border-neutral-400 p-3 text-sm" data-closed={shownRefusal ?? "closed"}>
           {refusalWords(shownRefusal ?? "closed", other.name)}
+        </p>
+      )}
+
+      {/* The ordinary way to book her, wherever he can and the big button above is not already it. */}
+      {bookHref && !bookToWrite && (
+        <p className="mt-4 text-sm">
+          <Link href={bookHref} className="inline-flex min-h-11 items-center rounded border border-neutral-500 px-3" data-book-a-time>
+            {CONVERSATION_WORDS.bookATime(other.name)}
+          </Link>
         </p>
       )}
 

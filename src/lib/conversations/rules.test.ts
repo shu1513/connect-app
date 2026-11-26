@@ -12,6 +12,7 @@ const base: Facts = {
   blockedByMe: false,
   blockedByOther: false,
   paused: false,
+  closed: false,
   otherClosed: false,
   aroundCall: false,
   talked: true,
@@ -112,6 +113,18 @@ describe("what stops everybody", () => {
 
   it("a blocked person is never told so when they are paused as well", () => {
     expect(mayWrite(host({ blockedByOther: true, paused: true }), now)).toEqual({ ok: false, why: "not_taking" });
+  });
+
+  it("a blocked host and a switched-off host get the same answer whatever else is true of her", () => {
+    for (const more of [{ paused: true }, { hostPagePublic: false }, { otherClosed: true }, { closed: true }, { hostLastWroteAt: ago(1000) }] as Partial<Facts>[]) {
+      expect(mayWrite(host({ ...more, muted: true }), now)).toEqual(mayWrite(host({ ...more, blockedByOther: true }), now));
+      expect(mayWrite(host({ ...more, muted: true }), now)).toEqual({ ok: false, why: "not_taking" });
+    }
+  });
+
+  it("someone whose own account closed while their message waited cannot send it", () => {
+    expect(mayWrite(host({ aroundCall: true, closed: true }), now)).toEqual({ ok: false, why: "closed" });
+    expect(mayWrite(customer({ aroundCall: true, closed: true }), now)).toEqual({ ok: false, why: "closed" });
   });
 
   it("a paused account cannot write, and nobody can write to a closed one", () => {
