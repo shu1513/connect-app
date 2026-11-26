@@ -712,9 +712,12 @@ first membership with a host; after that month has ended, the founder settles a 
   those days is paid for at the member price"), not the new one with "By joining you ask for
   your membership to start today". The button works for them too if they are still in their
   first 14 days, and their used time stays paid. Is that all right for those few?
-- The button refuses while a call booked from the membership starts in less than 10 minutes,
-  and for a month whose payment has a problem we must look at first (then the member is asked
-  to write to us). Do such refusals make the cancellation "not as easy as joining"?
+- The button refuses for a month whose payment has a problem we must look at first (then the
+  member is asked to write to us). Does such a refusal make the cancellation "not as easy as
+  joining"?
+- A call that has already begun when the member cancels is worked out as any call (what took
+  place is paid for; a member who does not come can be charged under the booking's terms).
+  Calls still to come are cancelled at no charge. Is that the right line?
 - Time used is kept only because the person was told of the right and asked for the service to
   start at once. The sentence they tick before joining now ends: "By joining you ask for your
   membership to start today." It is one line of a list with one tick for the whole list. Is

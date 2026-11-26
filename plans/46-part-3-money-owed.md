@@ -1384,10 +1384,14 @@ Everything else is as decisions 13 and 14 say. Made exact:
   the money is only held, is still there beside it.)
 - **Refusals** have a sentence for the founder (who can settle a case by hand) and one for the
   member (who is pointed to the normal way of cancelling). Beside the cases of decision 13,
-  three more refuse: a month whose payment has a problem the founder must look at (Stripe took
-  a part of it); a form that was drawn for another month; and a call booked from the
-  membership that starts in less than 10 minutes (the clean-up must cancel the coming calls
-  before one of them begins).
+  two more refuse: a month whose payment has a problem the founder must look at (Stripe took
+  a part of it); and a form that was drawn for another month.
+- **The order:** first the calls booked from the membership that are still to come are
+  cancelled (their time goes back into the month); only then is the membership ended, and the
+  month's free money goes back to the card in one line. So no call is still to come when the
+  membership ends, and none can start, and be charged, between the ending and its clean-up. A
+  call that had already begun is worked out as usual, and the member's email says so. If a
+  coming call cannot be cancelled just then, nothing is ended and the person presses again.
 - **The founder's press is on record** (`admin_actions`), with the day entered.
 - **Pressed twice:** the second press finds the membership ended and refuses.
 - **The sentence before joining** (decision 14) is now for everyone: "You can cancel your
@@ -1401,9 +1405,9 @@ Everything else is as decisions 13 and 14 say. Made exact:
 - **The phone apps** have no such button yet: a member there uses the website or writes to us.
 
 **Checked by** two scripts against Stripe's test mode. The action itself:
-`scripts/member-calls-check.ts`, a journey of its own (36 checks), which calls the library as
+`scripts/member-calls-check.ts`, a journey of its own (38 checks), which calls the library as
 the member and as the founder. The real pages and forms: `scripts/membership-journey-check.ts`
-(117 checks in all), where a member's page draws the button, a stranger and a form for another
+(118 checks in all), where a member's page draws the button, a stranger and a form for another
 month change nothing, her own press ends the membership, and the founder's real form is posted
 with another month and with a day that cannot be. The cases of the list under "Part 3c" above
 are in the first. A bank's dispute is played by the month's own mark. "A late cancellation that
@@ -1423,9 +1427,11 @@ what it proposed.
    cancels it, and be charged although the member was told it is cancelled. Astra proposed to
    cancel the coming calls inside the ending step. That would mean a second copy of how a call
    is cancelled; and every other ending (the host's, a block, a closed account) has the same
-   moment. **Done instead:** the button refuses while a call booked from the membership starts
-   in less than 10 minutes, so the clean-up always has that long. The same moment for the other
-   endings is left as it was.
+   moment. **Done instead**, in two steps. First: the button refused while a call started in
+   less than 10 minutes. CodeRabbit then showed that this only made the moment smaller (a
+   clean-up can be late by more than 10 minutes). So now: the coming calls are cancelled
+   first, with the ordinary cancellation, and the membership is ended only after that; the
+   10-minute refusal is gone. The same moment for the other endings is left as it was.
 3. **The clock was read before the month was locked.** The month is locked first now, and
    judged as it stands under the lock.
 4. and 5. **Someone at the card step** had no button, would have got no email, and an old form
@@ -1448,4 +1454,7 @@ what it proposed.
    month" for a membership that had ended. The sentences name no button now, and the ended
    state is said first.
 
-No second look was asked for. CodeRabbit reads the pull request.
+No second look was asked for. CodeRabbit read the pull request and made two points, both
+taken: the order above (its point was the same as Astra's second, and showed that the first
+answer to it was not enough); and the page journey now requires the founder's form on a new
+membership (Dave's) before it posts it, so a form that went missing would fail the check.

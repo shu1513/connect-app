@@ -1132,7 +1132,11 @@ async function main() {
     const after = { used: await pay(took), late: await pay(lateCall.call), coming: await pay(coming.call) };
     check("the call that took place stays paid at the member price, and the host's share of it is untouched", pressed === null && after.used.status === "charged" && after.used.chargedCents === 1500 && after.used.originalHostShareCents === before.used.originalHostShareCents && after.used.refundedCents === 0 && after.used.transferStatus === before.used.transferStatus, `${pressed} ${after.used.status} ${after.used.chargedCents}`);
     check("the late cancellation that was charged stays charged", after.late.status === "charged" && after.late.chargedCents === 1500 && after.late.refundedCents === 0);
-    check("the call still to come is cancelled, and its money goes back once, through its own line", Boolean((await callOf(coming.booking)).cancelledAt) && after.coming.status === "closed_uncharged" && (await refundsOf(m.monthId)).filter((line) => line.sourceKey.startsWith(`callreturn:${after.coming.id}:`)).length === 1);
+    // The coming call is cancelled BEFORE the membership ends. The proof is where its money went: back into the month
+    // first (a call cancelled after the ending would go straight to the card, in a line of its own), and from there to
+    // the card in the one line of the month's free money.
+    const backLines = await refundsOf(m.monthId);
+    check("the call still to come is cancelled before the membership ends, and its money goes back once, with the rest of the month's free money", Boolean((await callOf(coming.booking)).cancelledAt) && after.coming.status === "closed_uncharged" && backLines.length === 1 && backLines[0].sourceKey === `ending:${m.monthId}` && backLines[0].amountCents === 3000, JSON.stringify(backLines.map((line) => [line.sourceKey, line.amountCents])));
     check("the rest goes back to the card: $30.00 used stays, $30.00 is paid back, nothing expires to the host", (await places(m.monthId)) === "0/0/3000/0/0/3000", await places(m.monthId));
     const told = await emailText(m.member.email, "has ended");
     check("the email that confirms it names the calls that stayed paid for", /These stay paid for, at the member price, under your booking's terms:/.test(told) && /\$15\.00 \(charged for the call\)/.test(told) && /\$15\.00 \(charged because it was cancelled late\)/.test(told) && /What you paid for this month is given back to your card, except for what is listed below/.test(told), told);
@@ -1142,6 +1146,22 @@ async function main() {
     await helper(new Date());
     check("pressed again, by the member and by the founder: refused, and nothing is paid back twice", /already ended/.test(again ?? "") && /already ended/.test(againByFounder ?? "") && (await refundsOf(m.monthId)).length === linesBefore && (await places(m.monthId)) === "0/0/3000/0/0/3000", `${again} | ${againByFounder}`);
     await audit("after a 14-day cancellation with time used", m);
+
+    console.log("   …a call that starts in five minutes, and one that is under way");
+    const near = await member(host);
+    const nearly = await booked(near, { nth: 0 });
+    const underWay = await booked(near, { nth: 1 });
+    await moveCall(nearly.call, new Date(Date.now() + 5 * MIN));
+    const live = await moveCall(underWay.call, new Date(Date.now() - 10 * MIN));
+    const withCalls = await own(near);
+    await helper(new Date());
+    const nearLines = await refundsOf(near.monthId);
+    check("the call in five minutes is cancelled before the membership ends (its money went into the month, then to the card with the rest), so it can never be charged afterwards", withCalls === null && (await MS(near.membershipId)).status === "ended" && Boolean((await callOf(nearly.booking)).cancelledAt) && (await pay(nearly.call)).status === "closed_uncharged" && nearLines.length === 1 && nearLines[0].sourceKey === `ending:${near.monthId}` && nearLines[0].amountCents === 4500, `${withCalls} ${JSON.stringify(nearLines.map((line) => [line.sourceKey, line.amountCents]))}`);
+    check("the call under way is left alone, with its money still set aside, and the email says it is worked out as usual", !(await callOf(underWay.booking)).cancelledAt && (await pay(live)).status === "held" && (await places(near.monthId)) === "0/1500/0/0/0/4500" && /One call that had already begun or taken place is not worked out yet/.test(await emailText(near.member.email, "has ended")), await places(near.monthId));
+    await attend(live, [[host.id, 0, 1800], [near.member.id, 0, 1800]]);
+    await settleFinishedCalls(new Date(live.startsAt.getTime() + DAY + 4 * MIN));
+    await helper(new Date(live.startsAt.getTime() + DAY + HOUR));
+    check("when that call is worked out, what it used stays paid and nothing more goes back", (await places(near.monthId)) === "0/0/1500/0/0/4500", await places(near.monthId));
 
     console.log("   …the 14 days: the member's button, and the day the founder enters");
     const d = await member(host);
@@ -1174,13 +1194,6 @@ async function main() {
     check("the first month has already ended: both refused, each with its own sentence", /first month has already ended/.test(founderAfterEnd ?? "") && /settle this case by hand/.test(founderAfterEnd ?? "") && /first 14 days of a new membership/.test(memberAfterEnd ?? "") && !/by hand/.test(memberAfterEnd ?? "") && (await MS(over.membershipId)).status === "active", `${founderAfterEnd} | ${memberAfterEnd}`);
 
     const banked = await member(host);
-    // A call booked from the membership that starts in five minutes: the clean-up might not get to it before it begins.
-    const nearly = await booked(banked, { nth: 0 });
-    const inFive = await moveCall(nearly.call, new Date(Date.now() + 5 * MIN));
-    const tooSoon = await own(banked);
-    const tooSoonFounder = await press(banked.membershipId);
-    check("a call that starts in less than 10 minutes: refused for both, and nothing changed", /starts in less than 10 minutes/.test(tooSoon ?? "") && /starts in less than 10 minutes/.test(tooSoonFounder ?? "") && (await MS(banked.membershipId)).status === "active" && !(await callOf(nearly.booking)).cancelledAt, `${tooSoon} | ${tooSoonFounder}`);
-    await moveCall(inFive, nearly.call.startsAt);
     // A month whose payment has a problem the founder must look at (Stripe took a part of it, say).
     await db.update(months).set({ problem: "Stripe took $20.00 of $60.00." }).where(eq(months.id, banked.monthId));
     const odd = await own(banked);

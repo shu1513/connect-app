@@ -5477,8 +5477,9 @@ first 14 days. And a form on the founder's Memberships page for a request that c
 with the day it arrived. The action refuses, with a sentence for whoever pressed: after the 14
 days; someone still at the card step (nothing was paid); a membership that was resumed or is
 the two people's second; a first month that has ended; a month a bank has a question about, or
-whose payment has a problem; a form drawn for another month; and while a call booked from the
-membership starts in less than 10 minutes. Otherwise it ends the membership with a reason of
+whose payment has a problem; and a form drawn for another month. Calls still to come are
+cancelled first, and the membership is ended only then, so no call can start and be charged
+between the ending and its clean-up. Otherwise it ends the membership with a reason of
 its own and runs the clean-up every ending has: the hold let go, calls still to come cancelled,
 unused money back to the card. Time used and a charged late cancellation stay paid for; the
 member's email names them. The sentence before joining is the new one, for everyone, with a new
@@ -5491,17 +5492,20 @@ Anything that works out a sum of its own. A button in the phone apps.
 them in another way than it proposed (the list is at the end of the plan). The ones about
 money: a month of which Stripe took only a part would have been called "nothing charged"; a
 call starting seconds after the cancellation could still have been charged; and the clock was
-read before the month was locked. No second look was asked for.
+read before the month was locked. No second look was asked for. CodeRabbit made two points,
+both taken: the first answer to that call (a refusal for 10 minutes) was not enough, so the
+coming calls are now cancelled before the membership ends; and the page check requires the
+founder's form before posting it.
 
 **How it was checked.** Type check, lint, the automatic tests (the days, to the day; every
 sentence of the note; a sentence for the member and one for the founder for every refusal; the
-calls the note lists). The real pages and forms, in `scripts/membership-journey-check.ts` (117
+calls the note lists). The real pages and forms, in `scripts/membership-journey-check.ts` (118
 checks in all): the button on a member's page, a stranger's post, a form for another month,
 her own press, and the founder's form posted with another month and with a day that cannot be.
-The action itself, in `scripts/member-calls-check.ts`, a journey of its own (36 checks), against
+The action itself, in `scripts/member-calls-check.ts`, a journey of its own (38 checks), against
 Stripe's test mode: only held; still to be paid; paid and nothing used; paid with one call used, one
 cancelled late and one to come; the member's button on day 20; a written request of day 15, of
 a future day, of a day before joining, and of day 14 handled on day 20; the first month ended; a
 resumed membership; a second membership; a bank on the month; a payment with a problem; a call
-in five minutes; the card step; somebody else's membership; pressed twice; the sentence and its
+in five minutes (cancelled) and one under way (worked out as usual); the card step; somebody else's membership; pressed twice; the sentence and its
 version.

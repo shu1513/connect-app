@@ -640,9 +640,12 @@ async function main() {
       const founderForms = formsOf(founder.text);
       const fourteen = founderForms.filter((f) => f.buttons.includes("Cancel this membership within the 14 days"));
       check("the page has nothing to press but the 14-day form of a new membership, and each such form asks for the day", founderForms.every((f) => fourteen.includes(f) || f.buttons.every((b) => /log out/i.test(b))) && fourteen.every((f) => f.fields.some(([name]) => name === "membership")) && (fourteen.length === 0 || founder.words.includes("request reached Connect")), JSON.stringify(founderForms.map((f) => f.buttons)));
-      if (fourteen.length > 0) {
+      // Dave joined in this journey and is in his first month: his membership must have the form, with its three fields.
+      const daveForm = fourteen.find((f) => f.fields.some(([name, value]) => name === "membership" && value === dave.membershipId));
+      check("a new membership in its first month (Dave's) has the founder's 14-day form, with the membership, its month and the day", daveForm !== undefined && daveForm.fields.some(([name, value]) => name === "month" && value === dave.monthId) && /name="day"/.test(founder.text), JSON.stringify(fourteen.map((f) => f.fields)));
+      if (daveForm) {
         // The founder's real form, posted: with another month's id, and with a day that cannot be. Neither changes anything.
-        const itsMembership = fourteen[0].fields.find(([name]) => name === "membership")![1];
+        const itsMembership = dave.membershipId;
         const sameForm = (form: Form) => form.fields.some(([name, value]) => name === "membership" && value === itsMembership);
         const staleMonth = await press(admin, "/admin/memberships", "Cancel this membership within the 14 days", { month: randomUUID(), day: new Date().toISOString().slice(0, 10) }, { where: sameForm });
         const tomorrow = await press(admin, "/admin/memberships", "Cancel this membership within the 14 days", { day: new Date(Date.now() + DAY).toISOString().slice(0, 10) }, { where: sameForm });

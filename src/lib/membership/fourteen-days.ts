@@ -27,7 +27,7 @@ import type { Membership, MembershipMonth } from "@/db/schema";
 import { whenFor } from "@/lib/booking/emails";
 import type { Tx } from "@/lib/payments/operations";
 import { recordAdminAction } from "@/lib/safety/audit";
-import { cleanUpEnding } from "./ending";
+import { cancelUpcomingMemberCalls, cleanUpEnding } from "./ending";
 import { lockPeople } from "./join";
 import { lockCalendar, lockMembership, lockMonth } from "./locks";
 import { MembershipError } from "./rules";
@@ -95,13 +95,7 @@ export const WHY_FOR_MEMBER: Record<NotOpen, string> = {
 export const DAYS_OVER_FOR_MEMBER = `The 14 days after joining are over. ${NORMAL_WAY}`;
 /** The form was drawn for a month that is no longer the membership's current one. */
 export const MOVED_ON = "This membership has moved on since this page was opened. Nothing was changed. Please look at it again.";
-/**
- * A call booked from this membership that starts this soon stops the button: the clean-up must have time to cancel
- * the calls still to come before any of them starts.
- */
-export const CALL_TOO_SOON_MS = 10 * 60_000;
-export const CALL_SOON_FOR_MEMBER = "A call you booked from this membership starts in less than 10 minutes. Please cancel your membership after that call, or write to us.";
-export const CALL_SOON_FOR_FOUNDER = "A call booked from this membership starts in less than 10 minutes. Press again after that call: a call that has begun is worked out as usual, and the rest still goes back.";
+
 
 /** Whether this way of cancelling applies to this membership right now: its first month and when the member joined, or why not. */
 export type FourteenDayCase = { ok: true; month: MembershipMonth; joinedAt: Date; lastDay: string } | { ok: false; why: NotOpen };
@@ -197,42 +191,76 @@ export function callsForNote(payments: CallPayment[], at: Date): { stays: Array<
 /** Who presses: the member, on their own membership; or the founder, for a request that came in writing. */
 export type Canceller = { as: "member"; memberId: string } | { as: "founder"; adminId: string; requestDay: string };
 
+/** A call still to come could not be cancelled just now (the database, say): the membership is not ended, and the person presses again. */
+export const CALLS_NOT_CANCELLED = "One of the calls booked from this membership could not be cancelled just now, so the membership was not cancelled yet. Please press again in a minute.";
+
+/**
+ * With every lock held (the host's calendar, the two people, the membership, its current month, in the one order):
+ * whether this person may cancel this membership this way at this moment. Throws a sentence for whoever pressed
+ * when not. Writes nothing.
+ *
+ * `fixedAt` is the moment of a first look that already said yes: the second look, right before the ending, judges
+ * the days and the month's end by that same moment, so that a press a second before midnight is not refused a
+ * second after it with its calls already cancelled.
+ */
+async function decide(tx: Tx, input: { membershipId: string; by: Canceller; shownMonthId?: string; now?: Date }, fixedAt?: Date): Promise<{ membership: Membership; month: MembershipMonth; joinedAt: Date; at: Date }> {
+  const { by } = input;
+  const [found] = await tx.select({ hostId: schema.memberships.hostId, customerId: schema.memberships.customerId }).from(schema.memberships).where(eq(schema.memberships.id, input.membershipId));
+  // Someone else's membership and one that does not exist look the same.
+  if (!found || (by.as === "member" && found.customerId !== by.memberId)) throw new MembershipError("Membership not found.");
+  await lockCalendar(tx, found.hostId);
+  await lockPeople(tx, [found.hostId, found.customerId]);
+  const membership = await lockMembership(tx, input.membershipId);
+  // Its current month is locked before anything is judged (a collection, or the taking of the money, can hold it).
+  if (membership.currentMonthId) await lockMonth(tx, membership.currentMonthId);
+  // The moment is taken only now, with every lock held: which side of the month's end, and of the last day, it
+  // falls on decides everything, and the wait for a lock must not move it back.
+  const at = fixedAt ?? (input.now ? new Date(Math.max(input.now.getTime(), Date.now())) : new Date());
+  // The month, read again under its lock, is the one that is judged.
+  const judged = await fourteenDayCase(tx, membership, at);
+  if (!judged.ok) throw new MembershipError((by.as === "member" ? WHY_FOR_MEMBER : WHY_FOR_FOUNDER)[judged.why]);
+  const month = judged.month;
+  // The form was drawn for one month. If the membership's current month is another one by now, nothing is cancelled.
+  if (input.shownMonthId && input.shownMonthId !== month.id) throw new MembershipError(MOVED_ON);
+  if (by.as === "member") {
+    if (!withinTheDays(judged.joinedAt, at)) throw new MembershipError(DAYS_OVER_FOR_MEMBER);
+  } else {
+    const refusal = requestDayRefusal({ requestDay: by.requestDay, joinedAt: judged.joinedAt, now: at });
+    if (refusal) throw new MembershipError(refusal);
+  }
+  // If the month's money is being taken at this very moment, its outcome is not known yet.
+  const [taking] = await tx.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.monthId, month.id), eq(schema.moneyOperations.kind, "capture"), eq(schema.moneyOperations.status, "started")));
+  if (taking) throw new MembershipError("This month's payment is being taken at this moment. Please try again in a minute.");
+  return { membership, month, joinedAt: judged.joinedAt, at };
+}
+
 /**
  * Cancels a new membership within the 14 days. Refuses, with a sentence for whoever pressed, whenever the case is
- * not the plain one; then ends the membership in one step and runs the usual clean-up. Pressed twice, the second
- * press finds the membership ended and refuses, so nothing is paid back twice.
+ * not the plain one. Then, in this order:
+ *
+ *   1. the calls booked from the membership that are still to come are cancelled (their time goes back into the
+ *      month, as for any call Connect cancels);
+ *   2. only then the membership is ended, in one step, and the month's free money is owed back to the card by the
+ *      clean-up every ending has.
+ *
+ * The order matters. An ending is saved before its clean-up runs, and a clean-up that came late would pass over a
+ * call that had started meanwhile: the member, told that their calls are cancelled, would be charged for it. Here
+ * no call is still to come when the membership ends. A call that had already begun is worked out as usual, and
+ * the member's email says so. If step 1 cannot finish, nothing is ended and the person presses again; calls it
+ * did cancel stay cancelled, with their time back in the month.
+ *
+ * Pressed twice, the second press finds the membership ended and refuses, so nothing is paid back twice.
  */
 export async function cancelWithin14Days(input: { membershipId: string; by: Canceller; /** The month the form was drawn for: if another one is current by now, nothing is cancelled. */ shownMonthId?: string; now?: Date }): Promise<void> {
   const { by } = input;
-  const ended = await db.transaction(async (tx) => {
-    const [found] = await tx.select({ hostId: schema.memberships.hostId, customerId: schema.memberships.customerId }).from(schema.memberships).where(eq(schema.memberships.id, input.membershipId));
-    // Someone else's membership and one that does not exist look the same.
-    if (!found || (by.as === "member" && found.customerId !== by.memberId)) throw new MembershipError("Membership not found.");
-    // The locks in the one order: the host's calendar, the two people, the membership, its month.
-    await lockCalendar(tx, found.hostId);
-    await lockPeople(tx, [found.hostId, found.customerId]);
-    const membership = await lockMembership(tx, input.membershipId);
-    // Its current month is locked before anything is judged (a collection, or the taking of the money, can hold it).
-    if (membership.currentMonthId) await lockMonth(tx, membership.currentMonthId);
-    // The moment is taken only now, with every lock held: which side of the month's end, and of the last day, it
-    // falls on decides everything, and the wait for a lock must not move it back.
-    const at = input.now ? new Date(Math.max(input.now.getTime(), Date.now())) : new Date();
-    // The month, read again under its lock, is the one that is judged.
-    const judged = await fourteenDayCase(tx, membership, at);
-    if (!judged.ok) throw new MembershipError((by.as === "member" ? WHY_FOR_MEMBER : WHY_FOR_FOUNDER)[judged.why]);
-    const month = judged.month;
-    // The form was drawn for one month. If the membership's current month is another one by now, nothing is cancelled.
-    if (input.shownMonthId && input.shownMonthId !== month.id) throw new MembershipError(MOVED_ON);
-    if (by.as === "member") {
-      if (!withinTheDays(judged.joinedAt, at)) throw new MembershipError(DAYS_OVER_FOR_MEMBER);
-    } else {
-      const refusal = requestDayRefusal({ requestDay: by.requestDay, joinedAt: judged.joinedAt, now: at });
-      if (refusal) throw new MembershipError(refusal);
-    }
-    // If the month's money is being taken at this very moment, its outcome is not known yet.
-    const [taking] = await tx.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.monthId, month.id), eq(schema.moneyOperations.kind, "capture"), eq(schema.moneyOperations.status, "started")));
-    if (taking) throw new MembershipError("This month's payment is being taken at this moment. Please try again in a minute.");
+  // A first look, which writes nothing: every refusal comes before any call is cancelled.
+  const first = await db.transaction(async (tx) => (await decide(tx, input)).at);
+  // 1. The calls still to come. (Each in a step of its own, with its own locks: the membership's are not held here.)
+  if (!(await cancelUpcomingMemberCalls(input.membershipId, first))) throw new MembershipError(CALLS_NOT_CANCELLED);
 
+  // 2. The ending, judged once more under the locks, by the moment of the first look.
+  const ended = await db.transaction(async (tx) => {
+    const { membership, month, joinedAt, at } = await decide(tx, input, first);
     // The payments of this month's calls (a call can have more than one: its own, and time added from the membership).
     const payments = await tx
       .select({ callId: schema.calls.id, startsAt: schema.calls.startsAt, cancelledAt: schema.calls.cancelledAt, status: schema.payments.status, chargedCents: schema.payments.chargedCents, refundedCents: schema.payments.refundedCents, chargeReason: schema.payments.chargeReason })
@@ -240,12 +268,9 @@ export async function cancelWithin14Days(input: { membershipId: string; by: Canc
       .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
       .where(and(eq(schema.payments.monthId, month.id), eq(schema.payments.kind, "member_call")))
       .orderBy(schema.calls.startsAt);
-    // A call that is still to come is cancelled by the clean-up, right after this step. One that starts within
-    // minutes could begin before the clean-up gets to it, and would then be charged as usual although the member was
-    // told it is cancelled. So the button waits until that call is over.
-    const soon = payments.some((p) => p.status === "held" && p.cancelledAt === null && p.startsAt > at && p.startsAt.getTime() - at.getTime() <= CALL_TOO_SOON_MS);
-    if (soon) throw new MembershipError(by.as === "member" ? CALL_SOON_FOR_MEMBER : CALL_SOON_FOR_FOUNDER);
-    const calls = callsForNote(payments, at);
+    // Judged by the clock as it is now, not by the first look: a call that began while the coming ones were being
+    // cancelled has begun.
+    const calls = callsForNote(payments, new Date(Math.max(at.getTime(), Date.now())));
     const [member] = await tx.select({ timeZone: schema.user.timeZone }).from(schema.user).where(eq(schema.user.id, membership.customerId));
     const note = fourteenDayNote({
       requestDay: by.as === "founder" ? by.requestDay : null,
@@ -255,12 +280,12 @@ export async function cancelWithin14Days(input: { membershipId: string; by: Canc
     });
 
     if (by.as === "founder") {
-      await recordAdminAction({ adminId: by.adminId, action: "membership cancelled within 14 days", targetUserId: membership.customerId, targetId: membership.id, detail: `The request reached Connect on ${by.requestDay}; joined ${dayOf(judged.joinedAt)}.` }, tx);
+      await recordAdminAction({ adminId: by.adminId, action: "membership cancelled within 14 days", targetUserId: membership.customerId, targetId: membership.id, detail: `The request reached Connect on ${by.requestDay}; joined ${dayOf(joinedAt)}.` }, tx);
     }
     // (Who ended it: "admin", or the member's own account, as for every ending.)
     return endMembership(tx, membership, { by: by.as === "founder" ? "admin" : by.memberId, reason: FOURTEEN_DAYS_REASON, memberNote: note }, at);
   });
-  // The clean-up: the hold let go, coming member calls cancelled, free money owed back. The helper repeats it until it is done.
+  // The clean-up: the hold let go, free money owed back, and any call booked in the moment between. The helper repeats it until it is done.
   if (ended) await cleanUpEnding(input.membershipId, input.now ?? new Date()).catch((error) => console.error(`[membership] the clean-up of membership ${input.membershipId}, cancelled within 14 days, did not finish; the helper will retry`, error));
 }
 

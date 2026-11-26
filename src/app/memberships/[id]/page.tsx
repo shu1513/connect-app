@@ -396,7 +396,7 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
               <li>
                 &quot;Cancel within 14 days&quot; is for a new membership, until the end of {fourteenUntil} (UTC). It <strong>ends your membership at once, for good</strong>: to come back you would need a new invitation from{" "}
                 {hostName}. {held ? "If this month's amount is still only held on your card at that moment, it is let go and nothing is charged; if it has been taken by then, what you have not used goes back to your card." : "What you paid for this month goes back to your card, except for time you have used and for a call you cancelled late or missed that was already charged; those stay paid for at the member price."}{" "}
-                Calls you have booked from your membership that are still to come are cancelled (if one starts in less than 10 minutes, cancel after it).
+                Calls you have booked from your membership that are still to come are cancelled; one that has already begun is worked out as usual.
               </li>
             )}
             {!membership.memberStoppedAt && (
