@@ -208,11 +208,13 @@ Messaging between customers and hosts is not built. If it is, the points are in
 terms must say about staff reading reported messages, and the UK and EU rules.
 
 One more point, from the founder's thoughts of 26 November 2026 (`docs/module-record.md`, module
-8b): a host could write first to a customer she has had a call with, at any time, and Connect
-would send that customer an email saying a message is waiting. Is a message like "I have a time
-free on Thursday" advertising under the rules for commercial email and messages (in the United
-States and, for customers there, the UK and EU)? If so, what must the customer have agreed to
-beforehand, and is a switch for each host and one for all hosts enough as the way out?
+8b; plan 49): a host can write first to a customer she has had a call with, at any time. The
+customer reads it inside Connect; no email is sent about it for now (the founder's decision). Is
+a message like "I have a time free on Thursday" advertising under the rules for commercial
+messages (in the United States and, for customers there, the UK and EU)? If so, what must the
+customer have agreed to beforehand, and is his switch for each host enough as the way out? And if
+Connect later sends an email that only says "a message is waiting", with a "Book a time" link:
+does that email need the postal address and the stop link that advertising email needs?
 
 ## 9. The company and the founder (new, legal review of 20 November 2026)
 
