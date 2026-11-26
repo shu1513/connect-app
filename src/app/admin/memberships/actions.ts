@@ -20,7 +20,9 @@ export async function cancelWithin14DaysAction(formData: FormData) {
   if (!UUID.test(membershipId)) back("That form is no longer valid. Reload the page and try again.");
   let notice: string;
   try {
-    await cancelWithin14Days({ membershipId, by: { as: "founder", adminId: admin.id, requestDay: String(formData.get("day") ?? "").trim() } });
+    // (The month the form was drawn for goes along: if the membership has another one by now, nothing is cancelled.)
+    const shown = String(formData.get("month") ?? "");
+    await cancelWithin14Days({ membershipId, by: { as: "founder", adminId: admin.id, requestDay: String(formData.get("day") ?? "").trim() }, shownMonthId: UUID.test(shown) ? shown : undefined });
     notice = "The membership is cancelled within the 14 days. The member and the host are told. A hold is let go, calls still to come are cancelled, and what goes back to the card shows under \"Pay-backs not done\" until Stripe has confirmed it.";
   } catch (error) {
     // A MembershipError is a refusal before anything changed. Anything else may have happened after the ending was saved.

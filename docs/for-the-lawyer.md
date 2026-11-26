@@ -704,7 +704,17 @@ first membership with a host; after that month has ended, the founder settles a 
   days after it, by the UTC calendar. Whose calendar should count (the member's own time
   zone?), and is "day of joining plus 14" the right way to count the period?
 - "Joining" is taken as the moment the bank authorised the first month's amount. Is that the
-  day the contract was concluded, or is it the moment the person ticked the box?
+  day the contract was concluded, or is it the moment the person ticked the box? (Someone who
+  ticked the box and never finished the card step has paid nothing; the app has nothing to
+  cancel for them.)
+- **People who joined before this change** ticked the earlier sentence ("Where a 14-day right
+  to cancel applies to you (in the United Kingdom and Europe) ... Time you booked or used in
+  those days is paid for at the member price"), not the new one with "By joining you ask for
+  your membership to start today". The button works for them too if they are still in their
+  first 14 days, and their used time stays paid. Is that all right for those few?
+- The button refuses while a call booked from the membership starts in less than 10 minutes,
+  and for a month whose payment has a problem we must look at first (then the member is asked
+  to write to us). Do such refusals make the cancellation "not as easy as joining"?
 - Time used is kept only because the person was told of the right and asked for the service to
   start at once. The sentence they tick before joining now ends: "By joining you ask for your
   membership to start today." It is one line of a list with one tick for the whole list. Is

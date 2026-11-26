@@ -1067,29 +1067,29 @@ async function main() {
     const today = () => F.dayOf(new Date());
     const byFounder: string[] = [];
     /** The member presses their own button. Gives back the refusal in words, or null when the membership was cancelled. */
-    const own = (m: { membershipId: string; member: Person }, opts: { now?: Date; as?: Person } = {}) => refused(F.cancelWithin14Days({ membershipId: m.membershipId, by: { as: "member", memberId: (opts.as ?? m.member).id }, now: opts.now }));
+    const own = (m: { membershipId: string; member: Person }, opts: { now?: Date; as?: Person; shown?: string } = {}) => refused(F.cancelWithin14Days({ membershipId: m.membershipId, by: { as: "member", memberId: (opts.as ?? m.member).id }, shownMonthId: opts.shown, now: opts.now }));
     /** The founder presses, for a request that came in writing. */
-    const press = (membershipId: string, opts: { day?: string; now?: Date } = {}) => {
+    const press = (membershipId: string, opts: { day?: string; now?: Date; shown?: string } = {}) => {
       byFounder.push(membershipId);
-      return refused(F.cancelWithin14Days({ membershipId, by: { as: "founder", adminId: founder.id, requestDay: opts.day ?? today() }, now: opts.now }));
+      return refused(F.cancelWithin14Days({ membershipId, by: { as: "founder", adminId: founder.id, requestDay: opts.day ?? today() }, shownMonthId: opts.shown, now: opts.now }));
     };
     const intentOf = async (monthId: string) => stripe().paymentIntents.retrieve((await M(monthId)).stripePaymentIntentId!);
     const host = await newHost({ freeCancelMinutes: 60 });
 
     console.log("   …the sentence before joining");
     const sentences = W.agreementSentences({ hostName: "Host", monthlyCents: 6000, includedMinutes: 120 });
-    check("the sentence people tick is the new one, for everyone, with a new version", sentences.some((line) => line.includes('You can cancel a new membership within 14 days of joining: with "Cancel within 14 days" on your membership\'s page, or by writing to us.') && line.includes("Time you used before it is cancelled, and a call you cancelled late or missed if it was charged under your booking's terms, is paid for at the member price; the rest of what you paid is given back.")) && WORDING === "2026-11-26" && !sentences.some((line) => line.includes("in the United Kingdom and Europe")));
+    check("the sentence people tick is the new one, for everyone, with a new version", sentences.some((line) => line.includes('You can cancel your first membership with Host within 14 days of joining: with "Cancel within 14 days" on your membership\'s page, or by writing to us') && line.includes("Time you used before it ends, and a call you cancelled late or missed if it was charged under your booking's terms, is paid for at the member price; the rest of what you paid is given back.") && line.includes("By joining you ask for your membership to start today.")) && WORDING === "2026-11-26" && !sentences.some((line) => line.includes("in the United Kingdom and Europe")));
     const reader = await person("member");
     await talked(host, reader);
     const shown = await J.invite({ hostId: host.id, customerId: reader.id, now: new Date() });
     const stale = await refused(J.join({ customerId: reader.id, inviteId: shown.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: "2026-11-20", now: new Date() }));
     check("a page that still showed the old sentence cannot be agreed to", /wording of this page has changed/.test(stale ?? ""), stale);
 
-    console.log("   …joined, the card step never finished: nothing was paid (the founder's button)");
+    console.log("   …at the card step: not a member yet, nothing was paid, so there is nothing to cancel");
     const atCard = await J.join({ customerId: reader.id, inviteId: shown.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
     const toPay = await press(atCard.membershipId);
-    await helper(new Date());
-    check("still to be paid: ended, and nothing was ever charged", toPay === null && (await MS(atCard.membershipId)).status === "ended" && (await M(atCard.monthId)).status === "given_up" && (await M(atCard.monthId)).takenCents === null, `${toPay} ${(await MS(atCard.membershipId)).status} ${(await M(atCard.monthId)).status}`);
+    const toPayOwn = await own({ membershipId: atCard.membershipId, member: reader });
+    check("both buttons refuse, each with its own sentence, and nothing changes; the page offers no button", /Nobody has joined this membership yet/.test(toPay ?? "") && /has not started yet: nothing was held on your card or charged/.test(toPayOwn ?? "") && (await MS(atCard.membershipId)).status === "joining" && (await M(atCard.monthId)).status === "to_pay" && (await F.ownFourteenDays(await MS(atCard.membershipId), new Date())) === null, `${toPay} | ${toPayOwn}`);
 
     console.log("   …the member's own button: the money only held");
     const h = await member(host, { take: false });
@@ -1097,11 +1097,13 @@ async function main() {
     const notTheirs = await own(h, { as: stranger });
     check("somebody else's membership: not found, nothing changed", /Membership not found/.test(notTheirs ?? "") && (await MS(h.membershipId)).status === "active", notTheirs);
     check("the member's page offers the button, and says until which day", (await F.ownFourteenDays(await MS(h.membershipId), new Date()))?.lastDay === F.lastDayFor((await M(h.monthId)).authorisedAt!));
-    const heldOnly = await own(h);
+    const otherMonth = await own(h, { shown: randomUUID() });
+    check("a form drawn for another month cancels nothing", /has moved on since this page was opened/.test(otherMonth ?? "") && (await MS(h.membershipId)).status === "active", otherMonth);
+    const heldOnly = await own(h, { shown: h.monthId });
     await helper(new Date());
     const heldIntent = await intentOf(h.monthId);
     check("the hold is let go, nothing is charged, and the membership is ended (not paused), by the member", heldOnly === null && (await MS(h.membershipId)).status === "ended" && (await MS(h.membershipId)).endedBy === h.member.id && (await MS(h.membershipId)).endedReason === F.FOURTEEN_DAYS_REASON && (await M(h.monthId)).status === "given_up" && heldIntent.status === "canceled" && heldIntent.amount_received === 0, `${heldOnly} ${(await MS(h.membershipId)).status} ${(await M(h.monthId)).status} ${heldIntent.status}`);
-    check("the member is told they cancelled within the 14 days and that nothing was charged; the host is told why it ended", /You cancelled your new membership within 14 days of joining\./.test(await emailText(h.member.email, "has ended")) && /Nothing was charged for it: an amount that was only held on your card is let go/.test(await emailText(h.member.email, "has ended")) && /cancelled within 14 days of joining, as the member asked/.test(await emailText(host.email, `${h.member.name}'s membership has ended`)));
+    check("the member is told they cancelled within the 14 days and that nothing was charged; the host is told why it ended", /You cancelled your new membership within 14 days of joining\./.test(await emailText(h.member.email, "has ended")) && /Nothing was charged for it: the amount that was only held on your card is let go/.test(await emailText(h.member.email, "has ended")) && !/paid back to your card; you get an email/.test(await emailText(h.member.email, "has ended")) && /cancelled within 14 days of joining, as the member asked/.test(await emailText(host.email, `${h.member.name}'s membership has ended`)));
     check("after it has ended, the page offers the button no more", (await F.ownFourteenDays(await MS(h.membershipId), new Date())) === null);
 
     console.log("   …the member's own button: taken, nothing used");
@@ -1133,7 +1135,7 @@ async function main() {
     check("the call still to come is cancelled, and its money goes back once, through its own line", Boolean((await callOf(coming.booking)).cancelledAt) && after.coming.status === "closed_uncharged" && (await refundsOf(m.monthId)).filter((line) => line.sourceKey.startsWith(`callreturn:${after.coming.id}:`)).length === 1);
     check("the rest goes back to the card: $30.00 used stays, $30.00 is paid back, nothing expires to the host", (await places(m.monthId)) === "0/0/3000/0/0/3000", await places(m.monthId));
     const told = await emailText(m.member.email, "has ended");
-    check("the email that confirms it names the calls that stayed paid for", /These stay paid for, at the member price:/.test(told) && /\$15\.00 \(the time you used\)/.test(told) && /\$15\.00 \(it was cancelled late or missed, and charged under your booking's terms\)/.test(told) && /What you paid for this month is given back to your card, except for what is listed below/.test(told), told);
+    check("the email that confirms it names the calls that stayed paid for", /These stay paid for, at the member price, under your booking's terms:/.test(told) && /\$15\.00 \(charged for the call\)/.test(told) && /\$15\.00 \(charged because it was cancelled late\)/.test(told) && /What you paid for this month is given back to your card, except for what is listed below/.test(told), told);
     const linesBefore = (await refundsOf(m.monthId)).length;
     const again = await own(m);
     const againByFounder = await press(m.membershipId);
@@ -1148,7 +1150,7 @@ async function main() {
     const day15 = F.dayOf(new Date(Date.parse(`${lastDay}T00:00:00Z`) + DAY));
     const onDay20 = new Date(Date.now() + 20 * DAY);
     const ownTooLate = await own(d, { now: onDay20 });
-    check("the member's own button on day 20: refused, with the normal way named, and nothing changed", /The 14 days after joining are over/.test(ownTooLate ?? "") && /Cancel at the end of the month/.test(ownTooLate ?? "") && (await MS(d.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(d.membershipId), onDay20)) === null, ownTooLate);
+    check("the member's own button on day 20: refused, with the normal way named, and nothing changed", /The 14 days after joining are over/.test(ownTooLate ?? "") && /normal way of cancelling is still there/.test(ownTooLate ?? "") && (await MS(d.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(d.membershipId), onDay20)) === null, ownTooLate);
     const tooLate = await press(d.membershipId, { day: day15, now: onDay20 });
     check("a written request that reached Connect on day 15: refused", /more than 14 days after joining/.test(tooLate ?? "") && (await MS(d.membershipId)).status === "active", tooLate);
     const future = await press(d.membershipId, { day: F.dayOf(new Date(Date.now() + DAY)) });
@@ -1172,6 +1174,19 @@ async function main() {
     check("the first month has already ended: both refused, each with its own sentence", /first month has already ended/.test(founderAfterEnd ?? "") && /settle this case by hand/.test(founderAfterEnd ?? "") && /first 14 days of a new membership/.test(memberAfterEnd ?? "") && !/by hand/.test(memberAfterEnd ?? "") && (await MS(over.membershipId)).status === "active", `${founderAfterEnd} | ${memberAfterEnd}`);
 
     const banked = await member(host);
+    // A call booked from the membership that starts in five minutes: the clean-up might not get to it before it begins.
+    const nearly = await booked(banked, { nth: 0 });
+    const inFive = await moveCall(nearly.call, new Date(Date.now() + 5 * MIN));
+    const tooSoon = await own(banked);
+    const tooSoonFounder = await press(banked.membershipId);
+    check("a call that starts in less than 10 minutes: refused for both, and nothing changed", /starts in less than 10 minutes/.test(tooSoon ?? "") && /starts in less than 10 minutes/.test(tooSoonFounder ?? "") && (await MS(banked.membershipId)).status === "active" && !(await callOf(nearly.booking)).cancelledAt, `${tooSoon} | ${tooSoonFounder}`);
+    await moveCall(inFive, nearly.call.startsAt);
+    // A month whose payment has a problem the founder must look at (Stripe took a part of it, say).
+    await db.update(months).set({ problem: "Stripe took $20.00 of $60.00." }).where(eq(months.id, banked.monthId));
+    const odd = await own(banked);
+    const oddFounder = await press(banked.membershipId);
+    check("a month whose payment has a problem: the member is sent to us, the founder told to settle it by hand, and the page offers no button", /please write to us/.test(odd ?? "") && /settle the payment by hand/.test(oddFounder ?? "") && (await MS(banked.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(banked.membershipId), new Date())) === null, `${odd} | ${oddFounder}`);
+    await db.update(months).set({ problem: null }).where(eq(months.id, banked.monthId));
     await db.update(months).set({ dispute: "open" }).where(eq(months.id, banked.monthId)); // stands in for a bank's dispute
     const withBank = await own(banked);
     check("anything about a bank on the month: refused, and the page offers no button", /Your bank is looking at this month's payment/.test(withBank ?? "") && (await MS(banked.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(banked.membershipId), new Date())) === null, withBank);
@@ -1189,6 +1204,10 @@ async function main() {
     await helper(new Date());
     const secondInvite = await J.invite({ hostId: host.id, customerId: first.member.id, now: new Date() });
     const second = await J.join({ customerId: first.member.id, inviteId: secondInvite.inviteId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, now: new Date() });
+    // (Paid, so that it is a membership: its month is held on the card.)
+    await C.payNow({ monthId: second.monthId, memberId: first.member.id });
+    await stripe().paymentIntents.confirm((await M(second.monthId)).stripePaymentIntentId!, { payment_method: "pm_card_visa", return_url: "https://example.com/return" });
+    await C.syncMonth(second.monthId, new Date());
     const onSecond = await own({ membershipId: second.membershipId, member: first.member });
     check("a second membership of the same two people: refused", second.membershipId !== first.membershipId && /your first membership with this host/.test(onSecond ?? "") && (await MS(second.membershipId)).status !== "ended", onSecond);
 

@@ -9,7 +9,7 @@ vi.mock("./join", () => ({}));
 vi.mock("./locks", () => ({}));
 vi.mock("./state", () => ({}));
 
-import { dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, requestDayRefusal, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays } from "./fourteen-days";
+import { callsForNote, dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, requestDayRefusal, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays, type CallPayment } from "./fourteen-days";
 
 const at = (iso: string) => new Date(iso);
 const joinedAt = at("2026-11-04T22:30:00Z");
@@ -63,9 +63,16 @@ describe("why it is not open", () => {
 
   it("never tells a member to settle something by hand, and points to the normal way where there is one", () => {
     for (const sentence of [...Object.values(WHY_FOR_MEMBER), DAYS_OVER_FOR_MEMBER]) expect(sentence).not.toContain("by hand");
-    expect(DAYS_OVER_FOR_MEMBER).toContain('"Cancel at the end of the month"');
-    expect(WHY_FOR_MEMBER.month_over).toContain('"Cancel at the end of the month"');
+    expect(DAYS_OVER_FOR_MEMBER).toContain("The normal way of cancelling is still there");
+    expect(WHY_FOR_MEMBER.month_over).toContain("The normal way of cancelling is still there");
     expect(WHY_FOR_FOUNDER.month_over).toContain("settle this case by hand");
+    // No button is named that may not be on the page (one who already stopped the renewal has no such button).
+    for (const sentence of [...Object.values(WHY_FOR_MEMBER), DAYS_OVER_FOR_MEMBER]) expect(sentence).not.toContain("Cancel at the end of the month");
+  });
+
+  it("sends a month whose payment has a problem to the founder, and the member to us", () => {
+    expect(WHY_FOR_FOUNDER.problem).toContain("settle the payment by hand");
+    expect(WHY_FOR_MEMBER.problem).toContain("please write to us");
   });
 });
 
@@ -77,7 +84,8 @@ describe("what the member is told", () => {
 
   it("says nothing was charged when the month was only held", () => {
     const note = fourteenDayNote({ requestDay: null, monthTaken: false, stays: [], unsettled: 0 });
-    expect(note).toContain("Nothing was charged for it: an amount that was only held on your card is let go.");
+    expect(note).toContain("Nothing was charged for it: the amount that was only held on your card is let go.");
+    expect(note).not.toContain("an email of its own");
     expect(note).not.toContain("stay paid for");
   });
 
@@ -98,13 +106,39 @@ describe("what the member is told", () => {
       unsettled: 0,
     });
     expect(note).toContain("What you paid for this month is given back to your card, except for what is listed below.");
-    expect(note).toContain("These stay paid for, at the member price:");
-    expect(note).toContain("- your call on Monday, November 9 at 3:00 PM: $40.00 (the time you used)");
-    expect(note).toContain("- your call on Tuesday, November 10 at 3:00 PM: $20.00 (it was cancelled late or missed, and charged under your booking's terms)");
+    expect(note).toContain("These stay paid for, at the member price, under your booking's terms:");
+    expect(note).toContain("- your call on Monday, November 9 at 3:00 PM: $40.00 (charged for the call)");
+    expect(note).toContain("- your call on Tuesday, November 10 at 3:00 PM: $20.00 (charged because it was cancelled late)");
   });
 
   it("says that a call that has begun and is not worked out yet is paid for as usual", () => {
     expect(fourteenDayNote({ requestDay: null, monthTaken: true, stays: [], unsettled: 1 })).toContain("One call that had already begun or taken place is not worked out yet. What it comes to is paid for at the member price");
     expect(fourteenDayNote({ requestDay: null, monthTaken: true, stays: [], unsettled: 2 })).toContain("2 calls that had already begun or taken place are not worked out yet. What they come to is paid for");
+  });
+});
+
+describe("the calls the note lists", () => {
+  const at0 = new Date("2026-11-10T12:00:00Z");
+  const call = (over: Partial<CallPayment>): CallPayment => ({ callId: "a", startsAt: new Date("2026-11-09T15:00:00Z"), cancelledAt: null, status: "charged", chargedCents: 1500, refundedCents: 0, chargeReason: "attendance", ...over });
+
+  it("lists what is kept now: after a part was given back, only the rest; nothing for a call given back whole", () => {
+    expect(callsForNote([call({ refundedCents: 1000 })], at0).stays).toEqual([{ startsAt: new Date("2026-11-09T15:00:00Z"), keptCents: 500, why: "used" }]);
+    expect(callsForNote([call({ refundedCents: 1500 })], at0).stays).toEqual([]);
+  });
+
+  it("is one line for a call, also when time was added to it from the membership", () => {
+    const both = callsForNote([call({}), call({ chargedCents: 750 })], at0);
+    expect(both.stays).toHaveLength(1);
+    expect(both.stays[0].keptCents).toBe(2250);
+  });
+
+  it("says a late cancellation as one", () => {
+    expect(callsForNote([call({ chargeReason: "late_cancel" })], at0).stays[0].why).toBe("late");
+  });
+
+  it("counts a call that has begun and is not worked out once, and never one still to come", () => {
+    const begun = { status: "held", chargedCents: null, startsAt: new Date("2026-11-10T11:50:00Z") };
+    expect(callsForNote([call({ callId: "b", ...begun }), call({ callId: "b", ...begun })], at0).unsettled).toBe(1);
+    expect(callsForNote([call({ callId: "c", status: "held", chargedCents: null, startsAt: new Date("2026-11-12T15:00:00Z") })], at0).unsettled).toBe(0);
   });
 });

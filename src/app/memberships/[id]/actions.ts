@@ -70,13 +70,13 @@ export async function cancelNowAction(formData: FormData) {
  * ends at once; what was not used goes back to the card.
  */
 export async function cancelWithin14DaysAction(formData: FormData) {
-  const { userId, membershipId, currentMonthId, page } = await mine(formData);
+  const { userId, membershipId, page } = await mine(formData);
   let notice: string;
   try {
-    // For the month the page showed, like "Cancel now": a page left open across a renewal cancels nothing.
+    // For the month the page showed, like "Cancel now": a page left open across a renewal cancels nothing. The
+    // library compares it with the membership locked, and says first if the membership has ended or is paused.
     const shown = String(formData.get("month") ?? "");
-    if (shown && shown !== currentMonthId) throw new MembershipError("Your membership has moved on to another month since this page was opened. Nothing was changed. Please look at it again.");
-    await cancelWithin14Days({ membershipId, by: { as: "member", memberId: userId } });
+    await cancelWithin14Days({ membershipId, by: { as: "member", memberId: userId }, shownMonthId: /^[0-9a-f-]{36}$/i.test(shown) ? shown : undefined });
     notice = "Your membership is cancelled and has ended. You will not be charged for it again. What goes back to your card is on its way, and an email tells you each amount; an amount that was only held is let go.";
   } catch (error) {
     // Only a refusal in words means nothing changed. Anything else may have happened after the ending was saved.

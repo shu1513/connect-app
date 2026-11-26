@@ -186,10 +186,12 @@ export default async function AdminMembershipsPage(props: PageProps<"/admin/memb
                     <summary className="cursor-pointer">The member wrote to cancel within 14 days of joining</summary>
                     <form action={cancelWithin14DaysAction} className="mt-2 space-y-2">
                       <input type="hidden" name="membership" value={membership.id} />
+                      {/* The month this form is about: the first month of a new membership. */}
+                      <input type="hidden" name="month" value={fourteen.get(membership.id)!.monthId} />
                       <p className="opacity-80">
                         Members can do this themselves on their membership&apos;s page; this form is for one who wrote to us instead. Joined on {fourteen.get(membership.id)!.joinedDay}; a request counts if it reached Connect by{" "}
-                        {fourteen.get(membership.id)!.lastDay} (days in UTC). The membership ends at once. An amount that is only held is let go. If the month was taken, what was not used goes back to the card, and calls still to
-                        come are cancelled. Time that was used, and a call cancelled late or missed that was already charged, stay paid for. This cannot be undone.
+                        {fourteen.get(membership.id)!.lastDay} (days in UTC). The membership ends at once. An amount that is still only held is let go. If the month was taken, what was not used goes back to the card, and calls still to
+                        come are cancelled (a call under way is worked out as usual). Time that was used, and a call cancelled late or missed that was already charged, stay paid for. This cannot be undone.
                       </p>
                       <p>
                         <label>
