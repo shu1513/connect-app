@@ -5558,6 +5558,9 @@ nobody can send, and nothing new shows to anyone. Part 2 brings reporting and tu
   needs a conversation. The walk has "Messages" and a conversation that is not there (not found,
   and the login first for a visitor); the page itself is in the new script.
 - The list on "Messages" shows at most 200 conversations, those with something new first.
+- Decision 29 of the plan said that with more than 500 new messages the older ones would count
+  as shown. They do not: they stay new until the person has paged back to them. It cannot happen
+  through the pages anyway (nobody can send more than five in a row without an answer).
 
 **What the reviewer found.** Astra read the code and said "do not ship", with nine points, all
 taken. None was a way to read or write in someone else's conversation; it found that side sound.
@@ -5582,14 +5585,30 @@ is always let go, and the order of two waiting steps is read from the database, 
 Not taken: calling the button "View host page" where only her page, not a free time, is
 certain. "Book a time" is the founder's wording, and her page says what can be booked.
 
+CodeRabbit then read the change and made ten points, all taken, two of them in a simpler way
+than it proposed. The two it called major: a page that held the latest 500 of more than 500 new
+messages would have marked the older ones as shown without showing them (a page now never marks
+anything while a new message lies before its first one, whichever way it was asked for); and
+after a lost answer, words that had been changed were called "sent" under the key of the first
+words (a key now belongs to its words, in the box and on the server). The others: spaces inside
+a message are kept on the page; a stretch asked for past the last message goes back to the usual
+page; the booking button asks the booking code's own question, so not for a paused host or one
+with no hours; a message is counted in characters as the database counts it; the one character
+the database cannot store is taken out (CodeRabbit proposed refusing the message; nobody types
+that character on purpose); after "End call and report" a request counts only when it was begun
+more than a minute after the press, because the two moments are written by two clocks
+(CodeRabbit proposed writing both by one clock, which would have meant changing the safety and
+booking code); and in the script, one run at a time, and the top bar's number worked out on its
+own.
+
 **What the check script found.** The mark "New" in the list of conversations was never set. A
 column put into an inner question by reference was written without its table's name, and inside
 the inner question the bare name meant the message's own column. The automatic tests could not
 see it; the script did, on its first run. The two inner questions now name the table themselves.
 
-**How it was checked.** Type check, lint, 1,097 automatic tests (33 new, for the rules: every
+**How it was checked.** Type check, lint, 1,099 automatic tests (35 new, for the rules: every
 case of who may write at its edges to the second, each limit, each sentence). The new script,
-`scripts/conversation-check.ts`, 121 checks against the local database with real pages:
+`scripts/conversation-check.ts`, 128 checks against the local database with real pages:
 opening; both writing around a call; what is new and what has been shown, with 60 new messages
 and with 600 in all; the host waking a quiet conversation and the customer not; a message that
 waits while the 7 days run out; a cancelled first call; a host whose page is hidden; the

@@ -107,8 +107,10 @@ export async function sendMessage(input: { conversationId: string; senderId: str
     const now = new Date();
 
     const mine = and(eq(messages.conversationId, conversation.id), eq(messages.senderId, input.senderId));
-    const [again] = await tx.select({ number: messages.number }).from(messages).where(and(mine, eq(messages.sendKey, input.sendKey)));
-    if (again) return { ok: true, number: again.number };
+    const [again] = await tx.select({ number: messages.number, body: messages.body }).from(messages).where(and(mine, eq(messages.sendKey, input.sendKey)));
+    // The same press again gives the first answer again. A key is bound to its words: other words under a key
+    // that was used are never called "sent" (the box makes a new key when the words change, so this is a guard).
+    if (again) return again.body === body ? { ok: true, number: again.number } : { ok: false, kind: "text", which: "key" };
 
     const facts = await factsFor(tx, conversation, input.senderId, now);
     const verdict = mayWrite(facts, now);

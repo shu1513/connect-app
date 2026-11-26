@@ -10,8 +10,8 @@
 import { and, asc, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Conversation, ConversationMessage } from "@/db/schema";
+import { offerOf } from "@/lib/booking/bookings";
 import { hostForMember } from "@/lib/membership/access";
-import { publicProfile } from "@/lib/profiles/profiles";
 import { type ConversationFacts, factsFor } from "./facts";
 import { CONVERSATION, mayWrite, type Refusal, type Role, type Verdict } from "./rules";
 import { isConversationId } from "./send";
@@ -76,20 +76,20 @@ export type ConversationView = {
   hasEarlier: boolean;
   /** True when the page shows a stretch of older messages that does not reach the latest. */
   hasLater: boolean;
+  /** True when a message this person has not been shown yet lies before the first one on the page. */
+  unshownBefore: boolean;
   /** The lowest message number on the page, for "Show earlier". */
   firstNumber: number | null;
 };
 
 /**
- * Whether the page may tell the server "shown up to the highest message here". Not when it holds a
- * stretch that was asked for and that starts after messages this person has not been shown: those
- * were not on the page, and the mark is one number that covers everything below it.
+ * Whether the page may tell the server "shown up to the highest message here". Only when no
+ * message this person has not been shown yet lies before the first one on the page: such a
+ * message was not on the page, and the mark is one number that covers everything below it. It
+ * goes by the messages the page really holds, whichever way the page was asked for.
  */
-export function mayMarkShown(view: Pick<ConversationView, "conversation" | "role" | "firstNumber">, askedFrom: number | undefined): boolean {
-  if (view.firstNumber === null) return false;
-  if (askedFrom === undefined) return true;
-  const shownUpTo = view.role === "host" ? view.conversation.hostShownNumber : view.conversation.customerShownNumber;
-  return view.firstNumber <= shownUpTo + 1;
+export function mayMarkShown(view: Pick<ConversationView, "firstNumber" | "unshownBefore">): boolean {
+  return view.firstNumber !== null && !view.unshownBefore;
 }
 
 /** What a refusal is shown as, given whether the customer has a way to book. Shared by the page and the answer to a late form. */
@@ -98,14 +98,18 @@ export function shownRefusalFor(why: Refusal, canBook: boolean, stopped: boolean
 }
 
 /**
- * Where this customer can book this host: her page, while anyone can open it (the same question
- * the page after a call asks before it offers "book another call"), or the page a member reaches
- * while it is hidden.
+ * Where this customer can book this host, or null when he cannot. It asks the booking code's own
+ * question (`offerOf`): approved, not hidden, the account open and not paused, and hours to book.
+ * For a member the same question is asked as for a member, so a page hidden from the public does
+ * not stand in his way.
  */
-async function bookHrefFor(conversation: Conversation, handle: string | null, now: Date): Promise<string | null> {
-  if (handle && (await publicProfile(handle))) return `/h/${handle}`;
+async function bookHrefFor(conversation: Conversation, now: Date): Promise<string | null> {
+  const open = await offerOf(conversation.hostId);
+  if (open) return `/h/${open.handle}`;
   const forMember = await hostForMember(conversation.customerId, conversation.hostId, now);
-  return forMember?.canBook ? `/h/${forMember.handle}` : null;
+  if (!forMember?.canBook) return null;
+  const asMember = await offerOf(conversation.hostId, db, { forMember: true });
+  return asMember ? `/h/${asMember.handle}` : null;
 }
 
 /**
@@ -115,8 +119,9 @@ async function bookHrefFor(conversation: Conversation, handle: string | null, no
  * (decision 29), so nothing can count as shown that was not on the page. `from` is the message
  * number "Show earlier" asked for: the page then holds the messages from that number on. Never
  * more than 500 at once; a stretch of old messages that does not reach the latest says so
- * (`hasLater`), and the page then marks nothing as shown that lies before the stretch
- * (`mayMarkShown`). `messages: false` leaves the messages out, for a caller that needs only the rest.
+ * (`hasLater`). Whatever the page holds, it never marks as shown a message that lies before its
+ * first one (`unshownBefore`, `mayMarkShown`). `messages: false` leaves the messages out, for a
+ * caller that needs only the rest.
  */
 export async function viewFor(userId: string, conversationId: string, now: Date, options: { from?: number; messages?: boolean } = {}): Promise<ConversationView | null> {
   const conversation = await conversationFor(userId, conversationId);
@@ -127,12 +132,13 @@ export async function viewFor(userId: string, conversationId: string, now: Date,
   const verdict = mayWrite(facts, now);
   const known = (await namesOf([otherId])).get(otherId);
   // No way to book is offered across a block, or after "End call and report" (decision 21).
-  const bookHref = role === "customer" && !facts.stopped && !facts.blockedByMe && !facts.blockedByOther ? await bookHrefFor(conversation, known?.handle ?? null, now) : null;
+  const bookHref = role === "customer" && !facts.stopped && !facts.blockedByMe && !facts.blockedByOther ? await bookHrefFor(conversation, now) : null;
 
   let shown: ConversationMessage[] = [];
   let hasLater = false;
+  const shownMark = role === "host" ? conversation.hostShownNumber : conversation.customerShownNumber;
+  const inThis = eq(messages.conversationId, conversation.id);
   if (options.messages !== false) {
-    const inThis = eq(messages.conversationId, conversation.id);
     const from = options.from;
     if (from !== undefined && Number.isInteger(from) && from > 0) {
       // Older messages were asked for: from that number on, oldest first. Whatever this person has or has not been
@@ -140,14 +146,18 @@ export async function viewFor(userId: string, conversationId: string, now: Date,
       shown = await db.select().from(messages).where(and(inThis, gte(messages.number, from))).orderBy(asc(messages.number)).limit(MOST_SHOWN);
       hasLater = shown.length > 0 && shown[shown.length - 1].number < conversation.lastNumber;
     } else {
-      const shownUpTo = role === "host" ? conversation.hostShownNumber : conversation.customerShownNumber;
-      const usual = Math.max(1, Math.min(shownUpTo + 1, conversation.lastNumber - CONVERSATION.shown + 1));
+      const usual = Math.max(1, Math.min(shownMark + 1, conversation.lastNumber - CONVERSATION.shown + 1));
       const newestFirst = await db.select().from(messages).where(and(inThis, gte(messages.number, usual))).orderBy(desc(messages.number)).limit(MOST_SHOWN);
       shown = newestFirst.reverse();
     }
   }
   const firstNumber = shown.length > 0 ? shown[0].number : null;
-  const [earlier] = firstNumber === null ? [] : await db.select({ number: messages.number }).from(messages).where(and(eq(messages.conversationId, conversation.id), sql`${messages.number} < ${firstNumber}`)).limit(1);
+  const [earlier] = firstNumber === null ? [] : await db.select({ number: messages.number }).from(messages).where(and(inThis, sql`${messages.number} < ${firstNumber}`)).limit(1);
+  // A message that still exists, that this person has not been shown, and that lies before the page's first one.
+  const [unshown] =
+    firstNumber === null || firstNumber <= shownMark + 1
+      ? []
+      : await db.select({ number: messages.number }).from(messages).where(and(inThis, sql`${messages.number} > ${shownMark}`, sql`${messages.number} < ${firstNumber}`)).limit(1);
 
   return {
     conversation,
@@ -160,6 +170,7 @@ export async function viewFor(userId: string, conversationId: string, now: Date,
     messages: shown,
     hasEarlier: Boolean(earlier),
     hasLater,
+    unshownBefore: Boolean(unshown),
     firstNumber,
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callsThatCount, callTerms, CONVERSATION, type Facts, hostWokeIt, isSendKey, limitProblem, mayWrite, OPEN_MS, type PairCall, tidyMessage } from "./rules";
+import { AFTER_STOP_MS, callsThatCount, callTerms, CONVERSATION, type Facts, hostWokeIt, isSendKey, limitProblem, mayWrite, OPEN_MS, type PairCall, tidyMessage } from "./rules";
 import { limitWords, refusalWords } from "./words";
 
 const now = new Date("2026-12-01T12:00:00.000Z");
@@ -177,6 +177,17 @@ describe("a message as it is kept", () => {
     expect(tidyMessage("a".repeat(CONVERSATION.maxChars + 1))).toBeNull();
   });
 
+  it("counts characters as the database does: a picture character is one, not two", () => {
+    expect(tidyMessage("\u{1F600}".repeat(CONVERSATION.maxChars))).not.toBeNull();
+    expect(tidyMessage("\u{1F600}".repeat(CONVERSATION.maxChars + 1))).toBeNull();
+  });
+
+  it("takes out the one character the database cannot store, and keeps spaces inside a line", () => {
+    expect(tidyMessage("hi\u0000there")).toBe("hithere");
+    expect(tidyMessage("\u0000")).toBeNull();
+    expect(tidyMessage("10:00   yoga\n11:30   lunch")).toBe("10:00   yoga\n11:30   lunch");
+  });
+
   it("a once-only key is a random id and nothing else", () => {
     expect(isSendKey("3f6c2a1e-9b7d-4c7e-8a55-0d9b1c2e3f40")).toBe(true);
     expect(isSendKey("short")).toBe(false);
@@ -203,12 +214,14 @@ describe("the calls that count", () => {
     const stop = ago(10 * 24 * 3_600_000);
     const before = call({ begunAt: new Date(stop.getTime() - 1) });
     const atThePress = call({ begunAt: stop });
-    const after = call({ begunAt: new Date(stop.getTime() + 1) });
-    const nowAfter = call({ source: "now", begunAt: new Date(stop.getTime() + 1) });
-    const memberAfter = call({ source: "member", begunAt: new Date(stop.getTime() + 1) });
+    // The two moments are written by two clocks: a request within a minute of the press does not count either.
+    const rightAfter = call({ begunAt: new Date(stop.getTime() + AFTER_STOP_MS) });
+    const after = call({ begunAt: new Date(stop.getTime() + AFTER_STOP_MS + 1) });
+    const nowAfter = call({ source: "now", begunAt: new Date(stop.getTime() + AFTER_STOP_MS + 1) });
+    const memberAfter = call({ source: "member", begunAt: new Date(stop.getTime() + AFTER_STOP_MS + 1) });
     // A request that was begun before the press and agreed after it does not count either: only the first step is asked about.
     const agreedAfter = call({ begunAt: new Date(stop.getTime() - 1), agreedAt: new Date(stop.getTime() + 1000) });
-    expect(callsThatCount([before, atThePress, after, nowAfter, memberAfter, agreedAfter], stop)).toEqual([after, nowAfter]);
+    expect(callsThatCount([before, atThePress, rightAfter, after, nowAfter, memberAfter, agreedAfter], stop)).toEqual([after, nowAfter]);
   });
 
   it("around a call: from its agreement until 7 days after its booked end, to the second", () => {

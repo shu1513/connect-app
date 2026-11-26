@@ -15,16 +15,18 @@ import type { ComposerState } from "./composer-state";
  * Whether this person may write is decided on the server each time (sendMessage); `open` only
  * says what was true when the page was drawn.
  *
- * Every message carries a once-only key made here. The key stays the same until the server has
- * said that the message with it went through. So a press that is sent twice, or pressed again
- * after an answer that was lost on the way, makes one message.
+ * Every message carries a once-only key made here. The key belongs to its words: it stays the
+ * same until the server has said that the message with it went through, or until the words are
+ * changed. So a press that is sent twice, or pressed again after an answer that was lost on the
+ * way, makes one message; and words that were changed after a lost answer are sent as a message
+ * of their own, never mistaken for the one before.
  *
  * `max` is handed in by the page: this file runs in the browser and must not pull in the code
  * that knows the limit, because that code talks to the database.
  */
 export function Composer({ conversationId, name, max, open }: { conversationId: string; name: string; max: number; open: boolean }) {
   const [state, formAction, pending] = useActionState<ComposerState, FormData>(send, { error: null, sentKey: null, draft: "" });
-  const key = useRef<string | null>(null);
+  const key = useRef<{ key: string; words: string } | null>(null);
   // How long the text in the box is, once the person has typed since the server's last answer.
   const [typed, setTyped] = useState<{ since: ComposerState; length: number } | null>(null);
   const hasText = (typed?.since === state ? typed.length : state.draft.length) > 0;
@@ -35,13 +37,14 @@ export function Composer({ conversationId, name, max, open }: { conversationId: 
    * pressing Send again sends those words under the same key, and they are saved once.
    */
   async function send(previous: ComposerState, formData: FormData): Promise<ComposerState> {
-    // A new key only for a new message: the first one, and after the server confirmed the last.
-    if (key.current === null || key.current === previous.sentKey) key.current = crypto.randomUUID();
-    formData.set("sendKey", key.current);
+    const words = String(formData.get("text") ?? "").replace(/\r\n?/g, "\n");
+    // A new key for a new message: the first one, after the server confirmed the last, and when the words changed.
+    if (key.current === null || key.current.key === previous.sentKey || key.current.words !== words) key.current = { key: crypto.randomUUID(), words };
+    formData.set("sendKey", key.current.key);
     try {
       return await sendAction(previous, formData);
     } catch {
-      return { error: "We could not confirm that this was sent. Press Send again: it will not be sent twice.", sentKey: null, draft: String(formData.get("text") ?? "").replace(/\r\n?/g, "\n") };
+      return { error: "We could not confirm that this was sent. Press Send again: it will not be sent twice.", sentKey: null, draft: words };
     }
   }
 

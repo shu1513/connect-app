@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { BlockButton } from "@/components/block-button";
 import { LocalTime } from "@/components/local-time";
 import { RefreshEvery } from "@/components/refresh-every";
@@ -34,6 +34,8 @@ export default async function ConversationPage(props: PageProps<"/conversations/
   const from = typeof query.from === "string" && /^[0-9]{1,9}$/.test(query.from) ? Number(query.from) : undefined;
   const view = await viewFor(user.id, id, new Date(), { from });
   if (!view) notFound();
+  // A stretch that was asked for and holds nothing (a number past the last message): back to the page as it usually is.
+  if (from !== undefined && view.messages.length === 0) redirect(`/conversations/${view.conversation.id}`);
   const notice = readNotice(`/conversations/${id}`, query);
   const { conversation, other, role, verdict, shownRefusal, bookHref, messages } = view;
   const here = `/conversations/${conversation.id}`;
@@ -48,7 +50,7 @@ export default async function ConversationPage(props: PageProps<"/conversations/
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <RefreshEvery seconds={REFRESH_SECONDS} />
       {/* Nothing is written while the page is drawn: the person's own browser says what it has shown. */}
-      {highest > shownUpTo && mayMarkShown(view, from) && <ConversationShown conversationId={conversation.id} number={highest} />}
+      {highest > shownUpTo && mayMarkShown(view) && <ConversationShown conversationId={conversation.id} number={highest} />}
       <p className="text-sm">
         <Link href="/messages" className="inline-flex min-h-11 items-center underline underline-offset-2">
           All messages
@@ -83,8 +85,8 @@ export default async function ConversationPage(props: PageProps<"/conversations/
                 <p className="opacity-70">
                   <span className="font-semibold">{mine ? "You" : other.name}</span> · <LocalTime iso={message.createdAt.toISOString()} />
                 </p>
-                {/* The words as they were written, as plain text: a web address in them is never a link. */}
-                <p className="mt-1 whitespace-pre-line break-words">{message.body}</p>
+                {/* The words as they were written, spaces and line ends included, as plain text: a web address in them is never a link. */}
+                <p className="mt-1 whitespace-pre-wrap break-words">{message.body}</p>
               </li>
             );
           })}
