@@ -2,6 +2,7 @@ import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { APP_REPORT_PLACES, reportFormFor, type AppReportPlace } from "@/lib/app-door/report";
 import type { AppReportSent } from "@/lib/app-door/types";
 import { isUuid } from "@/lib/booking/rules";
+import { errorSummary } from "@/lib/email";
 import { sendReportFor } from "@/lib/safety/report-form";
 import { ReportError } from "@/lib/safety/reports";
 
@@ -45,7 +46,8 @@ export async function POST(request: Request) {
     if (error instanceof ReportError) return refuse("not_valid", error.message);
     // Anything else: the report may or may not have been written down (the block that follows it can fail by
     // itself), so it is not said that it was not.
-    console.error("[safety] a report from the app failed", error);
+    // Never the error itself: a database error carries the statement's values, which here are what the reporter wrote.
+    console.error(`[safety] a report from the app failed (${errorSummary(error)})`);
     return new Response(null, { status: 503, headers: { "cache-control": "private, no-store" } });
   }
 }

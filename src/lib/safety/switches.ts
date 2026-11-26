@@ -29,9 +29,10 @@ export type Switches = {
   /** The oldest version of the app still allowed, or "" for none. */
   appOldestVersion: string;
   /**
-   * Messages between hosts and customers (plans/49-messaging.md, decision 31): while true nobody
-   * can send, and everyone can still read. Part 1 of the plan is merged with this at true, also
-   * where no switch has been saved yet; part 2 turns it on once and gives the founder the control.
+   * Messages between hosts and customers (plans/49-messaging.md, decision 31): the founder's
+   * emergency stop. While true nobody can send, and everyone can still read and report. Messages
+   * are on from day one, so this is false unless the founder set it, also where no switch has
+   * been saved yet.
    */
   conversationsOff: boolean;
 };
@@ -64,8 +65,8 @@ export async function switches(reader: Pick<typeof db, "select"> = db): Promise<
     appTips: row?.appTips ?? false,
     appAvailableNow: row?.appAvailableNow ?? true,
     appOldestVersion: row?.appOldestVersion ?? "",
-    // Off until part 2 of plan 49, also with no row yet: like the column's own default.
-    conversationsOff: row?.conversationsOff ?? true,
+    // Messages are on unless the founder stopped them: no row yet means on, like the column's own default.
+    conversationsOff: row?.conversationsOff ?? false,
   };
 }
 

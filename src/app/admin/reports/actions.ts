@@ -5,7 +5,10 @@ import { redirect } from "next/navigation";
 import { inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { withNotice } from "@/lib/notice";
+import { errorSummary } from "@/lib/email";
 import { recordAdminAction } from "@/lib/safety/audit";
+import { keptMessagesFor } from "@/lib/safety/kept-messages";
+import type { KeptState } from "./kept-state";
 import { closeReport, liftPause, pauseAccount, ReportError, warn } from "@/lib/safety/reports";
 import { setSwitches } from "@/lib/safety/switches";
 import { requireAdmin } from "@/lib/session";
@@ -69,10 +72,33 @@ export async function liftPauseAction(formData: FormData) {
 
 export async function switchesAction(formData: FormData) {
   const admin = await requireAdmin();
-  const values = { requestsOff: formData.get("requestsOff") === "on", joiningOff: formData.get("joiningOff") === "on" };
+  const values = { requestsOff: formData.get("requestsOff") === "on", joiningOff: formData.get("joiningOff") === "on", conversationsOff: formData.get("conversationsOff") === "on" };
   await setSwitches(values);
-  await recordAdminAction({ adminId: admin.id, action: "stop switches set", detail: `new requests ${values.requestsOff ? "off" : "on"}; joining calls ${values.joiningOff ? "off" : "on"}` });
+  await recordAdminAction({
+    adminId: admin.id,
+    action: "stop switches set",
+    detail: `new requests ${values.requestsOff ? "off" : "on"}; joining calls ${values.joiningOff ? "off" : "on"}; messages between hosts and customers ${values.conversationsOff ? "off" : "on"}`,
+  });
   back("The switches were saved.");
+}
+
+/**
+ * The founder reads the messages kept with a report (plans/49-messaging.md, decision 24). The
+ * login is checked here; the look is written into the record of admin actions inside
+ * `keptMessagesFor`, in the same database step, before anything is given back. If that fails,
+ * nothing is given back. The words are never written to a log.
+ */
+export async function keptMessagesAction(_state: KeptState, formData: FormData): Promise<KeptState> {
+  const admin = await requireAdmin();
+  const reportId = String(formData.get("reportId") ?? "");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportId)) return { error: "That report is not there.", kept: null };
+  try {
+    const kept = await keptMessagesFor({ adminId: admin.id, reportId });
+    return kept ? { error: null, kept } : { error: "Nothing is kept with that report.", kept: null };
+  } catch (error) {
+    console.error(`[admin] reading the kept messages of a report failed (${errorSummary(error)})`);
+    return { error: "Something went wrong. Nothing was shown. Please try again.", kept: null };
+  }
 }
 
 /** The memberships switch: off, on for the hosts named by their handle, or on for everyone. */

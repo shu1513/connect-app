@@ -29,6 +29,8 @@ import { and, inArray, isNotNull, like, lt, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 
 export const EMAIL_KEPT_YEARS = 2;
+/** A message between a host and a customer is deleted this long after it was sent (plans/49-messaging.md, decision 26). */
+export const MESSAGES_KEPT_MONTHS = 12;
 export const LOGIN_KEPT_MONTHS = 12;
 export const ATTEMPT_COUNTERS_KEPT_DAYS = 7;
 /** The start of the key an emptied email gets in place of its own: its own number follows, which names no person. */
@@ -51,7 +53,7 @@ export const emailCutoff = (now: Date): Date => monthsBefore(now, EMAIL_KEPT_YEA
 export const loginCutoff = (now: Date): Date => monthsBefore(now, LOGIN_KEPT_MONTHS);
 
 /** For check scripts only: touch nothing but rows of matching people, so a check never changes other rows. */
-export type OnlyThese = { emailKeyLike: string; userIds: string[]; codeLike: string; counterKeyLike: string };
+export type OnlyThese = { emailKeyLike: string; userIds: string[]; codeLike: string; counterKeyLike: string; conversationIds?: string[] };
 
 const mail = schema.emailOutbox;
 /** How many rows one round changes at most; the helper comes back within the hour. */
@@ -110,9 +112,30 @@ export async function deleteOldAttemptCounters(now: Date, only?: OnlyThese): Pro
   return gone.length;
 }
 
-/** All three, for the helper. One failing does not stop the others. */
+/**
+ * Deletes the messages between hosts and customers that were sent more than twelve months ago
+ * (plans/49-messaging.md, decision 26). Returns how many in this round. The conversation's own
+ * row stays: it holds the customer's switch and the number of the last message, so a number is
+ * never used twice. What is kept with a report (`report_conversations`) is a copy of its own and
+ * is not touched.
+ */
+export async function deleteOldConversationMessages(now: Date, only?: Pick<OnlyThese, "conversationIds">): Promise<number> {
+  const cutoff = monthsBefore(now, MESSAGES_KEPT_MONTHS);
+  const old = schema.conversationMessages;
+  const due = db
+    .select({ id: old.id })
+    .from(old)
+    .where(and(lt(old.createdAt, cutoff), only?.conversationIds ? inArray(old.conversationId, only.conversationIds.length ? only.conversationIds : ["00000000-0000-0000-0000-000000000000"]) : undefined))
+    .limit(PER_ROUND);
+  const gone = await db.delete(old).where(inArray(old.id, due)).returning({ id: old.id });
+  return gone.length;
+}
+
+/** All four, for the helper. One failing does not stop the others. */
 export async function runRetention(now: Date): Promise<void> {
   await emptyOldEmails(now).catch((error) => console.error("[retention] emptying old emails failed; will retry", error));
   await deleteOldLogins(now).catch((error) => console.error("[retention] deleting old login records failed; will retry", error));
   await deleteOldAttemptCounters(now).catch((error) => console.error("[retention] deleting old attempt counters failed; will retry", error));
+  // Never the error itself here: a database error can carry the statement's values.
+  await deleteOldConversationMessages(now).catch((error) => console.error(`[retention] deleting old messages between hosts and customers failed; will retry (${error instanceof Error ? error.name : "unknown error"})`));
 }

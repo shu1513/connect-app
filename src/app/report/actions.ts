@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { errorSummary } from "@/lib/email";
 import { withNotice } from "@/lib/notice";
 import { safeNext } from "@/lib/safe-next";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
@@ -16,16 +17,20 @@ export async function sendReport(formData: FormData) {
   const context = String(formData.get("context") ?? "");
   const contextId = String(formData.get("contextId") ?? "");
   let notice: string;
+  let receipt: string | null;
   try {
-    ({ notice } = await sendReportFor(user.id, { context, contextId, reason: String(formData.get("reason") ?? ""), text: String(formData.get("text") ?? "") }, new Date()));
+    ({ notice, receipt } = await sendReportFor(user.id, { context, contextId, reason: String(formData.get("reason") ?? ""), text: String(formData.get("text") ?? "") }, new Date()));
   } catch (error) {
     if (!(error instanceof ReportError)) {
-      console.error("[safety] report failed", error);
+      // Never the error itself: a database error carries the statement's values, which here are what the reporter
+      // wrote and, for a report made from a message, the messages kept with it.
+      console.error(`[safety] report failed (${errorSummary(error)})`);
       redirect(withNotice(`/report?${context}=${encodeURIComponent(contextId)}`, REPORT_WORDS.wrong));
     }
     redirect(withNotice(`/report?${context}=${encodeURIComponent(contextId)}`, error.message));
   }
-  redirect(withNotice("/", notice));
+  // All as it should be: the thank-you on the home page. Otherwise the receipt, which has the "Block" button.
+  redirect(withNotice(receipt ?? "/", notice));
 }
 
 export async function blockAction(formData: FormData) {

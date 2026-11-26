@@ -29,5 +29,14 @@ export const REPORT_WORDS = {
   /** Reporting a post does not block its host, so that is not promised for one. */
   thanksPost: (reference: number) => `Thank you. Your report is R-${reference}. We will look at it.`,
   thanksPerson: (reference: number) => `Thank you. Your report is R-${reference}. We will look at it, and you will not hear from this person through Connect again.`,
+  /** The block went through, but a call still to come between the two could not be cancelled yet. */
+  thanksNotCancelled: (reference: number, calls: number) =>
+    `Thank you. Your report is R-${reference}. This person is blocked, but ${calls} future ${calls === 1 ? "call" : "calls"} between you could not be cancelled just now. Press "Block" below to try again, or cancel ${calls === 1 ? "it" : "them"} from your calls page.`,
+  /** The report is saved and the block is not there. */
+  savedNotBlocked: (reference: number) => `Your report was saved: R-${reference}. This person is not blocked yet. Press "Block" below.`,
+  /** The report is saved and nobody could find out whether the block stands. */
+  savedBlockUnknown: (reference: number) => `Your report was saved: R-${reference}. We could not confirm the block. Press "Block" below to make sure.`,
+  receiptTitle: "Your report",
+  reportMessage: "Report",
   wrong: "Something went wrong. Please try again.",
 } as const;

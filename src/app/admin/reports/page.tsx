@@ -14,10 +14,11 @@ import { requireAdmin } from "@/lib/session";
 import { decideProfileAction, closeAccountAction } from "../people/actions";
 import { appSwitchesAction, closeReportAction, liftPauseAction, membershipsSwitchAction, pauseAction, switchesAction, warnAction } from "./actions";
 import { SitePage } from "@/components/site-page";
+import { KeptMessages } from "./kept-messages";
 
 export const metadata: Metadata = { title: "Reports and safety" };
 
-const CONTEXT_LABEL: Record<string, string> = { call: "a call", booking: "a request", profile: "a host's page", post: "a post of a host's diary" };
+const CONTEXT_LABEL: Record<string, string> = { call: "a call", booking: "a request", profile: "a host's page", post: "a post of a host's diary", message: "a message" };
 
 export default async function AdminReportsPage(props: PageProps<"/admin/reports">) {
   await requireAdmin();
@@ -124,7 +125,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         <p className="mt-3 text-sm opacity-70">Nothing is open.</p>
       ) : (
         <ul className="mt-3 space-y-6">
-          {reports.map(({ report, reporterName, reported, profile, earlierReports, callsTogether, actions }) => {
+          {reports.map(({ report, reporterName, reported, profile, earlierReports, callsTogether, actions, kept }) => {
             const snapshot = JSON.parse(report.snapshot) as {
               booking?: { id?: string; note?: string } | null;
               call?: { id?: string; safetyEndedAt?: string | null } | null;
@@ -150,6 +151,8 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                   {earlierReports === 1 ? "report" : "reports"} about this person.
                 </p>
                 {report.text && <p className="mt-2 whitespace-pre-line rounded bg-neutral-800/40 p-2">&ldquo;{report.text}&rdquo;</p>}
+                {/* Only THAT messages are kept, and how many. Their words come through the button, whose press is written down first. */}
+                {kept && <KeptMessages reportId={report.id} keptCount={kept.keptCount} olderLeftOut={kept.olderLeftOut} reporterName={reporterName} reportedName={reported?.name ?? "the person reported"} />}
                 {snapshot.booking?.note && <p className="mt-1 opacity-70">The request&apos;s note said: &ldquo;{snapshot.booking.note}&rdquo;</p>}
                 {snapshot.profile && (
                   <p className="mt-1 opacity-70">
@@ -334,6 +337,10 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         </label>
         <label className="flex items-center gap-2">
           <input type="checkbox" name="joiningOff" defaultChecked={current.joiningOff} /> Nobody can join a call
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="conversationsOff" defaultChecked={current.conversationsOff} /> No messages between hosts and customers (they can still read
+          their conversations, and report from them)
         </label>
         <button type="submit" className={button}>
           Save switches
