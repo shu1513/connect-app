@@ -216,6 +216,11 @@ customer have agreed to beforehand, and is his switch for each host enough as th
 Connect later sends an email that only says "a message is waiting", with a "Book a time" link:
 does that email need the postal address and the stop link that advertising email needs?
 
+Found while planning messages (plan 49, "Found on the way"): the draft Community Rules say that
+"End call and report" ends the call and blocks the other person. The app blocks only when the
+report form that follows is sent. Until the app is changed, should the rules say what the app
+does?
+
 ## 9. The company and the founder (new, legal review of 20 November 2026)
 
 Sections 9 to 14 come from a read of the whole app on 20 November 2026, done to find what the
