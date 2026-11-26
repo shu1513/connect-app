@@ -817,9 +817,11 @@ guard against repeated reports is the builder's choice, which the founder asked 
   be said to punish reporting, which the law protects in some places (for example a report about
   a child, or about harassment)? A report about "someone under 18" is treated like any other for
   the money: should it be?
-- **A report that does not count.** A report about a host whom another person has also reported
-  from a call lowers the charge and is not counted against the customer. That uses other people's
-  reports about her, unexamined, to decide his money. Any problem?
+- **A report that does not count.** A report about a host whom another person has also reported,
+  from a call with her that took place, is not counted against the customer. That uses other
+  people's reports about her, unexamined, to decide how he is treated later. It never changes
+  what he pays for that call or what he is shown, so he learns nothing about those reports. Any
+  problem?
 - **What Connect now keeps.** On each call: who ended it, and for a customer's report after his
   own press, when it was made and what it did to the charge. The privacy policy and the retention
   schedule do not mention these. How long may they be kept, and must they be named?

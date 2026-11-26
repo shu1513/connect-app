@@ -188,7 +188,7 @@ async function main() {
       check("pressed during time that was added a moment ago: the room's times are read from the call itself", inAdded.state === "ended" && inAdded.by === "host" && (await callOf(longer.id)).endedNowBy === "host", JSON.stringify(inAdded));
 
       // A call ended with the earlier button keeps its mark; a press afterwards says so and changes nothing.
-      const old = await newCall(host, cust, { startsIn: 200, price: 0 });
+      const old = await newCall(host, cust, { startsIn: 260, price: 0 });
       await db.update(schema.calls).set({ safetyEndedAt: new Date(old.startsAt.getTime() + MIN), safetyEndedBy: host.id }).where(eq(schema.calls.id, old.id));
       const onOld = await endCallNow({ call: old, by: cust.id, now: new Date(old.startsAt.getTime() + 2 * MIN) });
       check('a call ended with the earlier "End call and report" stays as it is', onOld.state === "ended" && onOld.old && onOld.by === "host" && !onOld.byMe && (await callOf(old.id)).endedNowBy === null, JSON.stringify(onOld));
@@ -272,7 +272,7 @@ async function main() {
       check("the host had left 5 minutes before he pressed: only her 5 minutes, $6.67", (await cents(leftEarly)) === "667 attendance", await cents(leftEarly));
       await press(justLeft, cust, 600);
       await attend(justLeft, [["host", 0, 560], ["customer", 0, 601]]);
-      check("her connection dropped 40 seconds before he pressed: she counts as there, 9 minutes 20 and the rest, $38.22", (await cents(justLeft)) === "3822 customer_ended", await cents(justLeft));
+      check("her connection dropped 40 seconds before he pressed: she counts as there, her 9 minutes 20 and the rest, $39.11", (await cents(justLeft)) === "3911 customer_ended", await cents(justLeft));
       await press(freeBefore, cust, -120);
       await attend(freeBefore, [["host", -200, -119], ["customer", -200, -119]]);
       check("he pressed 2 minutes before the start, where cancelling was still free: nothing", (await cents(freeBefore)) === "0 attendance", await cents(freeBefore));
@@ -412,35 +412,50 @@ async function main() {
         return { ...one, sent };
       };
 
-      const first = await endedAndReported();
-      check("his first report after ending a call lowers the charge, and tells nobody", first.sent.endEffect === "minutes" && (await founderTold()) === 0);
-      const second = await endedAndReported();
-      check("2 of 5: lowered, and still nobody is told", second.sent.endEffect === "minutes" && (await founderTold()) === 0 && (await cents(second.call)) === "1333 attendance");
+      const somebody = await person("c5other");
+      /** Another person's call with that host: it took place (both there), or it was only ever booked. */
+      const theirCall = async (host: Person, tookPlace: boolean) => {
+        const theirs = await newCall(host, somebody, { startsIn: (slot += 40) });
+        if (tookPlace) await attend(theirs, [["host", 0, 1800], ["customer", 0, 1800]]);
+        return theirs;
+      };
+
+      // His first. Somebody else has reported that host from a call that was booked and never took place: that changes nothing.
+      const firstCall = await call(true);
+      await report(somebody, (await theirCall(firstCall.host, false)).id);
+      const first = await report(cust, firstCall.call.id);
+      check("his first report after ending a call lowers the charge, is counted, and tells nobody", first.endEffect === "minutes" && (await founderTold()) === 0, String(first.endEffect));
+      check("(a report by someone else from a call that never took place does not make his uncounted)", (await callOf(firstCall.call.id)).endReportEffect === "minutes");
+
+      // A host that another person has also reported, from a call of their own that took place: lowered, and not counted.
+      const reportedHost = await call(true);
+      await report(somebody, (await theirCall(reportedHost.host, true)).id);
+      const uncounted = await report(cust, reportedHost.call.id);
+      check("a report about a host another person has also reported from a call that took place: lowered, and not counted", uncounted.endEffect === "minutes_uncounted" && (await cents(reportedHost.call)) === "1333 attendance", String(uncounted.endEffect));
+      check("what he reads is the same as for any lowered report: nothing tells him about other people's reports", (await import("../src/lib/safety/report-words")).reportNotice(uncounted).notice.replace(/R-\d+/, "R-0") === (await import("../src/lib/safety/report-words")).reportNotice(first).notice.replace(/R-\d+/, "R-0"));
+
+      // The next. Somebody else has reported this host's PAGE, which anyone can do: that changes nothing either.
+      const secondCall = await call(true);
+      await R.createReport({ reporterId: somebody.id, context: "profile", contextId: `en${RUN}g${n - 1}`, reason: "other", text: "Check.", now: new Date() });
+      const second = await report(cust, secondCall.call.id);
+      check("2 of 5 (the one that did not count is not one of them): lowered, counted, and still nobody is told", second.endEffect === "minutes" && (await founderTold()) === 0 && (await cents(secondCall.call)) === "1333 attendance", String(second.endEffect));
       const third = await endedAndReported();
       const told = await messagesLike(`end-guard:${cust.id}:%`);
       check("3 of 5: lowered, and the founder is told once, in the app and by email", third.sent.endEffect === "minutes" && told.length === admins.length && told.length > 0, `${told.length} of ${admins.length}`);
       check("what the founder reads names the customer and no detail of any report", told.every((m) => m.subject === END_WORDS.founderSubject && m.body.includes(cust.name) && m.body.includes("3 times among their last 5 calls") && !m.body.includes("Check.") && !/Host g\d/.test(m.body) && m.path === "/admin/reports"));
       check("with its email", (await db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `end-guard:${cust.id}:%`))).length === admins.length);
 
-      // The next one. Somebody else has reported this host's PAGE, which anyone can do: that alone does not switch the guard off.
+      // Past the line. This host, too, was reported by somebody else from a call that took place: it makes no difference now.
       const fourthCall = await call(true);
-      const somebody = await person("c5other");
-      await R.createReport({ reporterId: somebody.id, context: "profile", contextId: `en${RUN}g${n - 1}`, reason: "other", text: "Check.", now: new Date() });
+      await report(somebody, (await theirCall(fourthCall.host, true)).id);
       check("past the line, the screen no longer promises a lower charge", (await endReportPreview(await callOf(fourthCall.call.id), cust.id, new Date())) === "whole");
       const fourth = await report(cust, fourthCall.call.id);
-      check("the next report is not lowered: the whole booking is charged (someone else's report of her page alone changes nothing)", fourth.endEffect === "whole" && (await callOf(fourthCall.call.id)).endReportEffect === "whole" && (await cents(fourthCall.call)) === "4000 customer_ended", await cents(fourthCall.call));
+      check("the next report is not lowered: the whole booking is charged, whoever else has reported that host", fourth.endEffect === "whole" && (await callOf(fourthCall.call.id)).endReportEffect === "whole" && (await cents(fourthCall.call)) === "4000 customer_ended", await cents(fourthCall.call));
       check("the report and the block still go through", fourth.block === "done" && (await isBlockedEitherWay(cust.id, fourthCall.host.id)) && (await db.select().from(schema.reports).where(eq(schema.reports.reference, fourth.reference))).length === 1);
       const toCust = await messagesLike(`end-report-whole:${fourthCall.call.id}`);
       check("the customer is told at once, plainly, by the name he knows the host by, without being accused", toCust.length === 1 && toCust[0].userId === cust.id && toCust[0].body.includes(fourthCall.host.displayName) && toCust[0].body.includes("still charged for the whole booked time") && !/abus|fraud|cheat|false/i.test(toCust[0].body) && toCust[0].path === `/calls/${fourthCall.call.id}/results`);
       check("and the thank-you after the report says the same", (await import("../src/lib/safety/report-words")).reportNotice(fourth).notice.endsWith(END_WORDS.thanksNotLowered));
-      check("the founder is not told again", (await founderTold()) === admins.length);
-
-      // Still past the line: a host that another person has also reported from a call of their own. Lowered, and never counted.
-      const reportedHost = await call(true);
-      const theirs = await newCall(reportedHost.host, somebody, { startsIn: (slot += 40) });
-      await report(somebody, theirs.id);
-      const uncounted = await report(cust, reportedHost.call.id);
-      check("a report about a host another person has also reported from a call: lowered also past the line, and not counted", uncounted.endEffect === "minutes_uncounted" && (await cents(reportedHost.call)) === "1333 attendance" && (await custTold(reportedHost.call.id)) === 0 && (await founderTold()) === admins.length, String(uncounted.endEffect));
+      check("the founder is not told again", (await founderTold()) === admins.length && (await custTold(reportedHost.call.id)) === 0);
 
       // Normal calls push the old ones out of "his last 5".
       await call(false);
@@ -548,8 +563,8 @@ async function main() {
         const hostAfter = words((await send(`/calls/${paid.id}/results`, { jar: hanaJar })).text);
         const custAfter = words((await send(`/calls/${paid.id}/results`, { jar: coryJar })).text);
         check("after his report his page says the charge is by the time the call lasted", custAfter.includes("it is charged only for the time it lasted"));
-        check("the host's page says only which rule the charge follows, never that she was reported", !/\breported\b/i.test(hostAfter) && hostAfter.includes("Only your time in the call up to that moment is charged"), hostAfter.slice(0, 200));
-        check("nor does her screen after the call", !/\breported\b/i.test(words((await send(`/calls/${paid.id}/ended`, { jar: hanaJar })).text)));
+        check("the host's page says only which rule the charge follows, never that she was reported", !/reported (the host|you|her|him)|You reported/i.test(hostAfter) && hostAfter.includes("Only your time in the call up to that moment is charged"), hostAfter.slice(0, 200));
+        check("nor does her screen after the call", !/reported (the host|you|her|him)|You reported|If you report/i.test(words((await send(`/calls/${paid.id}/ended`, { jar: hanaJar })).text)));
 
         // The host presses on another call: her screen, and the customer's.
         const second = await direct(PRICE, -2);

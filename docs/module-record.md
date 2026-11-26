@@ -5718,3 +5718,98 @@ lawyer read the proposed wording, the procedure and section 8 of `docs/for-the-l
 a contact address for the police. And one change that was found on the way and is still open:
 "End call and report" blocks only when the form after it is sent, while the written rules say it
 blocks at the press (plan 49, "Found on the way").
+
+## "End call now": ending and reporting are two things, and the money settles by itself (plan 50, 26 November 2026)
+
+**The plan:** `plans/50-end-call-now.md`. It answers what plan 49 found on the way ("End call and
+report" blocked only when the form after it was sent, while the written rules said it blocked at
+the press).
+
+**What the founder decided (26 November 2026).** "ending call and report should be 2 separate
+things. instead of 'End call and report', it should probably be 'End call now' then the options
+for report and block."
+
+1. One button in the call, "End call now". It ends the call for both at once and nobody can
+   rejoin.
+2. Right after it one screen with "Report [name]", "Block [name]" and "Neither". Reporting still
+   blocks.
+3. For a booked call: "if host pressed the end ... charged based on the minutes ... if customer
+   pressed it, his entire booking time is still charged".
+4. "Available now" calls keep their own rule (the time both were in the call). The rule of
+   point 3 also holds for a call paid from a membership.
+5. Nobody decides by hand: "a better automatic way ... instead of me manually deciding it". If
+   the customer reports the host after the call ended, he is charged only for the minutes that
+   happened. A host's report changes nothing about the money. A report can only lower a charge.
+   Nothing goes on the review list because of the button or a report.
+6. A plain "End call now", with no report and no block, does not close the messages between the
+   two.
+7. A guard against a customer who reports again and again to save money: the founder asked for
+   one ("maybe after 3 consecutive times or something like that we freeze his account? not sure
+   what's the best algorithm"), said that someone who does it once in a while must not be
+   caught, and then: "do what you think is the best".
+
+**What is the builder's own choice, and can be changed by the founder.**
+
+- **The guard (decision 16 of the plan), all of it.** Look at the customer's last 5 booked calls
+  that took place (this one and the 4 before it; paid, both joined, not "available now"). If 3
+  of the 4 before it ended with him pressing "End call now", reporting the host, and having the
+  charge lowered by that, this report does not lower the charge. Not "3 in a row", which one
+  cheap normal call would reset. A report about a host whom another person has also reported,
+  from a call with her that really took place, is lowered and not counted. Past the line nothing
+  lowers the charge. No automatic freeze: the founder is told once when the line is crossed
+  (3 of 5), and decides. The customer is told at once when a report does not lower his charge.
+  **What it cannot stop:** two cheap, real, booked calls push two old ones out, and then a report
+  lowers a charge again. Someone set on it can keep paying less on about three calls in five.
+  Each time he reaches 3 of 5 again the founder is told again; pausing the account is the
+  founder's answer.
+- **What "his whole booked time" means.** The time the host was really in the call before he
+  pressed, plus the rest of the booking. Not the minutes he waited for her. If the host was not
+  in the call when he pressed (her connection ended more than 60 seconds before), the rest is
+  not charged either: a customer who waits for a host who never comes and then presses the red
+  button pays nothing. Pressed before the booked start, it is charged as his cancelling at that
+  moment would be.
+- **Saying openly that a report lowers the charge.** The screen after the press tells a customer
+  who ended the call: "If you report [name], this call is charged only for the time it lasted."
+  Hiding it would leave someone who was really treated badly believing they must pay for the
+  whole booking. It also tells a dishonest customer how to pay less, which is what the guard is
+  for. The founder may prefer it unsaid.
+- **The host is never told that she was reported.** Her pages say only which rule the charge
+  follows.
+- **Ratings, the automatic follow, the tip box and the project box stay off** for a call ended
+  with the button, as before. "Book another call" and "Write to" stay on after a plain end.
+- **Calls ended with the old button** keep their place on the review list and the old cut for
+  messages.
+
+**What was built.**
+
+- **The press** (`src/lib/safety/calls.ts`). One update that only goes through while the call is
+  neither ended nor cancelled and its room is open, with the room's times read from the call
+  itself. It writes when, who, and in which role (`calls.endedNowBy`, new). If it changed
+  nothing, the call is read again and the answer says what is true: ended by you, ended by the
+  other person a moment earlier, already over, or not open yet. No payment is marked for review.
+- **The amount in one place** (`src/lib/payments/owed.ts`, with the rules in
+  `src/lib/payments/ended.ts`). The helper's first look, the taking of the money, the member's
+  call and the call's own page all ask it. A charge that includes "the rest of the booking" is
+  written with the reason `customer_ended`.
+- **The customer's report** (`src/lib/safety/end-report.ts`, called inside the report's own
+  database step). It writes on the call when the report was made and what it did:
+  `minutes`, `minutes_uncounted` or `whole` (`calls.endReportAt`, `calls.endReportEffect`, new).
+  The money step holds the same row, so a report comes before it or after it, never in the
+  middle. After the money was taken a report changes nothing by itself.
+- **The guard** (`src/lib/safety/end-guard.ts`), a plain function with tests at its edges.
+- **The screens.** The call room's button and its question, which says what the press costs the
+  person who presses. A new page, `/calls/[id]/ended`, with who ended the call, what that means
+  for the money, and the three choices, each with what it does. The call's page says who ended
+  it. The report form says what a report does to the charge. The founder's report list says how
+  the call ended.
+- **Messages.** Plan 49's decision 21 was rewritten: a call ended with "End call now" counts
+  like any other call; only a call ended with the old button still cuts the two off.
+- **A bank dispute's evidence** has its own true sentence for a whole-booking charge.
+- **The phone app** (still paused, not in any store): the button, its question, and a new screen
+  with the same three choices; on the server one new reading and one new step ("Block" from that
+  screen, which names only the call). The old step's address still answers.
+- **For the lawyer** (not in force, not in the app): proposed wording for the four documents in
+  `docs/legal/end-call-now-proposed-wording.md`, and the questions in `docs/for-the-lawyer.md`,
+  section 24. **The documents in the app still describe the old button.** They are drafts; a new
+  version would send every account back to the welcome step, so the wording waits for the
+  lawyer, as with messages.

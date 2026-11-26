@@ -31,11 +31,15 @@ export const lowers = (effect: string | null | undefined): boolean => effect ===
  * Decides one report. `earlier` is what stands on the calls before this one that took place,
  * newest first (null for a call with no such report); only the first 4 are read.
  * `crossesLine` is true for the report that makes it 3 of 5: the founder is told then, once.
+ *
+ * Past the line nothing lowers the charge, whoever else has reported that host. So what a
+ * customer sees (lowered, or not) never depends on other people's reports, and tells him nothing
+ * about them: they only decide whether his own report is counted.
  */
 export function endReportEffect(input: { earlier: Array<string | null>; othersReported: boolean }): { effect: EndReportEffect; crossesLine: boolean } {
-  // Several people reporting one host is the strongest sign that a report is true: lowered, never counted, also past the line.
-  if (input.othersReported) return { effect: "minutes_uncounted", crossesLine: false };
   const counted = input.earlier.slice(0, END_GUARD.calls - 1).filter((effect) => effect === "minutes").length;
   if (counted >= END_GUARD.line) return { effect: "whole", crossesLine: false };
+  // Several people reporting one host is the strongest sign that a report is true: lowered like any other, and not counted.
+  if (input.othersReported) return { effect: "minutes_uncounted", crossesLine: false };
   return { effect: "minutes", crossesLine: counted + 1 === END_GUARD.line };
 }

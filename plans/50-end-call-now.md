@@ -179,10 +179,10 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 
 16. **Three of the last five. (builder)**
     - **His last 5 calls** are this call and the 4 before it: calls he was the customer of, with
-      any host, booked or from a membership, not cancelled, over, and in which both he and the
-      host joined. "Available now" calls are left out: a report never lowers their charge, and
-      a short one costs nothing, so counting them would only let him push the others out for
-      free.
+      any host, booked or from a membership, paid, not cancelled, over, and in which both he and
+      the host joined. "Available now" calls and free calls are left out: a report never lowers
+      their charge, and they cost little or nothing, so counting them would only let him push
+      the others out for free.
     - **What is counted** is written on the call when the report is taken: "lowered, and
       counts", "lowered, does not count" or "not lowered". It is never worked out again later.
     - **The rule:** if 3 or more of the 4 calls before this one carry "lowered, and counts", this
@@ -191,15 +191,21 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
     - **Not "3 in a row"**, which one cheap normal call would reset. It clears by itself as
       normal booked calls push old ones out.
     - **A report does not count when another person has also reported that host.** Asked at the
-      moment the report is taken, never later: is there a report about her, made from a call
-      she hosted, by a different person, in the last 12 months, open or closed? Only reports
-      made from a call count for this, because anyone can report a public page, and a second
-      account doing that would switch the guard off. Such a report also lowers the charge when
-      he is past the line: several people reporting one host is the strongest sign that it is
-      true.
+      moment the report is taken, never later: is there a report about her by a different
+      person, made from a call she hosted that really took place (paid, not cancelled, both
+      joined), in the last 12 months, open or closed? Only such reports count for this. Anyone
+      can report a public page, and anyone can report from a call the moment it is booked: a
+      second account doing either would switch the guard off for nothing.
+    - **Past the line nothing lowers the charge**, whoever else has reported that host. So what
+      a customer sees (lowered, or not) never depends on other people's reports and tells him
+      nothing about them. They only decide whether his own report is counted.
     - **His report and the block always go through**, lowered or not.
     - **Two of his reports at the same moment** cannot both slip under the line: the report
       step already takes one lock per reporter, and the second waits for the first.
+    - **What it cannot stop, said plainly:** two cheap, real, booked calls push two old ones out,
+      and then a report lowers a charge again. Someone set on it can keep paying less on about
+      three calls in five. Each time he reaches 3 of 5 again the founder is told again, and
+      pausing the account is the founder's answer.
 17. **Who is told. (builder)**
     - **The founder, once, when the line is crossed** (the report that makes it 3 of 5): a
       message in the app with its email, "[name] has ended a call and then reported the host 3

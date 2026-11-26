@@ -44,10 +44,14 @@ describe("the guard: three of the last five", () => {
     expect(decide([W, W, L, L])).toEqual({ effect: "minutes", crossesLine: true });
     expect(decide([U, L, L, N])).toEqual({ effect: "minutes", crossesLine: true });
   });
-  it("a report about a host another person also reported: lowered, never counted, also past the line", () => {
+  it("a report about a host another person also reported: lowered like any other, and never counted", () => {
     expect(decide([], true)).toEqual({ effect: "minutes_uncounted", crossesLine: false });
+    // It would have been the third: it is not counted, so the line is not crossed and nobody is told.
     expect(decide([L, L], true)).toEqual({ effect: "minutes_uncounted", crossesLine: false });
-    expect(decide([L, L, L, L], true)).toEqual({ effect: "minutes_uncounted", crossesLine: false });
+  });
+  it("past the line nothing lowers the charge, whoever else reported that host: what he sees never depends on other people's reports", () => {
+    expect(decide([L, L, L], true)).toEqual(decide([L, L, L], false));
+    expect(decide([L, L, L, L], true)).toEqual({ effect: "whole", crossesLine: false });
   });
 });
 

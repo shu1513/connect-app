@@ -61,35 +61,32 @@ async function moneyStillWaits(reader: Reader, callId: string): Promise<boolean>
 const joined = (who: "host_id" | "customer_id") =>
   sql`exists (select 1 from "attendance_events" a where a.call_id = "calls"."id" and a.type = 'participant_joined' and a.participant_identity = ${sql.raw(`"calls"."${who}"`)})`;
 
+/** A call that took place: not cancelled, over, paid, and both people joined it. */
+const tookPlace = (now: Date) =>
+  and(isNull(schema.calls.cancelledAt), gt(schema.calls.pricePer15Cents, 0), or(isNotNull(schema.calls.safetyEndedAt), lte(schema.calls.endsAt, now)), joined("host_id"), joined("customer_id"));
+
 /**
  * What stands on the customer's calls before this one, newest first: his booked and member calls
- * with any host that took place (not cancelled, over, both joined). "Available now" calls are
- * left out: a report never lowers their charge, and a short one costs nothing.
+ * with any host that took place. "Available now" calls are left out, and so are free ones: a
+ * report never lowers their charge, and they cost little or nothing, so counting them would let
+ * him push the others out of "his last 5" for free.
  */
 async function earlierEffects(reader: Reader, call: Call, now: Date): Promise<Array<string | null>> {
   const rows = await reader
     .select({ effect: schema.calls.endReportEffect })
     .from(schema.calls)
-    .where(
-      and(
-        eq(schema.calls.customerId, call.customerId),
-        ne(schema.calls.id, call.id),
-        eq(schema.calls.billing, "host"),
-        isNull(schema.calls.cancelledAt),
-        or(isNotNull(schema.calls.safetyEndedAt), lte(schema.calls.endsAt, now)),
-        joined("host_id"),
-        joined("customer_id"),
-      ),
-    )
+    .where(and(eq(schema.calls.customerId, call.customerId), ne(schema.calls.id, call.id), eq(schema.calls.billing, "host"), tookPlace(now)))
     .orderBy(desc(schema.calls.startsAt))
     .limit(END_GUARD.calls - 1);
   return rows.map((row) => row.effect);
 }
 
 /**
- * Whether another person has also reported this host, from a call she hosted, in the last 12
- * months (open or closed). Only reports made from a call count: anyone can report a public page,
- * and a second account doing that would switch the guard off.
+ * Whether another person has also reported this host, from a call she hosted that took place, in
+ * the last 12 months (open or closed). Only such reports count. Anyone can report a public page,
+ * and anyone can report from a call the moment it is booked and then cancel it: a second account
+ * doing either would switch the guard off for nothing. A call that took place cost that person a
+ * real, paid call with her.
  */
 async function othersReported(reader: Reader, call: Call, now: Date): Promise<boolean> {
   const [other] = await reader
@@ -102,6 +99,7 @@ async function othersReported(reader: Reader, call: Call, now: Date): Promise<bo
         eq(schema.reports.reportedId, call.hostId),
         ne(schema.reports.reporterId, call.customerId),
         eq(schema.calls.hostId, call.hostId),
+        tookPlace(now),
         gt(schema.reports.createdAt, new Date(now.getTime() - END_GUARD.othersWithinDays * DAY_MS)),
       ),
     )
