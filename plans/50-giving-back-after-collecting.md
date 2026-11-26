@@ -21,7 +21,9 @@ After this plan, a refund that Connect gives after the host collected works the 
 all four kinds of payment, the way it already works for a call paid by card: the customer
 gets the money (or the member their time), the host is told she owes her share back, she has
 14 days and a button to say it is wrong, and then the app takes it from her balance at
-Stripe. Nobody settles anything by hand.
+Stripe. A person is needed only where a call needs one today: a host who had not accepted a
+published Host Agreement before that payment, and a host whose balance Stripe cannot reach
+for 30 days.
 
 **What this plan does not build:** a button for the host herself to give money back after
 she has collected. The first draft had it. Astra's check showed it cannot be made safe yet;
