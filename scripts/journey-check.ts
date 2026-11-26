@@ -434,6 +434,8 @@ async function main() {
       ["/rules", 200], ["/terms", 200], ["/privacy", 200], ["/unsubscribe", 200], ["/reset-password", 200], ["/h/nobody_here_at_all", 404],
       [`/h/${handle}/now?length=15`, `/login?next=${encodeURIComponent(`/h/${handle}/now?length=15`)}`], ["/admin/secure", "/login"],
       ["/account", "/login?next=%2Faccount"], ["/contacts", "/login?next=%2Fcontacts"], ["/host", "/login?next=%2Fhost"], ["/host/requests", "/login?next=%2Fhost%2Frequests"],
+      // Messages, and a conversation (plans/49): the login first, then back to where they were.
+      ["/messages", "/login?next=%2Fmessages"], [`/conversations/${noContribution}`, `/login?next=${encodeURIComponent(`/conversations/${noContribution}`)}`],
       [`/bookings/${freeBookingId}`, `/login?next=${encodeURIComponent(`/bookings/${freeBookingId}`)}`], [`/calls/${freeCallId}`, `/login?next=${encodeURIComponent(`/calls/${freeCallId}`)}`],
       [`/calls/${freeCallId}/results`, `/login?next=${encodeURIComponent(`/calls/${freeCallId}/results`)}`], ["/admin", "/login"], ["/identity", "/login"],
       // A contribution's pages ask for the login first, and bring the person back to where they were.
@@ -449,6 +451,8 @@ async function main() {
         [`/h/${handle}/now?length=15`, 200], ["/admin", 404], ["/admin/people", 404], ["/admin/reports", 404], ["/admin/outbox", 404], ["/admin/secure", 404], ["/calls/new", 404], [`/bookings/${randomUUID()}`, 404],
         // A contribution that is not this person's, or does not exist, and a summary page for no project: not found.
         [`/contributions/${noContribution}`, 404], ["/contributions/new", 404], ["/admin/projects", 404],
+        // Their messages; and a conversation that is not theirs, or does not exist: not found (plans/49).
+        ["/messages", 200], [`/conversations/${noContribution}`, 404],
       ],
     ];
     await walk("the customer", ...(signedIn(customerJar).slice(1) as [Jar, Array<[string, number | string]>]));

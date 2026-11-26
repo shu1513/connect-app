@@ -7,7 +7,7 @@ vi.mock("@/db", () => ({ db: {}, schema: {} }));
 import type { Switches } from "@/lib/safety/switches";
 import { switchesForApps } from "./start";
 
-const all: Switches = { requestsOff: false, joiningOff: false, memberships: "everyone", membershipsHosts: [], projects: "everyone", projectsHosts: [], tipsOff: false, appMemberships: "on", appTips: false, appAvailableNow: true, appOldestVersion: "" };
+const all: Switches = { requestsOff: false, joiningOff: false, memberships: "everyone", membershipsHosts: [], projects: "everyone", projectsHosts: [], tipsOff: false, appMemberships: "on", appTips: false, appAvailableNow: true, appOldestVersion: "", conversationsOff: true };
 
 describe("what is on for the phone apps", () => {
   it("tips reach the apps only when the website's own switch and the apps' switch are both on", () => {

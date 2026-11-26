@@ -28,6 +28,12 @@ export type Switches = {
   appAvailableNow: boolean;
   /** The oldest version of the app still allowed, or "" for none. */
   appOldestVersion: string;
+  /**
+   * Messages between hosts and customers (plans/49-messaging.md, decision 31): while true nobody
+   * can send, and everyone can still read. Part 1 of the plan is merged with this at true, also
+   * where no switch has been saved yet; part 2 turns it on once and gives the founder the control.
+   */
+  conversationsOff: boolean;
 };
 
 /** A saved position, read strictly: anything that is not one of the three words counts as "off", the safe side. */
@@ -58,6 +64,8 @@ export async function switches(reader: Pick<typeof db, "select"> = db): Promise<
     appTips: row?.appTips ?? false,
     appAvailableNow: row?.appAvailableNow ?? true,
     appOldestVersion: row?.appOldestVersion ?? "",
+    // Off until part 2 of plan 49, also with no row yet: like the column's own default.
+    conversationsOff: row?.conversationsOff ?? true,
   };
 }
 
@@ -79,6 +87,7 @@ export async function setSwitches(values: Partial<Switches>, writer: Pick<typeof
     ...(values.appTips !== undefined ? { appTips: values.appTips } : {}),
     ...(values.appAvailableNow !== undefined ? { appAvailableNow: values.appAvailableNow } : {}),
     ...(values.appOldestVersion !== undefined ? { appOldestVersion: values.appOldestVersion } : {}),
+    ...(values.conversationsOff !== undefined ? { conversationsOff: values.conversationsOff } : {}),
     updatedAt: new Date(),
   };
   await writer
@@ -106,6 +115,11 @@ export async function membershipsOnFor(hostId: string, reader: Pick<typeof db, "
 export async function projectsOnFor(hostId: string, reader: Pick<typeof db, "select"> = db): Promise<boolean> {
   const { projects, projectsHosts } = await switches(reader);
   return projects === "everyone" || (projects === "named" && projectsHosts.includes(hostId));
+}
+
+/** Are messages between hosts and customers switched on (plans/49-messaging.md, decision 31)? Off: nobody can send, everyone can still read. */
+export async function conversationsOn(reader: Pick<typeof db, "select"> = db): Promise<boolean> {
+  return !(await switches(reader)).conversationsOff;
 }
 
 /** Are tips after a call switched on? One switch for every host (plans/44, decision 12). */

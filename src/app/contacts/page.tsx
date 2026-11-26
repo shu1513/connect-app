@@ -7,7 +7,9 @@ import { invitingFor } from "@/lib/membership/access";
 import { readNotice } from "@/lib/notice";
 import { contactsOf, NOTE_MAX } from "@/lib/people/contacts";
 import { requireUser } from "@/lib/session";
+import { conversationsOn } from "@/lib/safety/switches";
 import { SitePage } from "@/components/site-page";
+import { WriteTo } from "@/components/write-to";
 import { inviteAction, takeBackInviteAction } from "./actions";
 
 export const metadata: Metadata = { title: "People you have talked to" };
@@ -22,6 +24,8 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
   const contacts = await contactsOf(user.id, now);
   // For a host: who she can invite to her membership, and where each invitation or membership stands. Only her own.
   const inviting = contacts.some((contact) => contact.wasMyCustomer) ? await invitingFor(user.id) : { canInvite: false, byCustomer: new Map<string, MembershipRow>() };
+  // A host can write to someone who was her customer (plans/49), while messages are switched on.
+  const canWrite = contacts.some((contact) => contact.wasMyCustomer) && (await conversationsOn());
 
   return (
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -50,6 +54,11 @@ export default async function ContactsPage(props: PageProps<"/contacts">) {
                     Their page: book another call
                   </Link>
                 </p>
+              )}
+              {canWrite && contact.wasMyCustomer && (
+                <div className="mt-3">
+                  <WriteTo customerId={contact.userId} name={contact.name} back="/contacts" />
+                </div>
               )}
               {contact.wasMyCustomer && <Membership link={inviting.byCustomer.get(contact.userId) ?? null} canInvite={inviting.canInvite} customerId={contact.userId} name={contact.name} now={now} />}
               {contact.wasMyCustomer && <NoteForm customerId={contact.userId} name={contact.name} text={contact.note} max={NOTE_MAX} />}
