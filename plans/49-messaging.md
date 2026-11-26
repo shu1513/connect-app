@@ -1,7 +1,7 @@
 # Plan 49: Messages between a host and a customer
 
-**Status:** part 1 is built (26 November 2026; the record is in `docs/module-record.md`), part 2
-is not. Written 26 November 2026 by the builder alone (no helper
+**Status:** built, both parts (26 November 2026; the record is in `docs/module-record.md`, and
+what building changed is at the end of this plan). Written 26 November 2026 by the builder alone (no helper
 agents), from the code as it is on `main` after pull request 103. It starts from the two studies of
 14 November 2026 (`docs/research/messaging/compared.md`) and from the founder's rules of
 26 November 2026 (`docs/module-record.md`, module 8b). Astra (gpt-6.2-astra, high effort) checked
@@ -618,3 +618,29 @@ Three points, all taken.
    (decision 29, proof 12).
 3. *The receipt after a report looks only whether the block is there, not whether a future call
    could not be cancelled.* **Taken** (part 2).
+
+## What building it added to this plan (26 November 2026)
+
+- **Decision 21, the two clocks.** After "End call and report" a request counts only when it was
+  begun more than a minute after the press. The press's moment is written by the app and the
+  request's by the database, and the two clocks can differ a little (CodeRabbit).
+- **Decision 23.** The stretch is kept by number: the messages numbered up to 100 below the
+  reported one and up to 50 above it, as far as they still exist.
+- **Decision 25** is one standing line beside the box, as decided after Astra's second check of
+  the plan.
+- **Decision 29.** With more than 500 new messages the older ones do not count as shown. They
+  stay new until the person has paged back to them. It cannot happen through the pages (nobody
+  can send more than five in a row without an answer).
+- **The receipt after a report** (part 2) has five outcomes, not three: the block may stand while
+  the calls still to come were not cancelled, or while nobody could find out whether they were.
+  It has an address of its own for each report, and its button names only the report.
+- **The sentences after a report name no button**, because the phone app shows the same ones.
+- **A once-only key belongs to its words.** Words changed after a lost answer are sent as a
+  message of their own.
+- **The booking button** asks the booking code's own question (`offerOf`): not for a paused host
+  or one with no hours.
+- **The list on "Messages"** holds at most 200 conversations, those with something new first.
+- **The journey script** walks "Messages" and a conversation that is not there; the conversation's
+  own page is in `scripts/conversation-check.ts`, because it needs a conversation.
+- **Proof 14** is shown at the level of the step that gives the kept messages back, and by hand
+  in a browser as the test admin. The check script does not log in as an admin.

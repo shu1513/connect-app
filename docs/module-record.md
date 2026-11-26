@@ -25,7 +25,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 7b. Adding time during a call | Built and merged. The founder's two-device test on 14 November ended before time could be added; still to try. |
 | 8. Ratings, search, contacts, host notes | Built and merged. |
 | 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
-| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). On 26 November the founder asked for it to be built: `plans/49-messaging.md`. Part 1 (the conversation) is built and merged with messages switched off; part 2 (reporting, keeping, and switching them on) is not built yet. The research is kept in `docs/research/messaging/`. |
+| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). On 26 November the founder asked for it to be built: `plans/49-messaging.md`. Built in two parts (the conversation; then reporting, keeping, and switching messages on). On for everyone; the founder has a stop switch. Before real people use it: NCMEC, the lawyer's read, a contact address for the police (founder). The research is kept in `docs/research/messaging/`. |
 | Final pass: joining everything together | Built and merged. |
 | 10. Connection check before a call | Built and merged. A weak connection, a real iPhone, hotel Wi-Fi and mobile data still need the founder's friend tests. |
 | 11. Refund requests, taking the money later, and a record of call quality | Built and merged. A real two-person call on a bad connection and a real card's hold from start to finish still need a friend test; the outside health watcher comes with the hosting. |
@@ -5623,3 +5623,94 @@ the second press sent them once).
 **What the checks cannot cover.** Two real people writing at the same time from two devices.
 
 **Still open.** Part 2 of the plan. Until it is merged, messages stay off.
+
+## Messages between a host and a customer, part 2: reporting, keeping, and switching them on (plan 49, 26 November 2026)
+
+**The plan:** `plans/49-messaging.md`. Part 1 (the conversation) is recorded above. With this
+part messages are **on for everyone** (the founder's decision: on from day one). The founder's
+switch is now on the "Reports and safety" page, as an emergency stop.
+
+**What was built.**
+
+- **A report made from a message.** Beside each message of the other person there is "Report".
+  It leads to the form that exists, with its reasons, and blocks, as every report about a person
+  does. Only one of the conversation's two people can do it, only about a message of the other
+  one, and only while that message still exists. It works while messages are switched off, and
+  for a paused person.
+- **What is kept with it** (`src/lib/safety/kept-messages.ts`, table `report_conversations`): the
+  reported message, up to 100 before it and up to 50 after it, each with its number, its writer,
+  its time and its exact words, and how many older ones were left out. Written in the report's
+  own database step, under the conversation's lock. Not in the report's own copy
+  (`reports.snapshot`), because the founder's list reads every open report whole.
+- **The founder's look.** The list of reports says that messages are kept with a report and how
+  many. A button, "Read the kept messages", shows them. The press is written into the record of
+  admin actions in the same database step, before anything is given back; when that cannot be
+  written, nothing is given back. A second look is written down again. The words are in no log,
+  no email and no record.
+- **The receipt after a report.** The block that follows a report can stumble after the report
+  is saved. The reporter is now told what is true, always with the report's number: blocked;
+  blocked but a future call could not be cancelled yet; not blocked yet; or that the block could
+  not be confirmed. In the last three cases a receipt page (`/report/saved`) shows it with a
+  "Block" button for that person. Before, the reporter read "something went wrong" and could
+  report twice. This holds for every kind of report about a person, not only one from a message.
+- **Deleting after 12 months** (`deleteOldConversationMessages` in `src/lib/retention.ts`, run by
+  the helper about once an hour). The conversation's own row stays, with the customer's switch
+  and the number of its last message, so a number is never used twice. What is kept with a
+  report is not touched.
+- **The switch.** A third box under "Stop switches": "No messages between hosts and customers
+  (they can still read their conversations, and report from them)". The migration turns messages
+  on once; after that only the founder moves the switch.
+- **For the lawyer** (not in force, and not in the app): proposed wording for the Terms, the
+  Community Rules and the Privacy Policy in `docs/legal/messages-proposed-wording.md`; a draft of
+  what the founder does when a report suggests a child or exploitation in
+  `docs/legal/when-a-report-suggests-a-child.md`; and the questions in `docs/for-the-lawyer.md`,
+  section 8.
+- Two log lines that wrote out a raw database error after a failed report (which can hold what
+  the reporter wrote) now write only what kind of error it was.
+
+**Not built, on purpose.** An email about a waiting message (the founder: not for now). New
+versions of the legal documents (they would send every account back to the welcome step; the
+wording waits for the lawyer). Conversations in the phone apps (the founder: later). The founder
+sending anything to NCMEC or the police through the app: that is done by a person.
+
+**What the reviewer found.** Astra read the code: "ship with changes", six points, all taken,
+and no second look asked for. It found the founder's promise sound: on every path it followed,
+the kept words reach the founder only after the recorded press. The six: the helper deletes old
+messages without the conversation's lock, so a report could have been saved with its own message
+missing from what was kept (what is kept is now read in one question, and the message must be in
+it); a block that stood after the step had stumbled was followed by the clean thank-you although
+the calls still to come might not have been cancelled; a stop switches form from before the new
+box existed would have switched messages back on; the receipt's button took the person from the
+page and not from the report (it now names only the report, and the receipt has an address of
+its own, so its sentence is signed for it alone); the sentences told the phone app's users to
+press a button their screen does not have; and three of the checks did not prove what they said.
+From its smaller points: the script's "only these conversations" can no longer mean "all of
+them", a conversation whose messages are gone says so, and two sentences in the drafts were
+corrected (pressing "Report" opens the form; pausing an account emails that person).
+
+**How it was checked.** Type check, lint, 1,109 automatic tests (10 new: the sentence a
+reporter reads for each outcome of the block, with no sentence naming a button; the stop
+switches form with and without the new box; messages on where no switch was ever saved, and a
+saved stop read as a stop). `scripts/conversation-check.ts` now has 163 checks, 35 of them for
+this part: who can report which message; what is kept, to the message, for the last message of a
+long conversation and for one in its middle; that the report's own copy and the founder's list
+hold none of the words; the look written down before anything is given back, nothing given back
+when it cannot be written, a second look written again; a message that goes between "it is
+there" and the keeping; deleting after 12 months with what is kept untouched and the next number
+never an old one; a report made with messages switched off, by a paused person; the "Report"
+links, the form and the receipt in the real pages. The scripts of what this touches, run again
+and passing: retention, safety, ratings, journey. By hand in a browser: as the test customer,
+"Report" beside the host's message and the form it opens (not sent, because a report blocks, and
+the two test accounts must stay as they are); as the test admin, a report made from a message
+between two throwaway people: the page held none of the kept words before the press, the four
+messages after it with the reported one marked, "kept messages read" in the record, and none of
+the words in the page again after loading it anew; and the third stop switch.
+
+**What the checks cannot cover.** Two real people writing at the same time from two devices. A
+real report to NCMEC. The helper deleting a message that is really a year old.
+
+**Before Connect opens to real people** (the founder's, not code): register with NCMEC; have the
+lawyer read the proposed wording, the procedure and section 8 of `docs/for-the-lawyer.md`; choose
+a contact address for the police. And one change that was found on the way and is still open:
+"End call and report" blocks only when the form after it is sent, while the written rules say it
+blocks at the press (plan 49, "Found on the way").
