@@ -436,6 +436,13 @@ export const siteSwitches = pgTable("site_switches", {
   appAvailableNow: boolean("app_available_now").notNull().default(true),
   /** The oldest version of the app still allowed to run, such as "1.2.0". Empty: every version is allowed. */
   appOldestVersion: text("app_oldest_version").notNull().default(""),
+  /**
+   * Messages between hosts and customers (plans/49-messaging.md, decision 31). While this is true
+   * nobody can send; everyone can still read their conversations. It starts at true: part 1 of
+   * the plan is merged with messages off, and part 2 turns them on once. After that only the
+   * founder moves it (the emergency stop).
+   */
+  conversationsOff: boolean("conversations_off").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2637,6 +2644,86 @@ export const handReversalCounts = pgTable(
     check("hand_reversal_counts_cents", sql`${t.cents} > 0`),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Conversations between a host and a customer (plans/49-messaging.md).
+//
+// Not the `messages` table above: that one holds what Connect itself writes to a person.
+// ---------------------------------------------------------------------------
+
+/**
+ * One conversation per pair of "this host, this customer". Two people who are each other's hosts
+ * have two, one for each direction, because the rules differ by who is the host. Who is the host
+ * is always read from this row, never from what a browser sends.
+ *
+ * The row is never deleted: it holds the customer's switch and the number of the last message, so
+ * a number is never used twice, also after old messages are gone.
+ */
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hostId: text("host_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => user.id),
+    /** The number of the last message ever written here. It only goes up. */
+    lastNumber: integer("last_number").notNull().default(0),
+    /** The highest message number each of the two has been shown, as their own browser said. Each only goes up. */
+    hostShownNumber: integer("host_shown_number").notNull().default(0),
+    customerShownNumber: integer("customer_shown_number").notNull().default(0),
+    /** When the host last wrote. Her message gives the customer 7 days to answer (decision 7). */
+    hostLastWroteAt: timestamp("host_last_wrote_at", { withTimezone: true }),
+    /** When anyone last wrote: the order of the list on "Messages". */
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    /** Set while the customer has switched this host off between calls (decision 13). */
+    customerMutedAt: timestamp("customer_muted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("conversations_pair_uq").on(t.hostId, t.customerId),
+    index("conversations_customer_idx").on(t.customerId),
+    check("conversations_two_people", sql`${t.hostId} <> ${t.customerId}`),
+  ],
+);
+
+/**
+ * One message of a conversation: plain text, up to 2,000 characters. Its number, not its time, is
+ * what "new" is measured by; it is given under the conversation's lock. Deleted 12 months after it
+ * was sent (part 2 of the plan).
+ */
+export const conversationMessages = pgTable(
+  "conversation_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id),
+    number: integer("number").notNull(),
+    senderId: text("sender_id")
+      .notNull()
+      .references(() => user.id),
+    body: text("body").notNull(),
+    /** The once-only key of the press, made by the browser: the same press sent twice makes one message. */
+    sendKey: text("send_key").notNull(),
+    /** True when the host sent it outside a call with no message of hers in the 7 days before (decision 18). */
+    woke: boolean("woke").notNull().default(false),
+    /** The moment the sending step read the clock, after its locks. Never the database's own "now". */
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("conversation_messages_number_uq").on(t.conversationId, t.number),
+    uniqueIndex("conversation_messages_key_uq").on(t.conversationId, t.senderId, t.sendKey),
+    // The limits count one person's messages over all their conversations.
+    index("conversation_messages_sender_idx").on(t.senderId, t.createdAt),
+    check("conversation_messages_body", sql`char_length(${t.body}) between 1 and 2000`),
+    check("conversation_messages_number", sql`${t.number} > 0`),
+  ],
+);
+export type Conversation = typeof conversations.$inferSelect;
+export type ConversationMessage = typeof conversationMessages.$inferSelect;
 export type HandReversalCount = typeof handReversalCounts.$inferSelect;
 export type HostDebt = typeof hostDebts.$inferSelect;
 export type Collection = typeof collections.$inferSelect;
