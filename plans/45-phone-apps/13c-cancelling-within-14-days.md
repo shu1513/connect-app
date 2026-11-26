@@ -74,7 +74,8 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
 7. **After pressing, the app reads the membership again, whatever came back.** A refusal is
    shown as the sentence the server sent. If the answer was lost on the way and the membership
    has ended, the app shows that it ended, not an error. If a call could not be cancelled just
-   now, the sentence says so and the button is still there.
+   now, the sentence says so. Whether the button is still there is, as always, what the server
+   says on that next read (see "A gap found while planning").
 8. **Afterwards** the membership's screen shows it as ended, with its reason. The list of what
    stays paid for is in the email; the app does not work it out again. The cancelled calls
    show as cancelled in the calls list (part 08).
@@ -107,6 +108,24 @@ built:
 - On the Android test phone, with Stripe's test cards and pictures: the button and the sheet;
   a month that was only held; a month that was taken, with one used call; day 15 (no button);
   a refusal's sentence; the phone offline during the press, then the screen read again.
+- The case of "A gap found while planning": a press on the last day that fails part-way
+  through cancelling the calls, then a press after the last day. What is seen must be what
+  was settled for that case.
+
+## A gap found while planning (the website has it too)
+
+CodeRabbit found it in this plan's review. A press on the last day can fail part-way: some
+coming calls are cancelled, one cannot be, and the membership is not ended. The member is asked
+to press again. If the next press comes after the last day (UTC), it is refused as too late,
+and the button is gone. The member pressed in time, and is left with cancelled calls and a
+membership that runs on. It needs the database to fail at that very moment, so it is rare; but
+the right would be lost through no fault of theirs.
+
+**Proposed, for the website and the app alike, and to be settled before this part is built:**
+the first press that passes every rule is written down with its moment, and a later press, or
+the founder's form, counts from that moment. Until that is built, the founder's form can end
+such a membership with the day of the first press (the cancelled calls show it, if any were
+cancelled).
 
 ## Not in this part
 

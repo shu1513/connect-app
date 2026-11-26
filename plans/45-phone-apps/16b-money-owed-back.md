@@ -37,7 +37,9 @@ amount owed back a "take-back".
   off.
 - **Where a host sees it on the website.**
   - The earnings box on `/host` lists them (`debtsOfHost`: everything still open, and the
-    latest ten that ended).
+    latest ten that were taken or settled). **One that was called off is not in that list.**
+    Its host is told on the Messages page and by email, and its own page still opens from
+    the link there.
   - One from a refund has its own page, `/debts/[id]` (`debtForPage(id, "host", user)`): what
     was refunded, to whom and why, her share before and after, what she owes, where it
     stands, her objection and our answer. The sentence for each state is written inside the
@@ -57,7 +59,11 @@ amount owed back a "take-back".
 
 1. **It belongs to the earnings screen.** It is built together with part 16, or straight
    after it. The earnings screen lists what is owed back as the website's box does: the
-   amount, where it stands, and the day it would be taken.
+   amount, where it stands, and the day it would be taken. **The app's list also shows the
+   latest ones that were called off** ("Called off. Nothing is owed for it."). The apps have
+   no Messages screen, so without that a take-back a host had seen would simply vanish, and
+   she could not open it again to read how it ended. (CodeRabbit found this in the plan's
+   review. The website's own list stays as it is.)
 2. **One screen, "Money owed back", for one amount, whatever its cause.** For a refund:
    everything the website's page shows the host. For a lost dispute: the take-back's own
    facts (what it is about, the amount, where it stands, her objection, our answer). The rest
