@@ -1346,3 +1346,115 @@ is fixed with them.
 The builder's own, found while reading for point 3: a transfer that stays open after a "no"
 (up to 24 hours) was asked about again on every pass of the helper, every few seconds. Once in
 ten minutes now.
+
+## Part 3c, as built: cancelling a new membership within 14 days
+
+**The founder changed decisions 13 and 14 on 26 November 2026**, before this part was built:
+
+- **The member cancels themselves, with a button.** Not only the founder for a written request.
+- **Every member has the 14 days, wherever they live.** Nobody is asked for their country, and
+  the founder's tick ("lives where the right applies") is gone.
+
+Everything else is as decisions 13 and 14 say. Made exact:
+
+- **Two ways in, one action** (`src/lib/membership/fourteen-days.ts`). The member presses
+  "Cancel within 14 days" on their membership's page (under "Cancel membership"). Or the member
+  writes to Connect and the founder presses the button on the Memberships page, with the day
+  the request arrived: a cancellation in writing counts too, so that way stays.
+- **Days are counted in UTC**, for everybody the same. The day of joining is the UTC day of the
+  moment the bank authorised the first month. The member's button is open through the whole of
+  the 14th day after it.
+- **Someone still at the card step is not a member**, and has paid nothing: there is nothing to
+  cancel, and both buttons say so. (Decision 13 said such a membership "can be ended too". It
+  is left out: no email would go, the page has no place for the button, and the card step runs
+  out by itself.) The
+  founder's day must be the day of joining or one of the 14 after it, and not later than today;
+  the founder can handle it later, while the first month still runs.
+- **"First membership of the two":** no other month of these two people, in this or an earlier
+  membership, was ever authorised by the bank. "Newly joined": the running month's agreement
+  is of the kind "joined", and the month is the first that agreement was for.
+- **What it does** is `endMembership` (as "admin", or as the member's own account) with the
+  reason "it was cancelled within 14 days of joining, as the member asked", and then the
+  clean-up every ending has. No sum of its own. The one email the member gets about the ending
+  carries a note: who cancelled (for a written request, the day it reached us), that nothing
+  was charged (a month that was only held) or that what was paid goes back, the calls that
+  stay paid for and why, and a line for a call that had begun and is not worked out yet.
+- **It ends the membership for good**, like every ending: to come back, the person needs a new
+  invitation. The member's page says so beside the button. ("Cancel now", which pauses while
+  the money is only held, is still there beside it.)
+- **Refusals** have a sentence for the founder (who can settle a case by hand) and one for the
+  member (who is pointed to the normal way of cancelling). Beside the cases of decision 13,
+  two more refuse: a month whose payment has a problem the founder must look at (Stripe took
+  a part of it); and a form that was drawn for another month.
+- **The order:** first the calls booked from the membership that are still to come are
+  cancelled (their time goes back into the month); only then is the membership ended, and the
+  month's free money goes back to the card in one line. So no call is still to come when the
+  membership ends, and none can start, and be charged, between the ending and its clean-up. A
+  call that had already begun is worked out as usual, and the member's email says so. If a
+  coming call cannot be cancelled just then, nothing is ended and the person presses again.
+- **The founder's press is on record** (`admin_actions`), with the day entered.
+- **Pressed twice:** the second press finds the membership ended and refuses.
+- **The sentence before joining** (decision 14) is now for everyone: "You can cancel your
+  first membership with (the host) within 14 days of joining: with "Cancel within 14 days" on
+  your membership's page, or by writing to us (a request in writing counts from the day it
+  reaches us, and your membership ends when we have dealt with it). Your membership then ends
+  at once. Time you used before it ends, and a call you cancelled late or missed if it was
+  charged under your booking's terms, is paid for at the member price; the rest of what you
+  paid is given back. By joining you ask for your membership to start today." The wording's version is "2026-11-26"; a page that still showed
+  the old sentence cannot be agreed to.
+- **The phone apps** have no such button yet: a member there uses the website or writes to us.
+
+**Checked by** two scripts against Stripe's test mode. The action itself:
+`scripts/member-calls-check.ts`, a journey of its own (38 checks), which calls the library as
+the member and as the founder. The real pages and forms: `scripts/membership-journey-check.ts`
+(118 checks in all), where a member's page draws the button, a stranger and a form for another
+month change nothing, her own press ends the membership, and the founder's real form is posted
+with another month and with a day that cannot be. The cases of the list under "Part 3c" above
+are in the first. A bank's dispute is played by the month's own mark. "A late cancellation that
+was charged" is the member cancelling inside the host's free hour. A call under way when the
+button is pressed is not played here (the journey "Endings" plays that for every ending); the
+note's sentence for it has a test of its own.
+
+### What Astra found in the code of part 3c, and what was done
+
+Astra said "hold the merge", with ten points. All were taken; two of them differently from
+what it proposed.
+
+1. **A month of which Stripe took only a part** still says "held", so the member would have
+   been told "nothing was charged" with money taken and no pay-back written. A month whose
+   payment has a problem is now refused, for the founder to settle by hand.
+2. **A call that starts seconds after the cancellation** could begin before the clean-up
+   cancels it, and be charged although the member was told it is cancelled. Astra proposed to
+   cancel the coming calls inside the ending step. That would mean a second copy of how a call
+   is cancelled; and every other ending (the host's, a block, a closed account) has the same
+   moment. **Done instead**, in two steps. First: the button refused while a call started in
+   less than 10 minutes. CodeRabbit then showed that this only made the moment smaller (a
+   clean-up can be late by more than 10 minutes). So now: the coming calls are cancelled
+   first, with the ordinary cancellation, and the membership is ended only after that; the
+   10-minute refusal is gone. The same moment for the other endings is left as it was.
+3. **The clock was read before the month was locked.** The month is locked first now, and
+   judged as it stands under the lock.
+4. and 5. **Someone at the card step** had no button, would have got no email, and an old form
+   of the founder's could have ended a later joining. Such a membership is no longer cancelled
+   this way at all (see above), and both forms carry the month they were drawn for, compared
+   under the lock.
+6. **The member's email** could name an amount that had partly been given back already, count
+   a call twice, and call a missed call "the time you used". It is now one line for a call,
+   with what is kept of it now, and says "charged for the call" or "charged because it was
+   cancelled late". With this note, the general sentence about a pay-back email is left out.
+7. **The words promised more than the action does.** The sentence before joining says "your
+   first membership with (the host)" and when a request in writing takes effect. The member's
+   page says that the held amount is let go only if it is still held at that moment.
+8. **The lawyer's file** now says that someone who joined under the earlier sentence can use
+   the button too.
+9. **The checks** called only the library. The real pages and forms are now played in
+   `membership-journey-check` (whose old line "the founder's page has nothing to press" was
+   out of date).
+10. **Two refusals named a button that may not be on the page**, or said "moved on to another
+   month" for a membership that had ended. The sentences name no button now, and the ended
+   state is said first.
+
+No second look was asked for. CodeRabbit read the pull request and made two points, both
+taken: the order above (its point was the same as Astra's second, and showed that the first
+answer to it was not enough); and the page journey now requires the founder's form on a new
+membership (Dave's) before it posts it, so a form that went missing would fail the check.

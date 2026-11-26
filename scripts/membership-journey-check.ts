@@ -379,6 +379,24 @@ async function main() {
       (await Promise.all([stranger, otherHost, host].flatMap((who) => [page(`/memberships/${aliceId}`, who), page(`/memberships/${aliceId}/pay`, who), send(`/api/memberships/${aliceId}/sync`, { json: { month: month1.id }, jar: who.jar })]))).every((reply) => reply.status === 404),
     );
     check("the host sees her in the member list", (await page("/host", host)).words.includes(alice.name) && (await page("/contacts", host)).words.includes("A member of yours."));
+    check("her page also offers \"Cancel within 14 days\", and says that it ends the membership for good and that the held amount is let go", formsOf(mine.text).some((f) => f.buttons.includes("Cancel within 14 days")) && mine.words.includes("ends your membership at once, for good") && mine.words.includes("is still only held on your card at that moment, it is let go and nothing is charged"), mine.words.slice(0, 300));
+
+    // ----------------------------------------------------------------------
+    console.log("\n4b. Another new member cancels within 14 days, with her own button (plans/46, part 3c)");
+    const fay = await memberOf(host, "Fay");
+    const fayPath = `/memberships/${fay.membershipId}`;
+    const fayDrawn = (await page(fayPath, fay.person)).text;
+    const notHers = await press(stranger, fayPath, "Cancel within 14 days", {}, { drawn: fayDrawn });
+    check("her button posted by a stranger changes nothing", notHers.found && notHers.status >= 300 && notHers.status < 400 && (await MS(fay.membershipId)).status === "active", `${notHers.status} ${notHers.location}`);
+    const wrongMonth = await press(fay.person, fayPath, "Cancel within 14 days", { month: month1.id });
+    check("a form that names another month cancels nothing", wrongMonth.found && /has moved on since this page was opened/.test(noticeOf(wrongMonth)) && (await MS(fay.membershipId)).status === "active", noticeOf(wrongMonth));
+    const fayCancelled = await press(fay.person, fayPath, "Cancel within 14 days");
+    await helper();
+    const fayAfter = await page(fayPath, fay.person);
+    check("her own press ends it at once: the page says why, nothing was charged, and the button is gone", fayCancelled.found && /Your membership is cancelled and has ended/.test(noticeOf(fayCancelled)) && (await MS(fay.membershipId)).status === "ended" && (await M(fay.monthId)).status === "given_up" && fayAfter.words.includes("it was cancelled within 14 days of joining, as the member asked") && fayAfter.words.includes("Nothing was charged") && !formsOf(fayAfter.text).some((f) => f.buttons.includes("Cancel within 14 days")), `${noticeOf(fayCancelled)} | ${fayAfter.words.slice(0, 200)}`);
+    check("she and the host are told by email", Boolean(await emailTo(fay.person.email, "has ended")) && Boolean(await emailTo(host.email, "Fay")));
+    const fayAgain = await press(fay.person, fayPath, "Cancel within 14 days", {}, { drawn: fayDrawn });
+    check("the same form pressed again is refused: it has already ended", fayAgain.found && /already ended/.test(noticeOf(fayAgain)), noticeOf(fayAgain));
 
     // ----------------------------------------------------------------------
     console.log("\n5. She books a time that is for members only");
@@ -618,7 +636,22 @@ async function main() {
       console.log("   SKIPPED the founder's own view: the test admin's login is not set up (npx tsx scripts/secure-test-admin.ts).");
     } else {
       check("the founder sees every membership of this journey with where it stands, and each month's six places", [alice, bob.person, carol.person, dave.person, erin.person].every((p) => founder.words.includes(`${p.name} with ${host.name}`)) && founder.words.includes("Ended: the host ended it.") && founder.words.includes("Set aside") && founder.words.includes("The host paused it after this month.") && !founder.words.includes("THE PLACES DO NOT ADD UP"), founder.words.slice(0, 400));
-      check("the page has nothing to press: it only shows", formsOf(founder.text).every((f) => f.buttons.every((b) => /log out/i.test(b))), JSON.stringify(formsOf(founder.text).map((f) => f.buttons)));
+      // The one thing the page changes: a new membership cancelled within 14 days, for a member who wrote to us (plans/46, part 3c).
+      const founderForms = formsOf(founder.text);
+      const fourteen = founderForms.filter((f) => f.buttons.includes("Cancel this membership within the 14 days"));
+      check("the page has nothing to press but the 14-day form of a new membership, and each such form asks for the day", founderForms.every((f) => fourteen.includes(f) || f.buttons.every((b) => /log out/i.test(b))) && fourteen.every((f) => f.fields.some(([name]) => name === "membership")) && (fourteen.length === 0 || founder.words.includes("request reached Connect")), JSON.stringify(founderForms.map((f) => f.buttons)));
+      // Dave joined in this journey and is in his first month: his membership must have the form, with its three fields.
+      const daveForm = fourteen.find((f) => f.fields.some(([name, value]) => name === "membership" && value === dave.membershipId));
+      check("a new membership in its first month (Dave's) has the founder's 14-day form, with the membership, its month and the day", daveForm !== undefined && daveForm.fields.some(([name, value]) => name === "month" && value === dave.monthId) && /name="day"/.test(founder.text), JSON.stringify(fourteen.map((f) => f.fields)));
+      if (daveForm) {
+        // The founder's real form, posted: with another month's id, and with a day that cannot be. Neither changes anything.
+        const itsMembership = dave.membershipId;
+        const sameForm = (form: Form) => form.fields.some(([name, value]) => name === "membership" && value === itsMembership);
+        const staleMonth = await press(admin, "/admin/memberships", "Cancel this membership within the 14 days", { month: randomUUID(), day: new Date().toISOString().slice(0, 10) }, { where: sameForm });
+        const tomorrow = await press(admin, "/admin/memberships", "Cancel this membership within the 14 days", { day: new Date(Date.now() + DAY).toISOString().slice(0, 10) }, { where: sameForm });
+        check("the founder's form, posted for another month or with a day in the future, is refused and changes nothing", staleMonth.found && /has moved on since this page was opened/.test(noticeOf(staleMonth)) && tomorrow.found && /cannot be later than today/.test(noticeOf(tomorrow)) && (await MS(itsMembership)).status !== "ended", `${noticeOf(staleMonth)} | ${noticeOf(tomorrow)}`);
+      }
+      check("no such form is drawn for a membership that has ended or is past its first month", !fourteen.some((f) => f.fields.some(([name, value]) => name === "membership" && [aliceId, erin.membershipId, fay.membershipId].includes(value))));
       await send("/api/auth/sign-out", { json: {}, jar: admin.jar });
     }
 
