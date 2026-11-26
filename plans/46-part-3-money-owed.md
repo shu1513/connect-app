@@ -1228,9 +1228,10 @@ If the founder wants it, it is a part of its own ("3a, step 2c"), with a plan of
 **Rhythm:** two loops of their own in the helper, so that a long daily round never keeps the
 follow-up waiting. About once a day, and when the helper starts: every host with a share whose
 date has come is looked at, and one who seems due gets a try. About once a minute: a try
-without an outcome is run again, and a host whose shares all have their answer is told. From a
-day after the try she is told with what is known by then; that day is when a notice with
-something still open may go, not a promise of when it arrives.
+without an outcome is run again; and, in a loop of its own, a host whose shares all have their
+answer is told. From 26 hours after the collection was accepted she is told with what is known
+by then; that is when a notice with something still open may go, not a promise of when it
+arrives. A daily round that could not start is tried again ten minutes later.
 
 **Checked by** `scripts/payments-check.ts --payouts`, section 29, against Stripe's test mode
 (the collections' own script, so its hosts and calls are used): the cases of the list under
@@ -1314,3 +1315,34 @@ Astra read the fixes and held the merge once more, with five points. It found po
 
 A new case in the real check for point 2. No third look was asked for: the two points about
 money are closed by a rule that is the same as the refund's, which had five looks.
+
+### What CodeRabbit found in part 3b (pull request 102), and what was done
+
+Seven points, all taken. Two of them showed a weakness of the builder's own beside them, which
+is fixed with them.
+
+1. **The day before a notice with something still open** was counted from the writing down of
+   the try, not from the collection (a try can be run long after it was written down). Counted
+   from the acceptance of the collection now. And made 26 hours instead of 24: a transfer
+   Stripe will not make is given up 24 hours after the acceptance, so at 24 hours she would
+   have been told "still being checked" minutes before it was known how it ended.
+2. **The check of her 24 hours could not fail:** the host had nothing ready, so her press was
+   refused anyway. It now has a share ready, asks for the 24-hour sentence, and collects it a
+   day later.
+3. **A failure while writing down what a "no" from Stripe means** left the whole round of
+   money work unfinished. Such a failure is now kept to its own action, for every kind of
+   action in that place, and the round goes on.
+4. **A collection without its answer** kept the helper away by a date counted back from today,
+   the mirror of the leap-day fault. It is now judged by the one rule: would she still be due
+   if it had gone through?
+5. **Telling waited behind the tries that are run again** (which ask Stripe). Two loops now.
+6. **A daily round that could not start** was not tried again until the next day. Ten minutes
+   now, and the round is timed by the clock, not by counting passes.
+7. **The search for a transfer at Stripe had no limit of time**, and (the builder's own, found
+   beside it) a "no" to the search itself was no longer kept apart from a "no" to the
+   transfer. It has the refund search's limits now, and a search that fails or runs long is
+   "could not look", never "not there".
+
+The builder's own, found while reading for point 3: a transfer that stays open after a "no"
+(up to 24 hours) was asked about again on every pass of the helper, every few seconds. Once in
+ten minutes now.

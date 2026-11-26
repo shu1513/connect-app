@@ -17,8 +17,9 @@
  * herself in that minute) is written down with the reason, and the next try is a week later. A
  * collection of which nothing went through starts her 24 hours, as always, and not the 12 months.
  *
- * She is told once every transfer has its answer, or, from a day after the try, with what is known
- * by then. A closed account is never touched: the founder's final collection exists for it.
+ * She is told once every transfer has its answer, or, from 26 hours after the collection was
+ * accepted, with what is known by then. A closed account is never touched: the founder's final
+ * collection exists for it.
  */
 import { and, asc, desc, eq, inArray, isNull, lte } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -28,7 +29,7 @@ import { tell } from "@/lib/messages/messages";
 import { HOME_COUNTRY } from "@/lib/profiles/countries";
 import { monthsBefore } from "@/lib/retention";
 import { formatMoney } from "./access";
-import { collectEarnings, collectionUnansweredSince, hostsWithDatedShares, lastAcceptedAt, lastCollectionThrough, oldestDatedShare, viewOfCollection } from "./collect";
+import { collectEarnings, hostsWithDatedShares, lastAcceptedAt, lastCollectionThrough, oldestDatedShare, unansweredCollectionsOf, viewOfCollection } from "./collect";
 import { getHostSettings } from "./hosts";
 import { MoneyError, type Tx } from "./operations";
 import { canCollectAgainAt } from "./rules";
@@ -43,8 +44,13 @@ export const TRY_AGAIN_AFTER_MS = 7 * DAY_MS;
 export const RUN_AGAIN_AFTER_MS = 2 * 60_000;
 /** A try that still cannot be run after this long is written down as "nothing", so that the next one comes a week later. */
 export const GIVE_UP_AFTER_MS = DAY_MS;
-/** From this long after the try she is told with what is known by then, also when a transfer has no clear answer yet. */
-export const TELL_ANYWAY_AFTER_MS = DAY_MS;
+/**
+ * From this long after the collection was accepted she is told with what is known by then, also when a transfer
+ * has no clear answer yet. Counted from the acceptance, not from the try (a try can be run long after it was
+ * written down), and a little more than a day: a transfer Stripe will not make is given up 24 hours after the
+ * acceptance (jobs.ts), so by then she can usually be told how it ended and not that it is "still being checked".
+ */
+export const TELL_ANYWAY_AFTER_MS = 26 * 3_600_000;
 
 const NOT_DUE = "She has collected in the last 12 months, or nothing that is ready has waited that long.";
 const TRY_OVER = "This try has already ended.";
@@ -53,8 +59,6 @@ const NOT_ANSWERED = "A collection of hers from the last 12 months has no answer
 /** The same day and time, this many months later. A day the later month does not have becomes its last day. */
 const monthsAfter = (from: Date, months: number): Date => monthsBefore(from, -months);
 
-/** Whether a collection of hers from the last 12 months is still without its answer: it may yet turn out to have gone through. */
-const recentUnanswered = (reader: Reader, hostId: string, now: Date) => collectionUnansweredSince(reader, hostId, monthsBefore(now, UNCOLLECTED_MONTHS));
 
 type Reader = Pick<Tx, "select">;
 /** Only the check scripts pass this: only these hosts are looked at. */
@@ -68,6 +72,16 @@ export type OnlyHosts = { hostIds: string[] };
 export function uncollectedDue(since: Date | null, now: Date): boolean {
   return since !== null && now.getTime() > monthsAfter(since, UNCOLLECTED_MONTHS).getTime();
 }
+
+/**
+ * Whether a collection of hers that is still without its answer could mean she has collected in the last 12
+ * months. Judged by the one rule above: if that collection turned out to have gone through, would she still be
+ * due? If not, nothing is started until it is answered. (One rule for both, so that a collection counts the same
+ * on its anniversary whether it is answered or not.)
+ */
+export const blocksWhileUnanswered = (acceptedAt: Date, now: Date): boolean => !uncollectedDue(acceptedAt, now);
+
+const recentUnanswered = async (reader: Reader, hostId: string, now: Date): Promise<boolean> => (await unansweredCollectionsOf(reader, hostId)).some((acceptedAt) => blocksWhileUnanswered(acceptedAt, now));
 
 /** When the next try of a host may be written down, given her latest one. */
 export function nextTryAt(lastClaimedAt: Date | null): Date | null {
@@ -190,32 +204,45 @@ export async function collectUncollected(at?: Date, only?: OnlyHosts): Promise<v
 }
 
 /**
- * The follow-up, about once a minute: a try that was written down and never got its outcome is run again (the
- * helper stopped in the middle), and a host whose collection's transfers are all answered is told what was sent.
+ * About once a minute: a try that was written down and never got its outcome is run again (the helper stopped in
+ * the middle, or Stripe did not answer). This asks Stripe, and can take long when Stripe is slow.
  */
-export async function followUpUncollected(at?: Date, only?: OnlyHosts): Promise<void> {
+export async function rerunUnfinishedTries(at?: Date, only?: OnlyHosts): Promise<void> {
   const now = at ?? new Date();
-  const mine = only ? [inArray(schema.uncollectedTries.hostId, only.hostIds)] : [];
   if (only && only.hostIds.length === 0) return;
   const unfinished = await db
     .select()
     .from(schema.uncollectedTries)
-    .where(and(isNull(schema.uncollectedTries.outcome), lte(schema.uncollectedTries.claimedAt, new Date(now.getTime() - RUN_AGAIN_AFTER_MS)), ...mine))
+    .where(and(isNull(schema.uncollectedTries.outcome), lte(schema.uncollectedTries.claimedAt, new Date(now.getTime() - RUN_AGAIN_AFTER_MS)), only ? inArray(schema.uncollectedTries.hostId, only.hostIds) : undefined))
     .orderBy(asc(schema.uncollectedTries.claimedAt));
   for (const tried of unfinished) await runTry(tried, at).catch((error) => console.error(`[uncollected] running the try ${tried.id} again failed; will retry`, error));
+}
 
+/**
+ * About once a minute, in a round of its own: a host whose collection's transfers are all answered is told what
+ * was sent. This asks only the database, so it never waits behind the tries that are run again.
+ */
+export async function tellOfCollections(at?: Date, only?: OnlyHosts): Promise<void> {
+  const now = at ?? new Date();
+  if (only && only.hostIds.length === 0) return;
   const untold = await db
     .select()
     .from(schema.uncollectedTries)
-    .where(and(eq(schema.uncollectedTries.outcome, "collected"), isNull(schema.uncollectedTries.toldAt), ...mine))
+    .where(and(eq(schema.uncollectedTries.outcome, "collected"), isNull(schema.uncollectedTries.toldAt), only ? inArray(schema.uncollectedTries.hostId, only.hostIds) : undefined))
     .orderBy(asc(schema.uncollectedTries.claimedAt));
   for (const tried of untold) await tellOfTry(tried.id, now).catch((error) => console.error(`[uncollected] telling the host of the try ${tried.id} failed; will retry`, error));
 }
 
+/** Both of the above, one after the other: for the check scripts, and for a single pass of the helper. */
+export async function followUpUncollected(at?: Date, only?: OnlyHosts): Promise<void> {
+  await rerunUnfinishedTries(at, only);
+  await tellOfCollections(at, only);
+}
+
 /**
- * Tells the host what her collection really did, once: when every share of it has its answer, or, from a day
- * after the try, with what is known by then (what has no answer is named as such, a charge too). Gives back
- * whether she was told now.
+ * Tells the host what her collection really did, once: when every share of it has its answer, or, from 26 hours
+ * after the collection was accepted, with what is known by then (what has no answer is named as such, a charge
+ * too). Gives back whether she was told now.
  */
 export async function tellOfTry(tryId: string, now: Date = new Date()): Promise<boolean> {
   return db.transaction(async (tx) => {
@@ -226,7 +253,7 @@ export async function tellOfTry(tryId: string, now: Date = new Date()): Promise<
     if (!collection) throw new Error(`The try ${tried.id} says "collected" and has no collection.`);
     const view = await viewOfCollection(collection, tx);
     // A share that only carries the charge has no cents "being checked", and is unanswered all the same.
-    if (view.unanswered > 0 && now.getTime() - tried.claimedAt.getTime() < TELL_ANYWAY_AFTER_MS) return false;
+    if (view.unanswered > 0 && now.getTime() - collection.acceptedAt.getTime() < TELL_ANYWAY_AFTER_MS) return false;
     const [host] = await tx.select({ id: schema.user.id, email: schema.user.email }).from(schema.user).where(eq(schema.user.id, tried.hostId));
     const [profile] = await tx.select({ country: schema.hostProfiles.country }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, tried.hostId));
     const money = (cents: number) => (cents > 0 ? formatMoney(cents) : null);

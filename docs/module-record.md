@@ -5427,9 +5427,9 @@ that are really ready, and no collection of the last 12 months is still without 
 the try is marked "collected" in that same step. A try that makes no collection is written
 down with the reason, and the next one is at the first daily round at least seven days later. About once a
 minute, in a loop of its own, the helper runs a try again that it stopped in the middle of,
-and tells a host whose shares all have their answer what was sent, what the charge was, what
-was not sent and what is still being checked (from a day after the try also with something
-still open). Her Hosting page says beside her last collection that Connect started it.
+and, in another, tells a host whose shares all have their answer what was sent, what the
+charge was, what was not sent and what is still being checked (from 26 hours after the
+collection also with something still open). Her Hosting page says beside her last collection that Connect started it.
 Migration 0062.
 
 **What was not built.** No page for the founder that lists the tries that sent nothing. No
@@ -5438,7 +5438,7 @@ lawyer's file, section 22).
 
 **How it was checked.** Type check, lint, the automatic tests (the 12 months to the moment,
 the week between tries, every sentence of the message). The real script
-`scripts/payments-check.ts --payouts` (all of it passes, 181 checks; section 29 is new), against Stripe's
+`scripts/payments-check.ts --payouts` (all of it passes, 183 checks; section 29 is new), against Stripe's
 test mode: a host at 11
 months is left and at 12 months and a day is sent everything, once; one whose collection in
 between sent nothing counts from the one before; a refused try is written down and tried again
@@ -5458,4 +5458,8 @@ second look held the merge again with five points: a "no" to a repeated transfer
 taken as final too early; a collection of the last days whose answer was lost did not count as
 "collected"; two points of words; and the documents. All taken but one part of the first,
 which is left as it is on the builder's own judgment and written in the plan (a "no" to the
-very first request still ends the transfer at once). No third look was asked for.
+very first request still ends the transfer at once). No third look was asked for. CodeRabbit
+found seven points, all taken (the list is in the plan): among them, a notice with something
+still open is now counted from the collection and goes at 26 hours; telling has a loop of its
+own; a daily round that fails is tried again in ten minutes; and a failure while writing down
+a "no" from Stripe no longer stops the round's other money work.

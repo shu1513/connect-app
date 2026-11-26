@@ -7,7 +7,7 @@ vi.mock("./hosts", () => ({}));
 vi.mock("@/lib/messages/messages", () => ({}));
 vi.mock("@/lib/email", () => ({}));
 
-import { nextTryAt, uncollectedDue } from "./uncollected";
+import { blocksWhileUnanswered, nextTryAt, TELL_ANYWAY_AFTER_MS, uncollectedDue } from "./uncollected";
 import { STARTED_BY_CONNECT, uncollectedWords } from "./uncollected-words";
 
 const at = (iso: string) => new Date(iso);
@@ -35,6 +35,28 @@ describe("when a host who has not collected is due", () => {
     expect(uncollectedDue(since, at("2028-02-28T18:00:00Z"))).toBe(true);
     expect(uncollectedDue(since, at("2028-02-29T09:00:00Z"))).toBe(true);
     expect(uncollectedDue(since, at("2028-03-01T09:00:00Z"))).toBe(true);
+  });
+});
+
+describe("a collection that is still without its answer", () => {
+  it("keeps the helper away for exactly as long as it would if it had gone through", () => {
+    const accepted = at("2026-11-21T10:00:00Z");
+    for (const now of ["2026-11-23T10:00:00Z", "2027-11-21T09:59:59Z", "2027-11-21T10:00:00Z", "2027-11-21T10:00:01Z", "2028-01-01T00:00:00Z"]) {
+      expect(blocksWhileUnanswered(accepted, at(now))).toBe(!uncollectedDue(accepted, at(now)));
+    }
+    // On the anniversary itself it still keeps the helper away: "more than 12 months" has not passed.
+    expect(blocksWhileUnanswered(accepted, at("2027-11-21T10:00:00Z"))).toBe(true);
+    expect(blocksWhileUnanswered(accepted, at("2027-11-21T10:00:01Z"))).toBe(false);
+  });
+
+  it("counts from 29 February like a collection that went through: over a minute after noon on 28 February", () => {
+    const accepted = at("2024-02-29T12:00:00Z");
+    expect(blocksWhileUnanswered(accepted, at("2025-02-28T12:00:00Z"))).toBe(true);
+    expect(blocksWhileUnanswered(accepted, at("2025-02-28T12:01:00Z"))).toBe(false);
+  });
+
+  it("is told about, with what is known, only after a transfer Stripe will not make has been given up (24 hours)", () => {
+    expect(TELL_ANYWAY_AFTER_MS).toBeGreaterThan(24 * 3_600_000);
   });
 });
 

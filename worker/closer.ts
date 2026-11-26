@@ -48,7 +48,7 @@ async function main() {
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
   const { runNoticeRound } = await import("../src/legal/notices");
   const { runRetention } = await import("../src/lib/retention");
-  const { collectUncollected, followUpUncollected } = await import("../src/lib/payments/uncollected");
+  const { collectUncollected, rerunUnfinishedTries, tellOfCollections } = await import("../src/lib/payments/uncollected");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
   // Counted from when the room was actually closed, in case this helper was down at the scheduled time.
@@ -217,21 +217,35 @@ async function main() {
   /**
    * Earnings a host has not collected for 12 months are sent to her without being asked (plans/46, part 3b), in a
    * loop of its own: it asks Stripe about each such host's payout account, and that must never delay closing a room
-   * or the money work. Two loops, so that a long daily round never keeps the follow-up waiting. About once a day,
-   * and when the helper starts: every such host gets a try. About once a minute: a try the helper stopped in the
-   * middle of is run again, and a host whose transfers are all answered is told what was sent.
+   * or the money work. Three loops, so that none of them keeps another waiting. About once a day, and when the
+   * helper starts: every such host gets a try. About once a minute: a try the helper stopped in the middle of is run
+   * again (that asks Stripe too). About once a minute, on its own: a host whose transfers are all answered is told
+   * what was sent (that asks only the database).
    */
-  let uncollectedRounds = 0;
+  const UNCOLLECTED_ROUND_EVERY_MS = 24 * 3_600_000;
+  /** A daily round that could not even start (the database did not answer, say) is tried again this soon, not a day later. */
+  const UNCOLLECTED_ROUND_AGAIN_MS = 10 * 60_000;
+  let nextUncollectedRoundAt = 0;
   async function uncollectedPass() {
-    if (!stripeConfigured()) return;
-    if (uncollectedRounds++ % 17_280 !== 0) return;
-    await collectUncollected().catch((error) => console.error("[uncollected] the daily round failed; will retry", error));
+    if (!stripeConfigured() || Date.now() < nextUncollectedRoundAt) return;
+    try {
+      await collectUncollected();
+      nextUncollectedRoundAt = Date.now() + UNCOLLECTED_ROUND_EVERY_MS;
+    } catch (error) {
+      nextUncollectedRoundAt = Date.now() + UNCOLLECTED_ROUND_AGAIN_MS;
+      console.error("[uncollected] the daily round failed; it is tried again in ten minutes", error);
+    }
   }
-  let uncollectedFollowUps = 0;
-  async function uncollectedFollowUpPass() {
+  let uncollectedReruns = 0;
+  async function uncollectedRerunPass() {
     if (!stripeConfigured()) return;
-    if (uncollectedFollowUps++ % 12 !== 0) return;
-    await followUpUncollected().catch((error) => console.error("[uncollected] the follow-up failed; will retry", error));
+    if (uncollectedReruns++ % 12 !== 0) return;
+    await rerunUnfinishedTries().catch((error) => console.error("[uncollected] running unfinished tries again failed; will retry", error));
+  }
+  let uncollectedTellings = 0;
+  async function uncollectedTellPass() {
+    if (uncollectedTellings++ % 12 !== 0) return;
+    await tellOfCollections().catch((error) => console.error("[uncollected] telling hosts what was sent failed; will retry", error));
   }
 
   /** Sending emails runs beside the main pass, so a slow sending service never delays closing a room or the money work. */
@@ -260,7 +274,8 @@ async function main() {
     await disputePass();
     await noticePass();
     await uncollectedPass();
-    await uncollectedFollowUpPass();
+    await uncollectedRerunPass();
+    await uncollectedTellPass();
     process.exit(0);
   }
 
@@ -280,7 +295,7 @@ async function main() {
       await sleep();
     }
   }
-  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass), loop("uncollected", uncollectedPass), loop("uncollected follow-up", uncollectedFollowUpPass)]);
+  await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass), loop("uncollected", uncollectedPass), loop("uncollected tries", uncollectedRerunPass), loop("uncollected notices", uncollectedTellPass)]);
   process.exit(0);
 }
 

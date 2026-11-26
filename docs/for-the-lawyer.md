@@ -663,8 +663,8 @@ went through for more than 12 months (or never had one, and her oldest ready sha
 makes: to her own Stripe payout account, with the collection charge (25 cents; less when the
 shares are very small), and nothing is sent that a bank dispute, a refund on its way or a
 refund request holds back. She is told once, by email and in the app, what was sent; if a
-transfer still has no clear answer a day later, she is told what is known by then, with that
-part named as still being checked. If nothing can be sent (her payout account is not ready,
+transfer still has no clear answer 26 hours after the collection was accepted, she is told
+what is known by then, with that part named as still being checked. If nothing can be sent (her payout account is not ready,
 say), the app writes that down and tries again at its first daily round at least seven days
 later, for as long as it lasts. A collection is never started for a closed account (the
 founder's final collection is for it); one that was accepted while the account was open is

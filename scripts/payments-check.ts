@@ -936,7 +936,12 @@ async function main() {
           await round(new Date(N1.getTime() + 8 * DAY), h1);
           check("once: later rounds make no second try, collection or message", (await triesOf(h1)).length === 1 && (await collectionsOf(h1)).length === 1 && (await toldOf(h1)).length === 1);
           check("her Hosting page is told who started it", (await lastCollectionOf(h1))?.last.startedAs === "helper");
-          check("her 24 hours count from it, as from her own", (await press(h1, new Date(N1.getTime() + HOUR))) instanceof MoneyError);
+          // A share that is ready, so that it is the 24 hours that refuse her press, and not "nothing is ready".
+          const next1 = await chargedCall(h1);
+          const tooSoon = await press(h1, new Date(N1.getTime() + HOUR));
+          check("her 24 hours count from it, as from her own: an hour later her own press is refused, with a share ready", tooSoon instanceof MoneyError && /already collected in the last 24 hours/.test(tooSoon.message) && (await sent(next1)).transfers.length === 0 && (await collectionsOf(h1)).length === 1, tooSoon?.message);
+          const dayLater = await press(h1, new Date(N1.getTime() + DAY));
+          check("and when the 24 hours are over, she collects that share herself", dayLater === null && (await sent(next1)).status === "sent" && (await collectionsOf(h1)).filter((c) => c.startedAs === "host").length === 1, dayLater?.message);
 
           console.log("   …a host whose last collection that went through is 12 months old; one that sent nothing in between does not count");
           const h2 = await freshHost();
@@ -1042,9 +1047,11 @@ async function main() {
           await followUp(new Date(N9.getTime() + 3 * MIN), h9); // finds the try without an outcome, and the collection that is there
           check("the try is known as a collection", (await triesOf(h9))[0]?.outcome === "collected" && (await collectionsOf(h9)).length === 1);
           check("while one transfer has no clear answer, she is not told yet", (await toldOf(h9)).length === 0);
-          await followUp(new Date(N9.getTime() + DAY + MIN), h9);
+          await followUp(new Date(N9.getTime() + 25 * HOUR), h9);
+          check("a day and an hour after the collection: still not told (a transfer Stripe will not make is given up at 24 hours, and she is told how it ended)", (await toldOf(h9)).length === 0);
+          await followUp(new Date(N9.getTime() + 26 * HOUR + MIN), h9);
           const [told9] = await toldOf(h9);
-          check("after a day she is told what is known: one sent, one not sent, one still being checked", (await toldOf(h9)).length === 1 && Boolean(told9?.body.includes("Sent to your Stripe payout account: $12.38, in US dollars.")) && Boolean(told9?.body.includes("Not sent in this collection: $12.38.")) && Boolean(told9?.body.includes("Still being checked: $12.38.")) && !told9?.body.includes("The collection charge that was taken"), told9?.body);
+          check("26 hours after the collection she is told what is known: one sent, one not sent, one still being checked", (await toldOf(h9)).length === 1 && Boolean(told9?.body.includes("Sent to your Stripe payout account: $12.38, in US dollars.")) && Boolean(told9?.body.includes("Not sent in this collection: $12.38.")) && Boolean(told9?.body.includes("Still being checked: $12.38.")) && !told9?.body.includes("The collection charge that was taken"), told9?.body);
           await reconcileOperations(soon());
           await reconcileOperations(soon());
           await followUp(new Date(N9.getTime() + 2 * DAY), h9);

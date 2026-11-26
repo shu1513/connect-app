@@ -611,19 +611,19 @@ export async function lastCollectionThrough(reader: Reader, hostId: string): Pro
 }
 
 /**
- * Whether a collection of this host accepted since that moment has a share, for more than nothing, whose transfer
- * has no answer yet. Such a collection may turn out to have gone through: until it is answered, nobody can say
- * that she has not collected.
+ * When each collection of this host was accepted that has a share, for more than nothing, whose transfer has no
+ * answer yet. Such a collection may turn out to have gone through: until it is answered, nobody can say that she
+ * has not collected since then. (There are never many: an unanswered transfer is settled within about a day.)
  */
-export async function collectionUnansweredSince(reader: Reader, hostId: string, since: Date): Promise<boolean> {
-  const [row] = await reader
-    .select({ id: schema.collections.id })
+export async function unansweredCollectionsOf(reader: Reader, hostId: string): Promise<Date[]> {
+  const rows = await reader
+    .select({ id: schema.collections.id, acceptedAt: schema.collections.acceptedAt })
     .from(schema.collections)
     .innerJoin(schema.collectionItems, eq(schema.collectionItems.collectionId, schema.collections.id))
     .innerJoin(schema.moneyOperations, eq(schema.moneyOperations.id, schema.collectionItems.operationId))
-    .where(and(eq(schema.collections.hostId, hostId), gt(schema.collections.acceptedAt, since), gt(schema.collectionItems.amountCents, 0), eq(schema.moneyOperations.status, "started")))
-    .limit(1);
-  return Boolean(row);
+    .where(and(eq(schema.collections.hostId, hostId), gt(schema.collectionItems.amountCents, 0), eq(schema.moneyOperations.status, "started")));
+  // (One line for each such share; the same collection's moment more than once changes nothing for who asks.)
+  return rows.map((row) => row.acceptedAt);
 }
 
 /** When this host's latest collection of any kind was accepted: her 24 hours count from it. */

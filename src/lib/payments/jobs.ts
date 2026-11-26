@@ -108,13 +108,32 @@ export type OnlyThese = { operationIds: string[]; refundIds?: string[] };
 /**
  * The transfer Stripe has for this payment's share, or undefined when its list shows none. Every page: a
  * membership's month can have many transfers in its group.
+ *
+ * A look, not the action: a "no" to the look itself proves nothing and is thrown as "could not look" (`lookUp`).
+ * So is a search that took too long, each page and the whole of it: a search that did not finish is never "not
+ * there". Whoever calls this leaves the transfer open then, and it is looked at again.
  */
 async function transferMadeFor(paymentId: string, params: TransferParams): Promise<string | undefined> {
-  for await (const transfer of stripe().transfers.list({ transfer_group: transferGroup(params), limit: 100 })) {
-    if (transfer.metadata?.paymentId === paymentId) return transfer.id;
-  }
-  return undefined;
+  const until = Date.now() + SEARCH_WITHIN_MS;
+  return lookUp(async () => {
+    for await (const transfer of stripe().transfers.list({ transfer_group: transferGroup(params), limit: 100 }, { timeout: SEARCH_WITHIN_MS })) {
+      if (transfer.metadata?.paymentId === paymentId) return transfer.id;
+      if (Date.now() > until) throw new Error("the search through this group's transfers took too long");
+    }
+    // (Also when the last page came late and held nothing: a search that ran past its time proves nothing.)
+    if (Date.now() > until) throw new Error("the search through this group's transfers took too long");
+    return undefined;
+  });
 }
+
+/**
+ * A transfer that stays open although Stripe said "no" to it, or although Stripe's list does not show it, waits
+ * until no request can still be on its way (up to 24 hours after it was written down). In that time it is not
+ * asked about again on every pass: once in this long. Kept in this helper's own memory; after a restart it is
+ * simply looked at once more.
+ */
+const REFUSED_LOOK_EVERY_MS = 10 * 60_000;
+const lookAgainAt = new Map<string, number>();
 
 export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<void> {
   const stuck = await db
@@ -290,6 +309,9 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           // Nothing goes to Stripe for this one; it follows the rest of its collection.
           if (!(await settleEmptyShare({ id: operation.id, paymentId }, params))) continue; // the rest is not known yet: look again next pass
         } else {
+          // Stripe said "no" to it a moment ago and it stays open for now: not asked again on every pass.
+          if ((lookAgainAt.get(operation.id) ?? 0) > Date.now()) continue;
+          lookAgainAt.delete(operation.id);
           let transferId: string | undefined;
           // Whether "not found" may be final is decided BEFORE the search begins, as for a refund above: another
           // helper may have sent a repeat just before the last moment for repeats, and until that one has had its
@@ -302,7 +324,8 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
             transferId = await transferMadeFor(payment.id, params);
           }
           if (transferId === undefined && !settled) {
-            log(`unfinished transfer on payment ${operation.paymentId}: not found at Stripe yet, and a repeat may still be on its way; looked at again`);
+            lookAgainAt.set(operation.id, Date.now() + REFUSED_LOOK_EVERY_MS);
+            log(`unfinished transfer on payment ${operation.paymentId}: not found at Stripe yet, and a repeat may still be on its way; looked at again in a while`);
             continue;
           }
           if (transferId === undefined) {
@@ -322,39 +345,52 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
       log(`checked unfinished ${operation.kind} on payment ${operation.paymentId}`);
     } catch (error) {
       if (isDefiniteRefusal(error)) {
-        // Stripe gave a clear "no" to the repeated request, so it definitely did not happen.
-        const params = JSON.parse(operation.params);
-        if (operation.kind === "take_back") {
-          // The action and its take-back's row are settled in one step, so the row never stays "being taken".
-          const { refuseTakeback } = await import("@/lib/disputes/takeback");
-          await refuseTakeback(operation, params, stripeErrorMessage(error));
-        } else if (operation.kind === "refund") {
-          // (The repeat's own "no" is settled above by Stripe's list; this is any other clear "no".) The refund's
-          // line and its action end in one step.
-          const why = stripeErrorMessage(error);
-          await failOwnedOperation(operation.id, { column: "paymentId", id: paymentId, lock: (tx) => lockPayment(tx, paymentId) }, why, (_payment, tx) => markRefundFailed(params.refundId, tx, why));
-        } else if (operation.kind === "transfer") {
-          // A "no" here (to this repeat, or to the look at Stripe's list) does not undo an earlier request that went
-          // through, and another sender's request may still be on its way. So the one rule of every search holds
-          // here too: a transfer that is on Stripe's list is recorded; "not there" lets the share go only when the
-          // search began 24 hours after the action was written down. Until then the action stays open. That costs
-          // the host nothing: her next collection is 24 hours after this one at the earliest.
-          const settled = Date.now() - operation.createdAt.getTime() >= SETTLED_AFTER_MS;
-          const made = await transferMadeFor(paymentId, params).catch(() => null);
-          if (made === null) {
-            log(`unfinished transfer on payment ${paymentId} was refused by Stripe, and Stripe's list could not be read; looked at again`);
-            continue;
-          }
-          if (made !== undefined) await finishOperation(operation.id, paymentId, made, (p, tx) => applyTransferSent(p, params, made, tx));
-          else if (settled) await failOperation(operation.id, paymentId, stripeErrorMessage(error));
-          else {
-            log(`unfinished transfer on payment ${paymentId} was refused by Stripe and is not on Stripe's list; it stays open until no request can still be on its way`);
-            continue;
-          }
-        } else await failOperation(operation.id, paymentId, stripeErrorMessage(error));
-        // A refused charge usually means the hold is gone. Record the hold's real state.
-        if (operation.kind === "capture") await syncHold(paymentId, now).catch(() => undefined);
-        log(`unfinished ${operation.kind} on payment ${paymentId} was refused by Stripe`);
+        // Writing down what the "no" means can fail too (the database, say). That must not end this pass: the pending
+        // refunds below and the rest of this round's money work still have to run. The action stays as it is and is
+        // looked at again.
+        try {
+          // Stripe gave a clear "no" to the repeated request, so it definitely did not happen.
+          const params = JSON.parse(operation.params);
+          if (operation.kind === "take_back") {
+            // The action and its take-back's row are settled in one step, so the row never stays "being taken".
+            const { refuseTakeback } = await import("@/lib/disputes/takeback");
+            await refuseTakeback(operation, params, stripeErrorMessage(error));
+          } else if (operation.kind === "refund") {
+            // (The repeat's own "no" is settled above by Stripe's list; this is any other clear "no".) The refund's
+            // line and its action end in one step.
+            const why = stripeErrorMessage(error);
+            await failOwnedOperation(operation.id, { column: "paymentId", id: paymentId, lock: (tx) => lockPayment(tx, paymentId) }, why, (_payment, tx) => markRefundFailed(params.refundId, tx, why));
+          } else if (operation.kind === "transfer") {
+            // A "no" here (to this repeat, or to the look at Stripe's list) does not undo an earlier request that went
+            // through, and another sender's request may still be on its way. So the one rule of every search holds
+            // here too: a transfer that is on Stripe's list is recorded; "not there" lets the share go only when the
+            // search began 24 hours after the action was written down. Until then the action stays open. That costs
+            // the host nothing: her next collection is 24 hours after this one at the earliest.
+            const settled = Date.now() - operation.createdAt.getTime() >= SETTLED_AFTER_MS;
+            const made = await transferMadeFor(paymentId, params).catch(() => null);
+            if (made === null) {
+              lookAgainAt.set(operation.id, Date.now() + REFUSED_LOOK_EVERY_MS);
+              log(`unfinished transfer on payment ${paymentId} was refused by Stripe, and Stripe's list could not be read; looked at again in a while`);
+              continue;
+            }
+            if (made !== undefined) {
+              await finishOperation(operation.id, paymentId, made, (p, tx) => applyTransferSent(p, params, made, tx));
+              log(`unfinished transfer on payment ${paymentId}: Stripe said "no" to the repeat, and its list shows the transfer was made; recorded`);
+              continue;
+            }
+            if (!settled) {
+              lookAgainAt.set(operation.id, Date.now() + REFUSED_LOOK_EVERY_MS);
+              log(`unfinished transfer on payment ${paymentId} was refused by Stripe and is not on Stripe's list; it stays open until no request can still be on its way`);
+              continue;
+            }
+            await failOperation(operation.id, paymentId, stripeErrorMessage(error));
+          } else await failOperation(operation.id, paymentId, stripeErrorMessage(error));
+          // A refused charge usually means the hold is gone. Record the hold's real state.
+          if (operation.kind === "capture") await syncHold(paymentId, now).catch(() => undefined);
+          log(`unfinished ${operation.kind} on payment ${paymentId} was refused by Stripe`);
+        } catch (settleError) {
+          log(`could not write down what Stripe's "no" to unfinished ${operation.kind} on payment ${paymentId} means; will retry`, settleError);
+        }
       } else {
         log(`could not check unfinished ${operation.kind} on payment ${operation.paymentId}; will retry`, error);
       }
