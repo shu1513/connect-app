@@ -4,6 +4,28 @@
  */
 export const REPORT_TEXT_MAX = 2000;
 
+/**
+ * What became of the block that follows a report about a person (reports.ts):
+ *   none      a report about a post of a diary, which does not block
+ *   done      the block stands (`callsNotCancelled`: future calls that could not be cancelled yet)
+ *   not_done  the block is not there
+ *   unknown   the block ran into an error, and looking whether it stands did too
+ */
+export type ReportBlock = "none" | "done" | "not_done" | "unknown";
+
+/**
+ * The sentence a reporter reads after a report was saved, and whether it goes on the receipt page
+ * (which has a "Block" button) or, when all went as it should, on the home page as before. The
+ * report's number is in every one of them.
+ */
+export function reportNotice(outcome: { reference: number; block: ReportBlock; callsNotCancelled: number }): { notice: string; needsReceipt: boolean } {
+  const { reference } = outcome;
+  if (outcome.block === "none") return { notice: REPORT_WORDS.thanksPost(reference), needsReceipt: false };
+  if (outcome.block === "done" && outcome.callsNotCancelled === 0) return { notice: REPORT_WORDS.thanksPerson(reference), needsReceipt: false };
+  if (outcome.block === "done") return { notice: REPORT_WORDS.thanksNotCancelled(reference, outcome.callsNotCancelled), needsReceipt: true };
+  return { notice: outcome.block === "not_done" ? REPORT_WORDS.savedNotBlocked(reference) : REPORT_WORDS.savedBlockUnknown(reference), needsReceipt: true };
+}
+
 export const REPORT_WORDS = {
   title: "Report",
   /** The links that lead to the form: on a host's page, and on a request. */

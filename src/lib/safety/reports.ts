@@ -20,7 +20,7 @@ import { hasBlocked } from "@/lib/follows/follows";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
 import { keepMessages, type KeptSummary, keptSummaries, MessageGoneError, reportableMessage } from "./kept-messages";
-import { REPORT_TEXT_MAX } from "./report-words";
+import { type ReportBlock, REPORT_TEXT_MAX } from "./report-words";
 
 export class ReportError extends Error {}
 
@@ -103,14 +103,6 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
   throw new ReportError("Report not understood.");
 }
 
-/**
- * What became of the block that follows a report about a person:
- *   none      a report about a post of a diary, which does not block
- *   done      the block stands (`callsNotCancelled` says how many future calls could not be cancelled yet)
- *   not_done  the block is not there
- *   unknown   the block ran into an error, and looking whether it stands did too
- */
-export type ReportBlock = "none" | "done" | "not_done" | "unknown";
 export type ReportOutcome = { reference: number; reportedId: string; block: ReportBlock; callsNotCancelled: number };
 
 /**

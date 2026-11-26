@@ -7,7 +7,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { callForParticipant } from "@/lib/payments/access";
-import { REPORT_WORDS } from "./report-words";
+import { reportNotice } from "./report-words";
 import { createReport } from "./reports";
 
 /** Whether this call, one of this person's, was ended with "End call and report". False for anybody else's call. */
@@ -40,11 +40,8 @@ export async function callStopState(userId: string, callId: string): Promise<"no
  */
 export async function sendReportFor(reporterId: string, input: { context: string; contextId: string; reason: string; text: string }, now: Date): Promise<{ notice: string; receipt: string | null }> {
   const outcome = await createReport({ reporterId, context: input.context, contextId: input.contextId, reason: input.reason, text: input.text, now });
-  const { reference } = outcome;
-  if (outcome.block === "none") return { notice: REPORT_WORDS.thanksPost(reference), receipt: null };
-  if (outcome.block === "done" && outcome.callsNotCancelled === 0) return { notice: REPORT_WORDS.thanksPerson(reference), receipt: null };
-  const notice = outcome.block === "done" ? REPORT_WORDS.thanksNotCancelled(reference, outcome.callsNotCancelled) : outcome.block === "not_done" ? REPORT_WORDS.savedNotBlocked(reference) : REPORT_WORDS.savedBlockUnknown(reference);
-  return { notice, receipt: `/report/saved?r=${reference}` };
+  const { notice, needsReceipt } = reportNotice(outcome);
+  return { notice, receipt: needsReceipt ? `/report/saved?r=${outcome.reference}` : null };
 }
 
 /** For the receipt page: the person a report of this reporter's was about. Null for anyone else's report, or none. */

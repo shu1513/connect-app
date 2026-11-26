@@ -201,25 +201,47 @@ company yet.
 - **Search** orders hosts by how well the name matches. If the rule above applies, the terms
   should say that too.
 
-## 8. Only if messaging is ever built
+## 8. Messages between hosts and customers (plan 49, built on 26 November 2026)
 
-Messaging between customers and hosts is not built. If it is, the points are in
-`docs/research/messaging/compared.md`: the duty to report, how long messages are kept, what the
-terms must say about staff reading reported messages, and the UK and EU rules.
+A host and a customer can write short text messages to each other, around a call and, from the
+host's side, afterwards too. The messages are stored by Connect as plain text. Proposed wording
+for the Terms, the Community Rules and the Privacy Policy is in
+`docs/legal/messages-proposed-wording.md`, and a draft of what the founder does when a report
+suggests a child or exploitation is in `docs/legal/when-a-report-suggests-a-child.md`. Both need
+a lawyer's read before Connect opens to real people. The research behind them is in
+`docs/research/messaging/compared.md`.
 
-One more point, from the founder's thoughts of 26 November 2026 (`docs/module-record.md`, module
-8b; plan 49): a host can write first to a customer she has had a call with, at any time. The
-customer reads it inside Connect; no email is sent about it for now (the founder's decision). Is
-a message like "I have a time free on Thursday" advertising under the rules for commercial
-messages (in the United States and, for customers there, the UK and EU)? If so, what must the
-customer have agreed to beforehand, and is his switch for each host enough as the way out? And if
-Connect later sends an email that only says "a message is waiting", with a "Book a time" link:
-does that email need the postal address and the stop link that advertising email needs?
-
-Found while planning messages (plan 49, "Found on the way"): the draft Community Rules say that
-"End call and report" ends the call and blocks the other person. The app blocks only when the
-report form that follows is sent. Until the app is changed, should the rules say what the app
-does?
+- **The duty to report.** Once Connect stores private messages, when must it report to the
+  national centre (NCMEC), what must a report hold, how fast, and for how long must what was
+  reported be kept? Is anything owed for people outside the United States? The app sends nothing
+  by itself; a person does.
+- **Keeping messages.** The app deletes a message 12 months after it was sent. Is that a period
+  Connect may promise, and is it long enough? What is kept with a report is never deleted by the
+  app: how long must and may that be kept?
+- **Staff reading messages.** The app shows the founder a part of a conversation only when one
+  of its two people reported a message in it, and records every look. Is the proposed wording in
+  the Terms and the Privacy Policy enough as the people's agreement to that? Must it say more
+  about handing messages to the authorities?
+- **Not end-to-end encrypted.** Is saying so plainly, as the proposed wording does, enough?
+- **Intimate pictures** (the law on removing them within 48 hours): messages are text only. Does
+  that law reach a description in a message, and does it ask anything of the message feature?
+- **A host writing first.** A host can write at any time to a customer she has had a call with.
+  The customer reads it inside Connect; no email is sent about it (the founder's decision). Is a
+  message like "I have a time free on Thursday" advertising under the rules for commercial
+  messages (in the United States and, for customers there, the UK and EU)? If so, what must the
+  customer have agreed to beforehand, and is his switch for each host enough as the way out? And
+  if Connect later sends an email that only says "a message is waiting", with a "Book a time"
+  link: does that email need the postal address and the stop link that advertising email needs?
+- **Customers in the UK and the EU.** The UK's online safety law has no exception for small
+  services, and private video calls between users are already under it. Do messages add duties
+  (a written risk assessment, a way to complain), and must anything be in place before a UK or
+  EU customer can write?
+- **A child.** What must Connect do when it learns that a person who wrote messages is under 18,
+  or under 13? (Section 2 asks the same for calls.)
+- **"End call and report".** The draft Community Rules and the draft Terms say that pressing it
+  ends the call and blocks the other person. The app blocks only when the report form that
+  follows is sent. Until the app is changed, should the documents say what the app does? The
+  corrected sentence is in the proposed wording.
 
 ## 9. The company and the founder (new, legal review of 20 November 2026)
 
