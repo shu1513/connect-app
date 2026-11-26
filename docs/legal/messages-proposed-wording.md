@@ -31,8 +31,8 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
 
 **Under "If someone breaks the rules", a new line:**
 
-> - **In a message:** press "Report" beside the message. The other person is blocked, and we keep
->   a copy of that part of the conversation to look at.
+> - **In a message:** press "Report" beside the message and send the form that opens. The other
+>   person is then blocked, and we keep a copy of that part of the conversation to look at.
 
 **And a correction that has nothing to do with messages** (plan 49, "Found on the way"). The line
 about a call says today: "The call ends for both of you, the other person is blocked, and the

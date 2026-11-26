@@ -32,8 +32,10 @@ Then, in this order:
 1. **Read the report.** On the "Reports and safety" page, read the reporter's note. If the
    report was made from a message, press "Read the kept messages". That press is written into
    the record of admin actions by the app. Do not copy the messages anywhere else.
-2. **Pause the account** of the person reported, from the same page. Do not warn them, do not
-   write to them about the report, and do not tell them who reported.
+2. **Pause the account** of the person reported, from the same page. Know what pausing does:
+   the app emails that person at once, with the rule you pick and whatever you write in the
+   note. So pick the rule, leave the note empty or say nothing in it about the report, and do
+   not tell them who reported. Do not warn them or write to them in any other way.
 3. **Do not delete anything.** The app keeps what was kept with the report. It does not delete
    reports.
 4. **If someone is in danger right now, call the police first** (911 in the United States).

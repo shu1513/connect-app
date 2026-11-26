@@ -53,7 +53,7 @@ export const emailCutoff = (now: Date): Date => monthsBefore(now, EMAIL_KEPT_YEA
 export const loginCutoff = (now: Date): Date => monthsBefore(now, LOGIN_KEPT_MONTHS);
 
 /** For check scripts only: touch nothing but rows of matching people, so a check never changes other rows. */
-export type OnlyThese = { emailKeyLike: string; userIds: string[]; codeLike: string; counterKeyLike: string; conversationIds?: string[] };
+export type OnlyThese = { emailKeyLike: string; userIds: string[]; codeLike: string; counterKeyLike: string };
 
 const mail = schema.emailOutbox;
 /** How many rows one round changes at most; the helper comes back within the hour. */
@@ -119,13 +119,15 @@ export async function deleteOldAttemptCounters(now: Date, only?: OnlyThese): Pro
  * never used twice. What is kept with a report (`report_conversations`) is a copy of its own and
  * is not touched.
  */
-export async function deleteOldConversationMessages(now: Date, only?: Pick<OnlyThese, "conversationIds">): Promise<number> {
+export async function deleteOldConversationMessages(now: Date, only?: { conversationIds: string[] }): Promise<number> {
+  // For a check script: only these conversations, and with none named, nothing at all.
+  if (only && only.conversationIds.length === 0) return 0;
   const cutoff = monthsBefore(now, MESSAGES_KEPT_MONTHS);
   const old = schema.conversationMessages;
   const due = db
     .select({ id: old.id })
     .from(old)
-    .where(and(lt(old.createdAt, cutoff), only?.conversationIds ? inArray(old.conversationId, only.conversationIds.length ? only.conversationIds : ["00000000-0000-0000-0000-000000000000"]) : undefined))
+    .where(and(lt(old.createdAt, cutoff), only ? inArray(old.conversationId, only.conversationIds) : undefined))
     .limit(PER_ROUND);
   const gone = await db.delete(old).where(inArray(old.id, due)).returning({ id: old.id });
   return gone.length;

@@ -41,7 +41,7 @@ export async function callStopState(userId: string, callId: string): Promise<"no
 export async function sendReportFor(reporterId: string, input: { context: string; contextId: string; reason: string; text: string }, now: Date): Promise<{ notice: string; receipt: string | null }> {
   const outcome = await createReport({ reporterId, context: input.context, contextId: input.contextId, reason: input.reason, text: input.text, now });
   const { notice, needsReceipt } = reportNotice(outcome);
-  return { notice, receipt: needsReceipt ? `/report/saved?r=${outcome.reference}` : null };
+  return { notice, receipt: needsReceipt ? `/report/saved/${outcome.reference}` : null };
 }
 
 /** For the receipt page: the person a report of this reporter's was about. Null for anyone else's report, or none. */

@@ -338,6 +338,8 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         <label className="flex items-center gap-2">
           <input type="checkbox" name="joiningOff" defaultChecked={current.joiningOff} /> Nobody can join a call
         </label>
+        {/* Says that this form has the box below: a form from before it existed leaves the switch for messages alone. */}
+        <input type="hidden" name="hasConversationsOff" value="1" />
         <label className="flex items-center gap-2">
           <input type="checkbox" name="conversationsOff" defaultChecked={current.conversationsOff} /> No messages between hosts and customers (they can still read
           their conversations, and report from them)

@@ -87,7 +87,7 @@ async function main() {
   const { block, unblock } = await import("../src/lib/safety/blocks");
   const { setSwitches, switches } = await import("../src/lib/safety/switches");
   const { createReport, openReports, ReportError } = await import("../src/lib/safety/reports");
-  const { KEPT_AFTER, KEPT_BEFORE, keptMessagesFor, messagePlaceText } = await import("../src/lib/safety/kept-messages");
+  const { keepMessages, KEPT_AFTER, KEPT_BEFORE, keptMessagesFor, MessageGoneError, messagePlaceText, reportableMessage } = await import("../src/lib/safety/kept-messages");
   const { reportNotice } = await import("../src/lib/safety/report-words");
   const { deleteOldConversationMessages } = await import("../src/lib/retention");
 
@@ -795,12 +795,23 @@ async function main() {
       check("a second look is written down again", (await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetId, saved.id))).length === looksBefore + 2);
       check("a report with nothing kept gives nothing back and writes nothing down", (await keptMessagesFor({ adminId: founder.id, reportId: randomUUID() })) === null);
 
+      // The helper deletes old messages without the conversation's lock. A message that goes between "it is there"
+      // and the keeping must stop the report: what is kept is read in one question, and the message must be in it.
+      const keeping = (number: number) => db.transaction((tx) => keepMessages(tx, randomUUID(), guest.id, messagePlaceText(id, number))).then(() => "kept", (error) => (error instanceof MessageGoneError ? "gone" : "other"));
+      const couldReport = (await reportableMessage(db, guest.id, messagePlaceText(id, 151))) !== null;
+      await db.delete(schema.conversationMessages).where(and(eq(schema.conversationMessages.conversationId, id), eq(schema.conversationMessages.number, 151)));
+      check("a message that was there a moment ago and is gone when the report is written stops the report, with its neighbours still there", couldReport && (await keeping(151)) === "gone" && (await refused(report(guest.id, messagePlaceText(id, 151)))) && (await messagesIn(id)).some((m) => m.number === 150) && (await messagesIn(id)).some((m) => m.number === 152));
+      check("so does a message of the reporter's own, and a conversation that is not theirs", (await keeping(150)) === "gone" && (await db.transaction((tx) => keepMessages(tx, randomUUID(), olga.id, messagePlaceText(id, 153))).then(() => false, (error) => error instanceof MessageGoneError)));
+      check("none of that kept anything", (await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.conversationId, id))).length === 2);
+
       // What is kept does not go when the messages do.
       await db.update(schema.conversationMessages).set({ createdAt: new Date(Date.now() - 400 * DAY) }).where(eq(schema.conversationMessages.conversationId, id));
       const deleted = await deleteOldConversationMessages(new Date(), { conversationIds: [id] });
       const [still] = await db.select().from(schema.reportConversations).where(eq(schema.reportConversations.reportId, saved.id));
-      check("when the messages are deleted after 12 months, what is kept with the report stays", deleted === 202 && (await messagesIn(id)).length === 0 && still.messages.includes(SECRET));
-      check("a message that was deleted can no longer be reported", await refused(report(guest.id, messagePlaceText(id, 150))));
+      check("when the messages are deleted after 12 months, what is kept with the report stays", deleted === 201 && (await messagesIn(id)).length === 0 && still.messages.includes(SECRET));
+      check("a message that was deleted can no longer be reported", await refused(report(guest.id, messagePlaceText(id, 153))));
+      const emptied = await page(`/conversations/${talk}`, cory.jar);
+      check("(a conversation that still has messages does not say that none remain)", !emptied.words.includes("No messages remain"));
 
       // With messages switched off, and for a paused person, a report can still be made.
       const host2 = await asHost(await person("reph2"), "reph2", `Report Host Two ${RUN}`);
@@ -826,9 +837,10 @@ async function main() {
       const form = await page(`/report?message=${place}`, olga.jar);
       check("the link leads to the report form, for that message", his.html.includes(`/report?message=${place}`) && form.status === 200 && form.html.includes('name="context" value="message"') && form.html.includes(`value="${messagePlaceText(quiet, theirs.at(-1)!)}"`));
       const made = await createReport({ reporterId: olga.id, context: "message", contextId: messagePlaceText(quiet, theirs.at(-1)!), reason: "other", text: "", now: new Date() });
-      const receipt = await page(`/report/saved?r=${made.reference}`, olga.jar);
-      check("the reporter can open the receipt of her report, with its number and a Block button", receipt.status === 200 && receipt.html.includes(`data-report-receipt="${made.reference}"`) && receipt.words.includes(`R-${made.reference}`) && receipt.words.includes("Block this person"));
-      check("nobody else can, and a number that is no report gives Not found", (await page(`/report/saved?r=${made.reference}`, hana.jar)).status === 404 && (await page(`/report/saved?r=${made.reference}`, cory.jar)).status === 404 && (await page("/report/saved?r=999999999", olga.jar)).status === 404 && (await page("/report/saved?r=x", olga.jar)).status === 404);
+      const receipt = await page(`/report/saved/${made.reference}`, olga.jar);
+      check("the reporter can open the receipt of her report, with its number and a Block button that names only the report", receipt.status === 200 && receipt.html.includes(`data-report-receipt="${made.reference}"`) && receipt.words.includes(`R-${made.reference}`) && receipt.html.includes("data-block-reported") && receipt.html.includes(`name="reference" value="${made.reference}"`) && !receipt.html.includes(hana.id));
+      check("nobody else can, and a number that is no report gives Not found", (await page(`/report/saved/${made.reference}`, hana.jar)).status === 404 && (await page(`/report/saved/${made.reference}`, cory.jar)).status === 404 && (await page("/report/saved/999999999", olga.jar)).status === 404 && (await page("/report/saved/x", olga.jar)).status === 404);
+      check("the receipt needs a login", [302, 303, 307].includes((await page(`/report/saved/${made.reference}`)).status));
       check("after the report the reported host is refused, and reads the sentence of the switch", (await page(`/conversations/${quiet}`, hana.jar)).words.includes(`${olga.name} is not taking messages right now.`));
     }
   } finally {

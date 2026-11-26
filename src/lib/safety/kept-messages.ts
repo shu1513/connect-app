@@ -63,18 +63,26 @@ export type KeptMessage = { number: number; from: "reporter" | "reported"; at: s
  * row is locked first, so no message can be added while the stretch is read. Throws
  * `MessageGoneError` when the message is not there any more: the caller's whole step is then
  * undone, and no report is written.
+ *
+ * Old messages are deleted by the helper without that lock (retention.ts). So the reported
+ * message is not looked for first and the stretch read afterwards: the stretch is read in ONE
+ * question, and the reported message must be IN what that question gave back. A report can then
+ * never be saved with its own message missing from what is kept.
  */
 export async function keepMessages(tx: Tx, reportId: string, reporterId: string, contextId: string): Promise<void> {
   const place = messagePlace(contextId);
   if (!place) throw new MessageGoneError();
-  await tx.select({ id: conversations.id }).from(conversations).where(eq(conversations.id, place.conversationId)).for("update");
-  if (!(await reportableMessage(tx, reporterId, contextId))) throw new MessageGoneError();
+  const [conversation] = await tx.select({ hostId: conversations.hostId, customerId: conversations.customerId }).from(conversations).where(eq(conversations.id, place.conversationId)).for("update");
+  if (!conversation || (conversation.hostId !== reporterId && conversation.customerId !== reporterId)) throw new MessageGoneError();
   const inThis = eq(messages.conversationId, place.conversationId);
   const rows = await tx
     .select({ number: messages.number, senderId: messages.senderId, createdAt: messages.createdAt, body: messages.body })
     .from(messages)
     .where(and(inThis, gte(messages.number, place.number - KEPT_BEFORE), lte(messages.number, place.number + KEPT_AFTER)))
     .orderBy(asc(messages.number));
+  // The reported message itself, among what was just read: still there, and the other person's.
+  const reported = rows.find((row) => row.number === place.number);
+  if (!reported || reported.senderId === reporterId) throw new MessageGoneError();
   const [{ older }] = await tx
     .select({ older: sql<number>`count(*)::int` })
     .from(messages)

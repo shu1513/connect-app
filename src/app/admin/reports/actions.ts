@@ -10,6 +10,7 @@ import { recordAdminAction } from "@/lib/safety/audit";
 import { keptMessagesFor } from "@/lib/safety/kept-messages";
 import type { KeptState } from "./kept-state";
 import { closeReport, liftPause, pauseAccount, ReportError, warn } from "@/lib/safety/reports";
+import { stopSwitchesFrom } from "@/lib/safety/switch-form";
 import { setSwitches } from "@/lib/safety/switches";
 import { requireAdmin } from "@/lib/session";
 
@@ -72,13 +73,9 @@ export async function liftPauseAction(formData: FormData) {
 
 export async function switchesAction(formData: FormData) {
   const admin = await requireAdmin();
-  const values = { requestsOff: formData.get("requestsOff") === "on", joiningOff: formData.get("joiningOff") === "on", conversationsOff: formData.get("conversationsOff") === "on" };
+  const { values, detail } = stopSwitchesFrom(formData);
   await setSwitches(values);
-  await recordAdminAction({
-    adminId: admin.id,
-    action: "stop switches set",
-    detail: `new requests ${values.requestsOff ? "off" : "on"}; joining calls ${values.joiningOff ? "off" : "on"}; messages between hosts and customers ${values.conversationsOff ? "off" : "on"}`,
-  });
+  await recordAdminAction({ adminId: admin.id, action: "stop switches set", detail });
   back("The switches were saved.");
 }
 

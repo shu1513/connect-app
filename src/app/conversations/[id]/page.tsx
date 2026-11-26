@@ -76,7 +76,7 @@ export default async function ConversationPage(props: PageProps<"/conversations/
 
       {messages.length === 0 ? (
         <p className="mt-6 text-sm opacity-70" data-no-messages>
-          No messages yet.
+          {conversation.lastNumber > 0 ? "No messages remain. Messages are deleted 12 months after they were sent." : "No messages yet."}
         </p>
       ) : (
         <ol className="mt-6 space-y-3" data-conversation-messages>

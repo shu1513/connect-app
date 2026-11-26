@@ -167,7 +167,9 @@ export async function createReport(input: { reporterId: string; context: string;
   } catch (error) {
     console.error(`[safety] the block after report R-${report.reference} ran into an error (${errorSummary(error)})`);
     const stands = await hasBlocked(input.reporterId, reportedId).catch(() => null);
-    return { reference: report.reference, reportedId, block: stands === null ? "unknown" : stands ? "done" : "not_done", callsNotCancelled: 0 };
+    // A block that stands after an error was saved before the step got to the calls still to come: whether those
+    // were cancelled is not known, and is not called done.
+    return { reference: report.reference, reportedId, block: stands === null ? "unknown" : stands ? "done_unsure" : "not_done", callsNotCancelled: 0 };
   }
 }
 
