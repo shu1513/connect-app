@@ -25,7 +25,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 7b. Adding time during a call | Built and merged. The founder's two-device test on 14 November ended before time could be added; still to try. |
 | 8. Ratings, search, contacts, host notes | Built and merged. |
 | 9. Verified customers only | Built and merged. The real ID check in a browser needs the restricted Stripe key (founder). |
-| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). On 26 November the founder asked for it to be built: `plans/49-messaging.md`, a plan only so far. The research is kept in `docs/research/messaging/`. |
+| 8b. Messaging | Researched, then left out of the first version (founder, 14 November). On 26 November the founder asked for it to be built: `plans/49-messaging.md`. Part 1 (the conversation) is built and merged with messages switched off; part 2 (reporting, keeping, and switching them on) is not built yet. The research is kept in `docs/research/messaging/`. |
 | Final pass: joining everything together | Built and merged. |
 | 10. Connection check before a call | Built and merged. A weak connection, a real iPhone, hotel Wi-Fi and mobile data still need the founder's friend tests. |
 | 11. Refund requests, taking the money later, and a record of call quality | Built and merged. A real two-person call on a bad connection and a real card's hold from start to finish still need a friend test; the outside health watcher comes with the hosting. |
@@ -5524,3 +5524,83 @@ a future day, of a day before joining, and of day 14 handled on day 20; the firs
 resumed membership; a second membership; a bank on the month; a payment with a problem; a call
 in five minutes (cancelled) and one under way (worked out as usual); the card step; somebody else's membership; pressed twice; the sentence and its
 version.
+
+## Messages between a host and a customer, part 1: the conversation (plan 49, 26 November 2026)
+
+**The plan:** `plans/49-messaging.md` (pull request 104). It records the founder's decisions of
+26 November and the four checks by Astra. This part is merged with messages **switched off**:
+nobody can send, and nothing new shows to anyone. Part 2 brings reporting and turns them on.
+
+**What was built.**
+
+- Two tables: a conversation for each pair of "this host, this customer", and its messages, each
+  with a number that only goes up. One more of the founder's switches, which starts at off.
+- The rules as plain functions with tests (`src/lib/conversations/rules.ts`): around a call both
+  may write; outside one, the host if the two have talked, and the customer only while her
+  latest message is less than 7 days old; the customer's switch for one host; and the limits
+  (10 a minute and 100 a day for a person, 5 in a row without an answer, 20 quiet conversations
+  woken in a day).
+- The facts for those rules, read in one place for the pair in its roles
+  (`src/lib/conversations/facts.ts`). After "End call and report" between the two, only a request
+  begun after it and accepted by the host counts.
+- The step that sends (`src/lib/conversations/send.ts`): both people's calendar locks first, the
+  same ones blocking and booking take, then the conversation's row, then the clock. A press sent
+  twice makes one message.
+- The pages: the conversation (the messages, the box, the customer's switch, "Book a time", and
+  for a quiet conversation "Book a call to write to her again"), the list of conversations on
+  "Messages" above what Connect wrote, and the top bar's number, which counts both.
+- The ways in, shown only while messages are on: "Write to …" on an agreed call's page, on the
+  page after a call, and for a host beside each past customer.
+
+**Changed against the plan while building.**
+
+- The conversation's page is not in `scripts/journey-check.ts`'s walk as a page of its own: it
+  needs a conversation. The walk has "Messages" and a conversation that is not there (not found,
+  and the login first for a visitor); the page itself is in the new script.
+- The list on "Messages" shows at most 200 conversations, those with something new first.
+
+**What the reviewer found.** Astra read the code and said "do not ship", with nine points, all
+taken. None was a way to read or write in someone else's conversation; it found that side sound.
+The ones that mattered: what a person had typed was lost when the conversation closed while they
+typed (the box is now always there and keeps the words to be copied); a paused host could tell a
+block from the customer's switch, because the two were said at different places (they are now
+said at the same place); an account that closed while its own message waited could still send
+it; "Show earlier" never reached the oldest of more than 500 messages; the booking button did
+not ask whether her page can be opened; a form sat inside a paragraph; and several checks in the
+script could have passed with broken code (they now hold the locks themselves and choose the
+order of things). Not taken: the script still clears the local "too many attempts" counters at
+its start and end, as the other check scripts do.
+
+Astra then looked a second time: "ship with changes", six points, all taken, and no third look
+asked for. When the server's answer to "Send" is lost on the way, the words now stay in the box
+and pressing "Send" again cannot send them twice. A host whom the customer had switched off
+could still tell that from a block after an "End call and report" between the two. "Show
+earlier" did not move for someone whose browser had not yet said what it showed. Two people with
+a conversation in each direction were named the same in both lines of the list. And in the
+script: the confirmation link is opened only on the app the script was pointed at, a held lock
+is always let go, and the order of two waiting steps is read from the database, not hoped for.
+Not taken: calling the button "View host page" where only her page, not a free time, is
+certain. "Book a time" is the founder's wording, and her page says what can be booked.
+
+**What the check script found.** The mark "New" in the list of conversations was never set. A
+column put into an inner question by reference was written without its table's name, and inside
+the inner question the bare name meant the message's own column. The automatic tests could not
+see it; the script did, on its first run. The two inner questions now name the table themselves.
+
+**How it was checked.** Type check, lint, 1,097 automatic tests (33 new, for the rules: every
+case of who may write at its edges to the second, each limit, each sentence). The new script,
+`scripts/conversation-check.ts`, 121 checks against the local database with real pages:
+opening; both writing around a call; what is new and what has been shown, with 60 new messages
+and with 600 in all; the host waking a quiet conversation and the customer not; a message that
+waits while the 7 days run out; a cancelled first call; a host whose page is hidden; the
+customer's switch; a block and a message in each order; each limit, also its last free place
+asked for twice at once; "End call and report"; a paused and a closed account; and the founder's
+switch. The scripts of what this touches, run again and passing: home, journey, ratings, safety,
+booking. By hand in a browser, as the test customer and as the test host: the list, a message
+each way, the words kept in the box when the conversation went quiet under them, the switch on
+and off, the phone's width, and a "Send" whose answer was made to fail (the words stayed, and
+the second press sent them once).
+
+**What the checks cannot cover.** Two real people writing at the same time from two devices.
+
+**Still open.** Part 2 of the plan. Until it is merged, messages stay off.

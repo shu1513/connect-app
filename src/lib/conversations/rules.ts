@@ -85,9 +85,10 @@ export function mayWrite(facts: Facts, now: Date): Verdict {
   if (!facts.switchOn) return { ok: false, why: "switched_off" };
   if (facts.blockedByMe) return { ok: false, why: "you_blocked" };
   if (facts.blockedByOther) return { ok: false, why: facts.role === "host" ? "not_taking" : "closed" };
-  // The customer's switch is said before anything about the host's own account, exactly where a block is said:
-  // whatever else is true of her, the two read the same (decision 15).
-  if (facts.role === "host" && !facts.aroundCall && facts.talked && facts.muted) return { ok: false, why: "not_taking" };
+  // The customer's switch is said before anything about the host's own account and before anything about the
+  // calls between the two, exactly where a block is said: outside a call, whatever else is true, the two read the
+  // same (decision 15).
+  if (facts.role === "host" && !facts.aroundCall && facts.muted) return { ok: false, why: "not_taking" };
   if (facts.closed) return { ok: false, why: "closed" };
   if (facts.paused) return { ok: false, why: "paused" };
   if (facts.otherClosed) return { ok: false, why: "closed" };

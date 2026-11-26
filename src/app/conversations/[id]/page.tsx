@@ -6,7 +6,7 @@ import { LocalTime } from "@/components/local-time";
 import { RefreshEvery } from "@/components/refresh-every";
 import { SitePage } from "@/components/site-page";
 import { warm } from "@/components/warm-ui";
-import { viewFor } from "@/lib/conversations/read";
+import { mayMarkShown, viewFor } from "@/lib/conversations/read";
 import { CONVERSATION } from "@/lib/conversations/rules";
 import { CONVERSATION_WORDS, refusalWords } from "@/lib/conversations/words";
 import { readNotice } from "@/lib/notice";
@@ -48,7 +48,7 @@ export default async function ConversationPage(props: PageProps<"/conversations/
     <SitePage className="mx-auto w-full max-w-2xl px-4 py-10 sm:px-6 sm:py-12">
       <RefreshEvery seconds={REFRESH_SECONDS} />
       {/* Nothing is written while the page is drawn: the person's own browser says what it has shown. */}
-      {highest > shownUpTo && <ConversationShown conversationId={conversation.id} number={highest} />}
+      {highest > shownUpTo && mayMarkShown(view, from) && <ConversationShown conversationId={conversation.id} number={highest} />}
       <p className="text-sm">
         <Link href="/messages" className="inline-flex min-h-11 items-center underline underline-offset-2">
           All messages

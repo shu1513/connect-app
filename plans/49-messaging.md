@@ -1,6 +1,7 @@
 # Plan 49: Messages between a host and a customer
 
-**Status:** a plan only, nothing is built. Written 26 November 2026 by the builder alone (no helper
+**Status:** part 1 is built (26 November 2026; the record is in `docs/module-record.md`), part 2
+is not. Written 26 November 2026 by the builder alone (no helper
 agents), from the code as it is on `main` after pull request 103. It starts from the two studies of
 14 November 2026 (`docs/research/messaging/compared.md`) and from the founder's rules of
 26 November 2026 (`docs/module-record.md`, module 8b). Astra (gpt-6.2-astra, high effort) checked

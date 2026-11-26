@@ -32,14 +32,14 @@ export async function conversationFor(userId: string, id: string): Promise<Conve
   return row;
 }
 
-type Known = { name: string; handle: string | null };
+type Known = { ownName: string; hostName: string; handle: string | null };
 
 /**
- * People as this person knows them, in one question: someone who is this person's host in a
- * conversation is known by her host name (never her account name), a customer by his own name.
- * `asHosts` are the ids to be named as hosts.
+ * People's names, in one question. Which name is shown is chosen for each conversation
+ * (`nameIn`): two people can have a conversation in each direction, and the same person is then
+ * known by a different name in each.
  */
-async function knownAs(ids: string[], asHosts: Set<string>): Promise<Map<string, Known>> {
+async function namesOf(ids: string[]): Promise<Map<string, Known>> {
   const known = new Map<string, Known>();
   if (ids.length === 0) return known;
   const people = await db
@@ -47,11 +47,17 @@ async function knownAs(ids: string[], asHosts: Set<string>): Promise<Map<string,
     .from(schema.user)
     .leftJoin(schema.hostProfiles, eq(schema.hostProfiles.userId, schema.user.id))
     .where(inArray(schema.user.id, [...new Set(ids)]));
-  for (const person of people) {
-    const asHost = asHosts.has(person.id);
-    known.set(person.id, { name: asHost ? (person.displayName ?? person.name) : person.name, handle: asHost ? person.handle : null });
-  }
+  for (const person of people) known.set(person.id, { ownName: person.name, hostName: person.displayName ?? person.name, handle: person.handle });
   return known;
+}
+
+/**
+ * The other person as this person knows them in one conversation: the customer knows his host by
+ * her host name (never her account name); the host knows her customer by his own name.
+ */
+function nameIn(known: Known | undefined, viewerRole: Role): string {
+  if (!known) return "this person";
+  return viewerRole === "customer" ? known.hostName : known.ownName;
 }
 
 export type ConversationView = {
@@ -73,6 +79,18 @@ export type ConversationView = {
   /** The lowest message number on the page, for "Show earlier". */
   firstNumber: number | null;
 };
+
+/**
+ * Whether the page may tell the server "shown up to the highest message here". Not when it holds a
+ * stretch that was asked for and that starts after messages this person has not been shown: those
+ * were not on the page, and the mark is one number that covers everything below it.
+ */
+export function mayMarkShown(view: Pick<ConversationView, "conversation" | "role" | "firstNumber">, askedFrom: number | undefined): boolean {
+  if (view.firstNumber === null) return false;
+  if (askedFrom === undefined) return true;
+  const shownUpTo = view.role === "host" ? view.conversation.hostShownNumber : view.conversation.customerShownNumber;
+  return view.firstNumber <= shownUpTo + 1;
+}
 
 /** What a refusal is shown as, given whether the customer has a way to book. Shared by the page and the answer to a late form. */
 export function shownRefusalFor(why: Refusal, canBook: boolean, stopped: boolean): Refusal {
@@ -97,7 +115,8 @@ async function bookHrefFor(conversation: Conversation, handle: string | null, no
  * (decision 29), so nothing can count as shown that was not on the page. `from` is the message
  * number "Show earlier" asked for: the page then holds the messages from that number on. Never
  * more than 500 at once; a stretch of old messages that does not reach the latest says so
- * (`hasLater`). `messages: false` leaves the messages out, for a caller that needs only the rest.
+ * (`hasLater`), and the page then marks nothing as shown that lies before the stretch
+ * (`mayMarkShown`). `messages: false` leaves the messages out, for a caller that needs only the rest.
  */
 export async function viewFor(userId: string, conversationId: string, now: Date, options: { from?: number; messages?: boolean } = {}): Promise<ConversationView | null> {
   const conversation = await conversationFor(userId, conversationId);
@@ -106,22 +125,23 @@ export async function viewFor(userId: string, conversationId: string, now: Date,
   const otherId = role === "host" ? conversation.customerId : conversation.hostId;
   const facts = await factsFor(db, conversation, userId, now);
   const verdict = mayWrite(facts, now);
-  const person = (await knownAs([otherId], new Set(role === "customer" ? [otherId] : []))).get(otherId) ?? { name: "this person", handle: null };
+  const known = (await namesOf([otherId])).get(otherId);
   // No way to book is offered across a block, or after "End call and report" (decision 21).
-  const bookHref = role === "customer" && !facts.stopped && !facts.blockedByMe && !facts.blockedByOther ? await bookHrefFor(conversation, person.handle, now) : null;
+  const bookHref = role === "customer" && !facts.stopped && !facts.blockedByMe && !facts.blockedByOther ? await bookHrefFor(conversation, known?.handle ?? null, now) : null;
 
   let shown: ConversationMessage[] = [];
   let hasLater = false;
   if (options.messages !== false) {
     const inThis = eq(messages.conversationId, conversation.id);
-    const shownUpTo = role === "host" ? conversation.hostShownNumber : conversation.customerShownNumber;
-    const usual = Math.max(1, Math.min(shownUpTo + 1, conversation.lastNumber - CONVERSATION.shown + 1));
     const from = options.from;
-    if (from !== undefined && Number.isInteger(from) && from > 0 && from < usual) {
-      // Older messages were asked for: from that number on, oldest first.
+    if (from !== undefined && Number.isInteger(from) && from > 0) {
+      // Older messages were asked for: from that number on, oldest first. Whatever this person has or has not been
+      // shown yet plays no part here, so "Show earlier" always moves.
       shown = await db.select().from(messages).where(and(inThis, gte(messages.number, from))).orderBy(asc(messages.number)).limit(MOST_SHOWN);
       hasLater = shown.length > 0 && shown[shown.length - 1].number < conversation.lastNumber;
     } else {
+      const shownUpTo = role === "host" ? conversation.hostShownNumber : conversation.customerShownNumber;
+      const usual = Math.max(1, Math.min(shownUpTo + 1, conversation.lastNumber - CONVERSATION.shown + 1));
       const newestFirst = await db.select().from(messages).where(and(inThis, gte(messages.number, usual))).orderBy(desc(messages.number)).limit(MOST_SHOWN);
       shown = newestFirst.reverse();
     }
@@ -132,7 +152,7 @@ export async function viewFor(userId: string, conversationId: string, now: Date,
   return {
     conversation,
     role,
-    other: { id: otherId, name: person.name },
+    other: { id: otherId, name: nameIn(known, role) },
     facts,
     verdict,
     shownRefusal: verdict.ok ? null : shownRefusalFor(verdict.why, bookHref !== null, facts.stopped),
@@ -194,11 +214,11 @@ export async function conversationsOf(userId: string): Promise<ListedConversatio
     .orderBy(sql`${hasNew} desc`, desc(conversations.lastMessageAt))
     .limit(MOST_LISTED);
   const otherOf = (conversation: Conversation) => (conversation.hostId === userId ? conversation.customerId : conversation.hostId);
-  // Where this person is the customer, the other one is named as his host.
-  const known = await knownAs(rows.map((row) => otherOf(row.conversation)), new Set(rows.filter((row) => row.conversation.customerId === userId).map((row) => row.conversation.hostId)));
+  const known = await namesOf(rows.map((row) => otherOf(row.conversation)));
   return rows.map(({ conversation, hasNew: isNew }) => ({
     id: conversation.id,
-    name: known.get(otherOf(conversation))?.name ?? "this person",
+    // Chosen for each conversation: where this person is the customer, the other one is named as his host.
+    name: nameIn(known.get(otherOf(conversation)), conversation.customerId === userId ? "customer" : "host"),
     lastMessageAt: conversation.lastMessageAt ?? conversation.createdAt,
     hasNew: Boolean(isNew),
   }));

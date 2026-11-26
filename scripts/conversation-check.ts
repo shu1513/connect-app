@@ -111,6 +111,8 @@ async function main() {
       if (!link) await pause(200);
     }
     if (!link) throw new Error(`No confirmation email for ${person.email}`);
+    // The link carries a secret: it is only ever opened on the app this script was pointed at.
+    if (new URL(link).origin !== new URL(BASE).origin) throw new Error(`The confirmation link leads to ${new URL(link).origin}, not to ${BASE}. Start the app with its own address set to ${BASE}.`);
     await send(link, { jar: person.jar });
     const [row] = await db.select().from(schema.user).where(eq(schema.user.email, person.email));
     made.push(row.id);
@@ -170,19 +172,35 @@ async function main() {
    */
   async function holdLocks(ids: string[]) {
     let release!: () => void;
-    let ready!: () => void;
+    let got!: () => void;
+    let failed!: (error: unknown) => void;
     const until = new Promise<void>((resolve) => (release = resolve));
-    const got = new Promise<void>((resolve) => (ready = resolve));
+    const ready = new Promise<void>((resolve, reject) => {
+      got = resolve;
+      failed = reject;
+    });
     const done = db.transaction(async (tx) => {
       for (const id of [...new Set(ids)].sort()) await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`calendar:${id}`}))`);
-      ready();
+      got();
       await until;
     });
-    await got;
+    // If the locks cannot be taken, say so, and do not wait for ever.
+    done.catch(failed);
+    await ready;
     return async () => {
       release();
       await done;
     };
+  }
+  /** How many steps are waiting for a lock of that kind right now, in this database. */
+  const waitingNow = async () => Number((await db.execute<{ n: number }>(sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted and database = (select oid from pg_database where datname = current_database())`))[0]?.n ?? 0);
+  /** Waits until this many steps are waiting. So the order in which steps queue up is known, not hoped for. */
+  async function untilWaiting(howMany: number) {
+    for (let i = 0; i < 200; i++) {
+      if ((await waitingNow()) >= howMany) return;
+      await pause(25);
+    }
+    throw new Error("A step that should be waiting for a lock is not.");
   }
   /** A pair who talked ten days ago: the call is over, both joined it, and its 7 days have passed. */
   const talkedPair = async (hostId: string, customerId: string) => agreed({ hostId, customerId, startsInDays: -10, joined: [hostId, customerId] });
@@ -332,6 +350,13 @@ async function main() {
       check("of 600 messages, asking from the first gives the first 500 and says there are later ones", oldest.messages.length === 500 && oldest.messages[0].number === 1 && oldest.messages[499].number === 500 && oldest.hasLater && !oldest.hasEarlier);
       check("and asking from the 101st gives the rest, up to the latest", middle.messages.length === 500 && middle.messages[0].number === 101 && middle.messages[499].number === 600 && !middle.hasLater && middle.hasEarlier);
 
+      // The same for someone whose browser has not said yet what it showed (nothing is marked as shown).
+      const fresh = (await viewFor(long.id, longId, new Date()))!;
+      const back = (await viewFor(long.id, longId, new Date(), { from: fresh.firstNumber! - CONVERSATION.shown }))!;
+      check("Show earlier also moves for someone to whom all 600 are new", fresh.messages.length === 500 && fresh.firstNumber === 101 && fresh.hasEarlier && back.messages[0].number === 51 && back.messages.length === 500 && back.hasLater);
+      const { mayMarkShown } = await import("../src/lib/conversations/read");
+      check("an older stretch that was asked for marks nothing as shown that lies before it; the usual page does", !mayMarkShown(back, 51) && mayMarkShown(fresh, undefined) && mayMarkShown((await viewFor(long.id, longId, new Date(), { from: 1 }))!, 1));
+
       // The list: a conversation with something new comes before a later one with nothing new.
       await say(id, a.id, "new for the host");
       await rawMessages(longId, host.id, 1, { minutesAgo: 0 });
@@ -368,13 +393,21 @@ async function main() {
       await say(id, guest.id).then((r) => check("eight days after her last message he cannot write again: his own answers did not move the date", refusedAs(r) === "book_again"));
       check("and she can wake it once more", sent(await say(id, host.id, "Still free on Friday")) && (await messagesIn(id)).at(-1)?.woke === true);
       {
-        // His answer has to wait for its turn, and while it waits her 7 days run out.
+        // Her 7 days end in three seconds. An answer sent now goes through. The next one is sent in time too, but has
+        // to wait for its turn, and its turn comes after the 7 days have ended: it is judged by the clock after the wait.
+        await db.update(schema.conversations).set({ hostLastWroteAt: new Date(Date.now() - 7 * DAY + 3000) }).where(eq(schema.conversations.id, id));
+        const inTime = await say(id, guest.id, "sent in time");
+        const others = await waitingNow();
         const release = await holdLocks([host.id, guest.id]);
-        const waiting = say(id, guest.id, "sent just in time, or so he thought");
-        await pause(300);
-        await hostWroteDaysAgo(id, 8);
-        await release();
-        check("a message that had to wait is judged by what is true after the wait", refusedAs(await waiting) === "book_again" && (await messagesIn(id)).every((m) => !m.body.includes("just in time")));
+        let waiting: ReturnType<typeof say>;
+        try {
+          waiting = say(id, guest.id, "sent just in time, or so he thought");
+          await untilWaiting(others + 1);
+          await pause(3500);
+        } finally {
+          await release();
+        }
+        check("a message that had to wait past the end of the 7 days is refused: the clock is read after the wait", inTime.ok && refusedAs(await waiting) === "book_again" && (await messagesIn(id)).every((m) => !m.body.includes("or so he thought")), refusedAs(inTime));
       }
 
       // A call that the customer did not come to: its 7 days ran, and nothing after them.
@@ -395,6 +428,8 @@ async function main() {
       await talkedPair(both.id, host.id);
       const his = (await openConversation({ userId: both.id, customerId: host.id }))!;
       check("once he has been her host as well, there are two conversations, one for each direction", his !== hers && (await conversationsBetween(host.id, both.id)).length === 2 && sent(await say(his, both.id)));
+      const hersListed = await conversationsOf(host.id);
+      check("in her list he is named for each conversation: by his own name where he is her customer, by his host name where he is her host", hersListed.find((c) => c.id === hers)?.name === both.name && hersListed.find((c) => c.id === his)?.name === both.displayName);
 
       // The pages for a quiet conversation.
       await talkedPair(hana.id, olga.id);
@@ -481,23 +516,35 @@ async function main() {
       // A send and a block at the same moment happen in one order or the other. Both wait for the same locks,
       // and they get them in the order they asked: so here the order is chosen, both ways round.
       {
+        const others = await waitingNow();
         const release = await holdLocks([host.id, guest.id]);
-        const sending = say(one, host.id, "Sent before the block");
-        await pause(300);
-        const blocking = block({ blockerId: guest.id, blockedId: host.id, now: new Date() });
-        await pause(300);
-        await release();
+        let sending: ReturnType<typeof say>;
+        let blocking: ReturnType<typeof block>;
+        try {
+          sending = say(one, host.id, "Sent before the block");
+          await untilWaiting(others + 1);
+          blocking = block({ blockerId: guest.id, blockedId: host.id, now: new Date() });
+          await untilWaiting(others + 2);
+        } finally {
+          await release();
+        }
         const [first] = await Promise.all([sending, blocking]);
         check("a message that asked first, with a block right behind it, is saved, and the block then stands", first.ok && (await messagesIn(one)).at(-1)?.body === "Sent before the block" && refusedAs(await say(one, host.id)) === "not_taking");
         await unblock(guest.id, host.id);
       }
       {
+        const others = await waitingNow();
         const release = await holdLocks([host.id, guest.id]);
-        const blocking = block({ blockerId: guest.id, blockedId: host.id, now: new Date() });
-        await pause(300);
-        const sending = say(one, host.id, "Sent behind the block");
-        await pause(300);
-        await release();
+        let sending: ReturnType<typeof say>;
+        let blocking: ReturnType<typeof block>;
+        try {
+          blocking = block({ blockerId: guest.id, blockedId: host.id, now: new Date() });
+          await untilWaiting(others + 1);
+          sending = say(one, host.id, "Sent behind the block");
+          await untilWaiting(others + 2);
+        } finally {
+          await release();
+        }
         const [, second] = await Promise.all([blocking, sending]);
         check("a message right behind a block is refused, and nothing of it is saved", refusedAs(second) === "not_taking" && (await messagesIn(one)).every((m) => m.body !== "Sent behind the block"));
       }

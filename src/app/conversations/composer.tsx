@@ -6,39 +6,49 @@ import type { ComposerState } from "./composer-state";
 
 /**
  * The box for writing a message. It answers in place, and what was typed is never lost: not over
- * a refusal, and not when the conversation closes while someone is typing (the page asks the
- * server again every few seconds, and the other person may have blocked or switched off in the
- * meantime). So the page always draws this, open or not. While the conversation is closed it
- * shows nothing, unless something was typed or refused: then the words stay, to be copied.
+ * a refusal, not when the conversation closes while someone is typing (the page asks the server
+ * again every few seconds, and the other person may have blocked or switched off in the
+ * meantime), and not when the server's answer never arrives. So the page always draws this, open
+ * or not. While the conversation is closed it shows nothing, unless something was typed or
+ * refused: then the words stay, to be copied.
  *
  * Whether this person may write is decided on the server each time (sendMessage); `open` only
  * says what was true when the page was drawn.
  *
  * Every message carries a once-only key made here. The key stays the same until the server has
- * said that the message with it went through, so a press that is sent twice, or pressed again
- * after a lost answer, makes one message.
+ * said that the message with it went through. So a press that is sent twice, or pressed again
+ * after an answer that was lost on the way, makes one message.
  *
  * `max` is handed in by the page: this file runs in the browser and must not pull in the code
  * that knows the limit, because that code talks to the database.
  */
 export function Composer({ conversationId, name, max, open }: { conversationId: string; name: string; max: number; open: boolean }) {
-  const [state, formAction, pending] = useActionState<ComposerState, FormData>(sendAction, { error: null, sentKey: null, draft: "" });
+  const [state, formAction, pending] = useActionState<ComposerState, FormData>(send, { error: null, sentKey: null, draft: "" });
   const key = useRef<string | null>(null);
   // How long the text in the box is, once the person has typed since the server's last answer.
   const [typed, setTyped] = useState<{ since: ComposerState; length: number } | null>(null);
   const hasText = (typed?.since === state ? typed.length : state.draft.length) > 0;
 
-  function send(formData: FormData) {
+  /**
+   * Asks the server, and catches an answer that never came (the connection dropped): the message
+   * may or may not have been saved. The words go back into the box and the key is kept, so
+   * pressing Send again sends those words under the same key, and they are saved once.
+   */
+  async function send(previous: ComposerState, formData: FormData): Promise<ComposerState> {
     // A new key only for a new message: the first one, and after the server confirmed the last.
-    if (key.current === null || key.current === state.sentKey) key.current = crypto.randomUUID();
+    if (key.current === null || key.current === previous.sentKey) key.current = crypto.randomUUID();
     formData.set("sendKey", key.current);
-    formAction(formData);
+    try {
+      return await sendAction(previous, formData);
+    } catch {
+      return { error: "We could not confirm that this was sent. Press Send again: it will not be sent twice.", sentKey: null, draft: String(formData.get("text") ?? "").replace(/\r\n?/g, "\n") };
+    }
   }
 
   if (!open && !hasText && !state.error) return null;
 
   return (
-    <form action={send} className="mt-6 text-sm" data-composer={open ? "open" : "kept"}>
+    <form action={formAction} className="mt-6 text-sm" data-composer={open ? "open" : "kept"}>
       <input type="hidden" name="conversationId" value={conversationId} />
       <label className="block">
         <span className="block font-semibold">{open ? `Write to ${name}` : "What you wrote was not sent. You can still copy it."}</span>

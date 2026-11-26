@@ -116,7 +116,8 @@ describe("what stops everybody", () => {
   });
 
   it("a blocked host and a switched-off host get the same answer whatever else is true of her", () => {
-    for (const more of [{ paused: true }, { hostPagePublic: false }, { otherClosed: true }, { closed: true }, { hostLastWroteAt: ago(1000) }] as Partial<Facts>[]) {
+    // Also when the two no longer count as having talked (after "End call and report") and his switch is still on.
+    for (const more of [{ paused: true }, { hostPagePublic: false }, { otherClosed: true }, { closed: true }, { hostLastWroteAt: ago(1000) }, { talked: false }, { talked: false, paused: true }] as Partial<Facts>[]) {
       expect(mayWrite(host({ ...more, muted: true }), now)).toEqual(mayWrite(host({ ...more, blockedByOther: true }), now));
       expect(mayWrite(host({ ...more, muted: true }), now)).toEqual({ ok: false, why: "not_taking" });
     }
