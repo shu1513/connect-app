@@ -17,7 +17,7 @@ import { lockCalendars } from "@/lib/booking/bookings";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { switches } from "@/lib/safety/switches";
 import { callFacts, factsFor, type Pair } from "./facts";
-import { CONVERSATION, isSendKey, type LimitProblem, limitProblem, mayWrite, type Refusal, tidyMessage } from "./rules";
+import { isSendKey, type LimitProblem, limitProblem, mayWrite, type Refusal, tidyMessage } from "./rules";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isConversationId = (id: string): boolean => UUID.test(id);
@@ -138,5 +138,3 @@ export async function sendMessage(input: { conversationId: string; senderId: str
     return { ok: true, number };
   });
 }
-
-export { CONVERSATION };
