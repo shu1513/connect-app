@@ -5,7 +5,7 @@
  */
 import { timeWords } from "./rules";
 
-export const MEMBERSHIP_WORDING_VERSION = "2026-11-20";
+export const MEMBERSHIP_WORDING_VERSION = "2026-11-26";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -18,8 +18,9 @@ export function agreementSentences(input: { hostName: string; monthlyCents: numb
     `Each month gives you ${timeWords(includedMinutes)} of calls with ${hostName}. Time you have not used when a month ends expires and is not paid back.`,
     `You can cancel at any time on "Your account"; your membership then runs to the end of the month you paid for.`,
     `At the start of each month the amount is first only held on your card. It is taken when you make your first booking of that month, or after 72 hours, whichever comes first (sooner if your card's hold ends sooner; "Your account" shows the exact time). Until it is taken you can choose "Cancel now": then nothing is charged for that month and your membership is paused that day. (Cancelling the normal way does not let the hold go: the month is yours, and its amount is taken.)`,
-    // The legal agreements (docs/legal/payment-terms.md, section 12.3), said to everyone so that nobody is asked where they live.
-    `Where a 14-day right to cancel applies to you (in the United Kingdom and Europe): you can cancel a new membership within 14 days of joining by writing to us. Time you booked or used in those days is paid for at the member price, because by booking a call you ask for it to take place as booked.`,
+    // The legal agreements (docs/legal/payment-terms.md, section 12.3). Connect gives this to every member, wherever they
+    // live (the founder's decision of 26 November 2026), so that nobody is asked for their country.
+    `You can cancel a new membership within 14 days of joining: with "Cancel within 14 days" on your membership's page, or by writing to us. Your membership then ends at once. Time you used before it is cancelled, and a call you cancelled late or missed if it was charged under your booking's terms, is paid for at the member price; the rest of what you paid is given back. By joining you ask for your membership to start today.`,
   ];
 }
 

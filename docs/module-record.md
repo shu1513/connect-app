@@ -5463,3 +5463,33 @@ found seven points, all taken (the list is in the plan): among them, a notice wi
 still open is now counted from the collection and goes at 26 hours; telling has a loop of its
 own; a daily round that fails is tried again in ten minutes; and a failure while writing down
 a "no" from Stripe no longer stops the round's other money work.
+
+## Cancelling a new membership within 14 days (plan 46, part 3c, 26 November 2026)
+
+**Why.** The draft Payment Terms (12.3) give a member 14 days to cancel a new membership. There
+was no way to do that in the app. The plan first had only a button for the founder, for members
+in the United Kingdom and Europe who write in. The founder then decided two things: the member
+cancels themselves, and every member has the 14 days, wherever they live.
+
+**What was built.** One action (`src/lib/membership/fourteen-days.ts`) with two ways in.
+"Cancel within 14 days" on the member's own membership page, shown for a new membership in its
+first 14 days. And a form on the founder's Memberships page for a request that came in writing,
+with the day it arrived. The action refuses, with a sentence for whoever pressed: after the 14
+days; a membership that was resumed or is the two people's second; a first month that has
+ended; a month a bank has a question about. Otherwise it ends the membership with a reason of
+its own and runs the clean-up every ending has: the hold let go, calls still to come cancelled,
+unused money back to the card. Time used and a charged late cancellation stay paid for; the
+member's email names them. The sentence before joining is the new one, for everyone, with a new
+version. No migration.
+
+**What was not built.** A cancellation after the first month has ended (the founder, by hand).
+Anything that works out a sum of its own. A button in the phone apps.
+
+**How it was checked.** Type check, lint, the automatic tests (the days, to the day; every
+sentence of the note; a sentence for the member and one for the founder for every refusal). The
+real script `scripts/member-calls-check.ts`, a journey of its own (33 checks), against Stripe's
+test mode: only held; still to be paid; paid and nothing used; paid with one call used, one
+cancelled late and one to come; the member's button on day 20; a written request of day 15, of
+a future day, of a day before joining, and of day 14 handled on day 20; the first month ended; a
+resumed membership; a second membership; a bank on the month; somebody else's membership;
+pressed twice; the sentence and its version.

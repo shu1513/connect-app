@@ -1346,3 +1346,54 @@ is fixed with them.
 The builder's own, found while reading for point 3: a transfer that stays open after a "no"
 (up to 24 hours) was asked about again on every pass of the helper, every few seconds. Once in
 ten minutes now.
+
+## Part 3c, as built: cancelling a new membership within 14 days
+
+**The founder changed decisions 13 and 14 on 26 November 2026**, before this part was built:
+
+- **The member cancels themselves, with a button.** Not only the founder for a written request.
+- **Every member has the 14 days, wherever they live.** Nobody is asked for their country, and
+  the founder's tick ("lives where the right applies") is gone.
+
+Everything else is as decisions 13 and 14 say. Made exact:
+
+- **Two ways in, one action** (`src/lib/membership/fourteen-days.ts`). The member presses
+  "Cancel within 14 days" on their membership's page (under "Cancel membership"). Or the member
+  writes to Connect and the founder presses the button on the Memberships page, with the day
+  the request arrived: a cancellation in writing counts too, so that way stays.
+- **Days are counted in UTC**, for everybody the same. The day of joining is the UTC day of the
+  moment the bank authorised the first month (for a first month that never was: the moment the
+  person agreed). The member's button is open through the whole of the 14th day after it. The
+  founder's day must be the day of joining or one of the 14 after it, and not later than today;
+  the founder can handle it later, while the first month still runs.
+- **"First membership of the two":** no other month of these two people, in this or an earlier
+  membership, was ever authorised by the bank. "Newly joined": the running month's agreement
+  is of the kind "joined", and the month is the first that agreement was for.
+- **What it does** is `endMembership` (as "admin", or as the member's own account) with the
+  reason "it was cancelled within 14 days of joining, as the member asked", and then the
+  clean-up every ending has. No sum of its own. The one email the member gets about the ending
+  carries a note: who cancelled (for a written request, the day it reached us), that nothing
+  was charged (a month that was only held) or that what was paid goes back, the calls that
+  stay paid for and why, and a line for a call that had begun and is not worked out yet.
+- **It ends the membership for good**, like every ending: to come back, the person needs a new
+  invitation. The member's page says so beside the button. ("Cancel now", which pauses while
+  the money is only held, is still there beside it.)
+- **Refusals** have a sentence for the founder (who can settle a case by hand) and one for the
+  member (who is pointed to the normal way of cancelling).
+- **The founder's press is on record** (`admin_actions`), with the day entered.
+- **Pressed twice:** the second press finds the membership ended and refuses.
+- **The sentence before joining** (decision 14) is now for everyone: "You can cancel a new
+  membership within 14 days of joining: with "Cancel within 14 days" on your membership's page,
+  or by writing to us. Your membership then ends at once. Time you used before it is cancelled,
+  and a call you cancelled late or missed if it was charged under your booking's terms, is paid
+  for at the member price; the rest of what you paid is given back. By joining you ask for your
+  membership to start today." The wording's version is "2026-11-26"; a page that still showed
+  the old sentence cannot be agreed to.
+- **The phone apps** have no such button yet: a member there uses the website or writes to us.
+
+**Checked by** `scripts/member-calls-check.ts`, a journey of its own (33 checks), against
+Stripe's test mode: the cases of the list under "Part 3c" above, by the member's own button and
+by the founder's. A bank's dispute is played by the month's own mark. "A late cancellation that
+was charged" is the member cancelling inside the host's free hour. A call under way when the
+button is pressed is not played here (the journey "Endings" plays that for every ending); the
+note's sentence for it has a test of its own.

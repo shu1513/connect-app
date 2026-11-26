@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { membershipFor } from "@/lib/membership/access";
 import { acceptLessTime, cancelNow, declineLessTime, stopRenewal, undoStop } from "@/lib/membership/ending";
+import { cancelWithin14Days } from "@/lib/membership/fourteen-days";
 import { MembershipError } from "@/lib/membership/rules";
 import { withNotice } from "@/lib/notice";
 import { requireUser } from "@/lib/session";
@@ -60,6 +61,30 @@ export async function cancelNowAction(formData: FormData) {
     await cancelNow({ membershipId, memberId: userId, now: new Date() });
   } catch (error) {
     notice = problem(error);
+  }
+  redirect(withNotice(page, notice));
+}
+
+/**
+ * "Cancel within 14 days": a new membership, in its first 14 days (plans/46-part-3-money-owed.md, decision 13). It
+ * ends at once; what was not used goes back to the card.
+ */
+export async function cancelWithin14DaysAction(formData: FormData) {
+  const { userId, membershipId, currentMonthId, page } = await mine(formData);
+  let notice: string;
+  try {
+    // For the month the page showed, like "Cancel now": a page left open across a renewal cancels nothing.
+    const shown = String(formData.get("month") ?? "");
+    if (shown && shown !== currentMonthId) throw new MembershipError("Your membership has moved on to another month since this page was opened. Nothing was changed. Please look at it again.");
+    await cancelWithin14Days({ membershipId, by: { as: "member", memberId: userId } });
+    notice = "Your membership is cancelled and has ended. You will not be charged for it again. What goes back to your card is on its way, and an email tells you each amount; an amount that was only held is let go.";
+  } catch (error) {
+    // Only a refusal in words means nothing changed. Anything else may have happened after the ending was saved.
+    if (error instanceof MembershipError) notice = error.message;
+    else {
+      console.error("[membership] a member's cancelling within 14 days failed", error);
+      notice = "We could not confirm what happened. Look at this page: if it says your membership has ended, it was cancelled and you do not need to press again.";
+    }
   }
   redirect(withNotice(page, notice));
 }

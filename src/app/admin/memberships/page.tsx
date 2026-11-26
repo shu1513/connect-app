@@ -5,10 +5,13 @@ import { LocalTime } from "@/components/local-time";
 import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import type { Membership, MembershipMonth, MembershipRefund } from "@/db/schema";
+import { fourteenDayCases } from "@/lib/membership/fourteen-days";
 import { timeWords } from "@/lib/membership/rules";
 import { formatMoney } from "@/lib/payments/access";
 import { switches } from "@/lib/safety/switches";
+import { readNotice } from "@/lib/notice";
 import { requireAdmin } from "@/lib/session";
+import { cancelWithin14DaysAction } from "./actions";
 
 export const metadata: Metadata = { title: "Memberships" };
 
@@ -41,12 +44,15 @@ const ENDED_HOW: Record<string, string> = {
 };
 
 /**
- * The founder's page for memberships. It only reads: every membership with where it stands, and
- * for each of its months the six places its money is in, what failed, what is owed back and what
- * a bank disputes. (The switch that opens memberships is on "Reports and safety".)
+ * The founder's page for memberships: every membership with where it stands, and for each of its
+ * months the six places its money is in, what failed, what is owed back and what a bank disputes.
+ * (The switch that opens memberships is on "Reports and safety".) It changes one thing: a new
+ * membership can be cancelled here within 14 days of joining, for a member who asked in writing
+ * instead of pressing their own button.
  */
-export default async function AdminMembershipsPage() {
+export default async function AdminMembershipsPage(props: PageProps<"/admin/memberships">) {
   await requireAdmin();
+  const notice = readNotice("/admin/memberships", await props.searchParams);
   const now = new Date();
   // Every membership, with no cut-off: the counts and the lists of what needs a look must never leave an old one out.
   const [current, memberships] = await Promise.all([switches(), db.select().from(schema.memberships).orderBy(desc(schema.memberships.updatedAt))]);
@@ -66,6 +72,9 @@ export default async function AdminMembershipsPage() {
   const disputed = months.filter((month) => month.dispute === "open" || month.dispute === "lost");
   const membershipById = new Map(memberships.map((membership) => [membership.id, membership]));
   const who = (membership: Membership | undefined) => (membership ? `${people.get(membership.customerId) ?? "?"} with ${people.get(membership.hostId) ?? "?"}` : "?");
+  // The new memberships whose first month is running: the 14-day form is for these, and for no other.
+  const fourteen = await fourteenDayCases(memberships, now);
+  const today = now.toISOString().slice(0, 10);
 
   return (
     <SitePage className="mx-auto w-full max-w-4xl px-4 py-10">
@@ -75,13 +84,18 @@ export default async function AdminMembershipsPage() {
         </Link>
       </p>
       <h1 className="mt-4 text-2xl font-semibold">Memberships</h1>
+      {notice && (
+        <p className="mt-3 rounded border border-neutral-400 p-3 text-sm" role="status" data-notice>
+          {notice}
+        </p>
+      )}
       <p className="mt-2 text-sm">
         The switch is{" "}
         <strong>{current.memberships === "off" ? "off" : current.memberships === "named" ? `on for ${current.membershipsHosts.length} named ${current.membershipsHosts.length === 1 ? "host" : "hosts"}` : "on for everyone"}</strong>.{" "}
         <Link href="/admin/reports" className="underline underline-offset-2">
           Change it on &quot;Reports and safety&quot;
         </Link>
-        . This page only shows; it changes nothing.
+        . This page shows. The one thing it changes: a new membership can be cancelled within 14 days here, when the member asked in writing (the form is on that membership, below).
       </p>
 
       <section className="mt-6 grid gap-3 text-sm sm:grid-cols-4">
@@ -167,6 +181,28 @@ export default async function AdminMembershipsPage() {
                   {membership.status === "ended" && membership.endedReason ? `Ended: ${membership.endedReason}. ` : ""}
                   {membership.status === "ended" && !membership.cleanupDoneAt ? "Its clean-up is not finished yet. " : ""}
                 </p>
+                {fourteen.has(membership.id) && (
+                  <details className="mt-2 rounded border border-neutral-400 p-2" data-fourteen-days>
+                    <summary className="cursor-pointer">The member wrote to cancel within 14 days of joining</summary>
+                    <form action={cancelWithin14DaysAction} className="mt-2 space-y-2">
+                      <input type="hidden" name="membership" value={membership.id} />
+                      <p className="opacity-80">
+                        Members can do this themselves on their membership&apos;s page; this form is for one who wrote to us instead. Joined on {fourteen.get(membership.id)!.joinedDay}; a request counts if it reached Connect by{" "}
+                        {fourteen.get(membership.id)!.lastDay} (days in UTC). The membership ends at once. An amount that is only held is let go. If the month was taken, what was not used goes back to the card, and calls still to
+                        come are cancelled. Time that was used, and a call cancelled late or missed that was already charged, stay paid for. This cannot be undone.
+                      </p>
+                      <p>
+                        <label>
+                          The day the member&apos;s request reached Connect:{" "}
+                          <input type="date" name="day" required min={fourteen.get(membership.id)!.joinedDay} max={today} className="rounded border border-neutral-400 px-2 py-1" />
+                        </label>
+                      </p>
+                      <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 font-medium">
+                        Cancel this membership within the 14 days
+                      </button>
+                    </form>
+                  </details>
+                )}
                 {monthsOf(membership.id).length > 0 && (
                   <div className="mt-2 overflow-x-auto">
                     <table className="w-full text-left text-xs">
