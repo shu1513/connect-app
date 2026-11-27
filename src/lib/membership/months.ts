@@ -256,7 +256,7 @@ export async function spendSetAside(tx: Tx, monthId: string, cents: number, plac
     .where(eq(months.id, monthId));
 }
 
-type Return = { cents: number; hostCausedCents: number; sourceKey: string; reason: string; paymentId: string; now: Date };
+type Return = { cents: number; hostCausedCents: number; sourceKey: string; reason: string; paymentId: string; now: Date; /** Never free again, also while the member can still book: owed to the card (time given back after the host collected its share). */ toCard?: boolean };
 
 /**
  * Money comes back from one of two places (set aside, for a call that was cancelled or used less
@@ -269,7 +269,7 @@ async function returnFrom(tx: Tx, locked: LockedMonth, from: "setAsideCents" | "
   const { month } = locked;
   if (input.cents < 1) return null;
   const column = months[from];
-  if (canBookFrom(locked, input.now)) {
+  if (!input.toCard && canBookFrom(locked, input.now)) {
     await tx
       .update(months)
       .set({ [from]: sql`${column} - ${input.cents}`, freeCents: sql`${months.freeCents} + ${input.cents}`, hostCausedCents: sql`${months.hostCausedCents} + ${Math.min(input.hostCausedCents, input.cents)}`, updatedAt: input.now })

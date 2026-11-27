@@ -67,6 +67,10 @@ export type FoundPayment = {
   refundUnderWay: "no" | "accepted" | "unanswered";
   /** What the host's share has already lost to refunds given after it was sent. */
   reductionsCents: number;
+  /** A member's call, paid from a membership's month: what is given back is its time, and after collection its money goes to the member's card (plans/50-part-2-member-time-owed-back.md). */
+  memberCall: boolean;
+  /** A bank has a question or a dispute on the payment (for a member's call: on its month's charge), so nothing can be given back from it now. */
+  frozen: boolean;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -104,7 +108,7 @@ export async function paymentsForRefund(search: RefundSearch, before?: RefundSea
     .select({ payment: schema.payments, callId: schema.calls.id, startsAt: schema.calls.startsAt, hostId: schema.calls.hostId, customerId: schema.calls.customerId })
     .from(schema.payments)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .where(and(eq(schema.payments.kind, "card"), eq(schema.payments.status, "charged"), byCall ? eq(schema.calls.id, search.callId) : eq(schema.calls.customerId, customerId!), before ? or(lt(schema.calls.startsAt, before.startsAt), and(eq(schema.calls.startsAt, before.startsAt), lt(schema.payments.id, before.paymentId))) : undefined))
+    .where(and(inArray(schema.payments.kind, ["card", "member_call"]), eq(schema.payments.status, "charged"), byCall ? eq(schema.calls.id, search.callId) : eq(schema.calls.customerId, customerId!), before ? or(lt(schema.calls.startsAt, before.startsAt), and(eq(schema.calls.startsAt, before.startsAt), lt(schema.payments.id, before.paymentId))) : undefined))
     // A page at a time, newest call first. "Older" asks for what comes after the last one shown, by both keys of the
     // order, so two payments of one call (its own and one for added time) are never split from each other and lost.
     .orderBy(desc(schema.calls.startsAt), desc(schema.payments.id))
@@ -125,8 +129,13 @@ export async function paymentsForRefund(search: RefundSearch, before?: RefundSea
     .from(schema.refunds)
     .where(and(inArray(schema.refunds.paymentId, ids), eq(schema.refunds.status, "done"), eq(schema.refunds.afterCollection, true)))
     .groupBy(schema.refunds.paymentId);
+  // A member's call is frozen with its month: the bank's question is on the month's charge.
+  const monthIds = [...new Set(rows.map((row) => row.payment.monthId).filter((id): id is string => id !== null))];
+  const frozenMonths = monthIds.length > 0 ? (await db.select({ id: schema.membershipMonths.id }).from(schema.membershipMonths).where(and(inArray(schema.membershipMonths.id, monthIds), inArray(schema.membershipMonths.dispute, ["open", "lost"])))).map((month) => month.id) : [];
   const nameOf = (id: string) => people.find((person) => person.id === id)?.name ?? "someone";
   return rows.map((row) => ({
+    memberCall: row.payment.kind === "member_call",
+    frozen: row.payment.disputeOpen || (row.payment.monthId !== null && frozenMonths.includes(row.payment.monthId)),
     payment: row.payment,
     callId: row.callId,
     startsAt: row.startsAt,
@@ -156,13 +165,17 @@ export type RefundOutcome = {
   sentCents: number;
   /** What the helper has made of it so far: nothing yet, a take-back in some state, or "nothing can be taken back". */
   takeBack: "not_yet" | "nothing" | { status: string; amountCents: number };
+  /** For a member's call: where its time went. Back into the membership ("free"), or its money to the member's card ("card"). Null for a call paid by card. */
+  memberTime: "free" | "card" | null;
 };
 
 /** What came of one refund request, read back from the record: paid back, on its way, or refused, and what the host then owes. Null when it was never written. */
 export async function refundOutcome(refundId: string): Promise<RefundOutcome | null> {
   const [refund] = await db.select().from(schema.refunds).where(eq(schema.refunds.id, refundId));
   if (!refund) return null;
-  const [payment] = await db.select({ transferStatus: schema.payments.transferStatus, transferCents: schema.payments.transferCents }).from(schema.payments).where(eq(schema.payments.id, refund.paymentId));
+  const [payment] = await db.select({ kind: schema.payments.kind, transferStatus: schema.payments.transferStatus, transferCents: schema.payments.transferCents }).from(schema.payments).where(eq(schema.payments.id, refund.paymentId));
+  // A member's time that went to the card has its own line of what the month owes back, under this give-back's name.
+  const [toCard] = payment?.kind === "member_call" ? await db.select({ id: schema.membershipRefunds.id }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.sourceKey, `giveback:${refund.id}`)) : [];
   const [debt] = await db.select({ status: schema.hostDebts.status, amountCents: schema.hostDebts.amountCents }).from(schema.hostDebts).where(eq(schema.hostDebts.refundId, refund.id));
   return {
     paymentId: refund.paymentId,
@@ -175,6 +188,7 @@ export async function refundOutcome(refundId: string): Promise<RefundOutcome | n
     hostOwesCents: refund.hostOwesCents,
     sentCents: payment?.transferStatus === "sent" ? (payment.transferCents ?? 0) : 0,
     takeBack: debt && debt.status !== "nothing" ? debt : refund.debtLookedAt ? "nothing" : "not_yet",
+    memberTime: payment?.kind === "member_call" ? (toCard ? "card" : "free") : null,
   };
 }
 
@@ -198,8 +212,16 @@ export function refundAnswer(outcome: RefundOutcome | null, as: "founder" | "hos
   }
   // Stripe has said that it failed after all; the app's record still says "given back" until it is undone.
   if (outcome.failedAfterAll) return `The refund of ${amount} failed at Stripe after it had first gone through${outcome.failure ? ` (${outcome.failure})` : ""}: the customer did not get the money. The app is undoing its record of it, which takes a few minutes; nobody owes anything for it.`;
-  if (!outcome.afterCollection) return as === "founder" ? `${amount} was given back to the customer. The host had not collected this share, so nobody owes anything.` : `The refund of ${amount} was sent to the customer.`;
-  const shrank = `${amount} was given back to the customer from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}.`;
+  // A member's call: what was given back is its time. It is in the membership again, or its money is owed to the
+  // member's card (the month's own pay-back sends that, and confirms it to the member).
+  const timeWent = outcome.memberTime === "card" ? "its money is owed to the member's card, and is sent there by itself" : "it is in the member's membership again";
+  if (!outcome.afterCollection) {
+    if (outcome.memberTime) return `${amount} of the member's time was given back: ${timeWent}.${as === "founder" ? " The host had not collected this share, so nobody owes anything." : ""}`;
+    return as === "founder" ? `${amount} was given back to the customer. The host had not collected this share, so nobody owes anything.` : `The refund of ${amount} was sent to the customer.`;
+  }
+  const shrank = outcome.memberTime
+    ? `${amount} of the member's time was given back: ${timeWent}, from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}.`
+    : `${amount} was given back to the customer from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}.`;
   if (outcome.takeBack === "nothing" || outcome.sentCents <= 0 || outcome.hostOwesCents <= 0) return `${shrank} Nothing can be taken back for it: nothing was sent to the host for this share, or nothing is left of what was sent.`;
   // Nothing is promised that is not known yet: earlier refunds may have used up everything that was sent.
   if (outcome.takeBack === "not_yet") return `${shrank} The app now works out whether the host owes anything for it (never more than is left of the ${formatMoney(outcome.sentCents)} that was sent to them), usually within a minute. If they do, they are told, and it is listed under "Money hosts owe back".`;

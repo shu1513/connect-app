@@ -62,7 +62,7 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
         </button>
       </form>
 
-      {where && found.length === 0 && <p className="mt-6 text-sm">No charged call payment was found for that.</p>}
+      {where && found.length === 0 && <p className="mt-6 text-sm">No charged payment of a call was found for that.</p>}
 
       <ul className="mt-6 space-y-6">
         {found.map((one) => {
@@ -79,7 +79,12 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
                   The call
                 </Link>
               </p>
-              {one.payment.disputeOpen ? (
+              {one.memberCall && (
+                <p className="mt-1 opacity-80" data-member-call>
+                  Paid from a membership. What is given back is the call&apos;s time: before the host has collected it goes back into the membership (or to the member&apos;s card, if they can no longer book from that month); after she has collected, its money always goes back to the member&apos;s card.
+                </p>
+              )}
+              {one.frozen ? (
                 <p className="mt-2">The customer&apos;s bank has a question or a dispute on this payment, so it cannot be refunded as well.</p>
               ) : one.refundUnderWay === "accepted" ? (
                 <p className="mt-2">A refund of this payment is on its way: Stripe has accepted it and has not confirmed it yet. Wait for it to finish before another.</p>
@@ -93,11 +98,13 @@ export default async function FounderRefundPage(props: PageProps<"/admin/refund"
                   <input type="hidden" name="payment" value={one.payment.id} />
                   {/* One number for this form as it is shown: pressing twice cannot refund twice. */}
                   <input type="hidden" name="request" value={randomUUID()} />
+                  {/* What this form says below depends on it: if that has changed by the time of the press, nothing is given back. */}
+                  <input type="hidden" name="collected" value={one.collected ? "yes" : "no"} />
                   {one.collected ? (
                     <p className="rounded border border-neutral-400 p-2" data-refund-estimate>
                       <strong>The host has collected this share.</strong> The customer is paid back from Connect&apos;s money.{" "}
                       {estimate.hostOwesCents > 0
-                        ? `If you refund all that is left, the host will owe about ${formatMoney(estimate.hostOwesCents)} (less for a part, and never more than is left of the ${formatMoney(estimate.sentCents)} that was sent to them). If the host then owes something, they are told, with your reason, and can object before anything is taken.`
+                        ? `If you refund all that is left, the host will owe about ${formatMoney(estimate.hostOwesCents)} (a part may come to less, and never more than is left of the ${formatMoney(estimate.sentCents)} that was sent to them). If the host then owes something, they are told, with your reason, and can object before anything is taken.`
                         : estimate.sentCents <= 0
                           ? "Nothing was sent to the host for this share (the charge for collecting used it up), so the host will owe nothing: Connect carries this refund."
                           : one.reductionsCents >= estimate.sentCents

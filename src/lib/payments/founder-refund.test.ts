@@ -6,7 +6,7 @@ vi.mock("@/lib/refunds/emails", () => ({ queueRefundEmail: async () => undefined
 
 import { refundAnswer, refundEstimate, refundReason, type RefundOutcome } from "./founder-refund";
 
-const done: RefundOutcome = { paymentId: "p", amountCents: 500, status: "done", stripeRefundId: "re_1", failure: null, failedAfterAll: false, afterCollection: true, hostOwesCents: 464, sentCents: 1238, takeBack: "not_yet" };
+const done: RefundOutcome = { paymentId: "p", amountCents: 500, status: "done", stripeRefundId: "re_1", failure: null, failedAfterAll: false, afterCollection: true, hostOwesCents: 464, sentCents: 1238, takeBack: "not_yet", memberTime: null };
 
 describe("what the founder is told about a refund (plans/46-part-3-money-owed.md, decision 11)", () => {
   it("says the amount that was written down, never the one a form sent", () => {
@@ -94,5 +94,20 @@ describe("the estimate before the button is pressed", () => {
 
   it("joins the ground and the founder's sentence", () => {
     expect(refundReason("host_absent", "  They never came.  ")).toBe("The host did not join the call. They never came.");
+  });
+});
+
+describe("a member's call on the founder's refund page", () => {
+  const time: RefundOutcome = { ...done, memberTime: "card", takeBack: { status: "told", amountCents: 464 } };
+
+  it("says that time was given back and where its money goes, never that a card was refunded", () => {
+    const said = refundAnswer(time, "founder");
+    expect(said).toContain("$5.00 of the member's time was given back: its money is owed to the member's card, and is sent there by itself, from Connect's money.");
+    expect(said).toContain("The host's share shrank by $4.64. The host owes $4.64 and has been told.");
+    expect(said).not.toContain("was given back to the customer");
+  });
+
+  it("before collection: the time is in the membership again, and nobody owes anything", () => {
+    expect(refundAnswer({ ...time, afterCollection: false, hostOwesCents: 0, memberTime: "free" }, "founder")).toBe("$5.00 of the member's time was given back: it is in the member's membership again. The host had not collected this share, so nobody owes anything.");
   });
 });

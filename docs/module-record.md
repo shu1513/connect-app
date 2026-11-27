@@ -6064,3 +6064,31 @@ connection. The helper taking the money a real day later (the scripts move the c
 describe the old button, and wait for the lawyer's words (`docs/legal/end-call-now-proposed-wording.md`,
 `docs/for-the-lawyer.md` section 25). The app and its helper must be put out together: an older
 helper would charge a call that a customer ended by the minutes.
+
+## A member's time given back by Connect after the host collected (plan 50, part 2, 27 November 2026)
+
+**What it is.** Until now a member call's time could be given back only until the host had
+collected her share of that call; after that nobody could, the founder included. The plan is
+`plans/50-part-2-member-time-owed-back.md`.
+
+**What was built.**
+
+- The founder's refund page (`/admin/refund`) also finds a member's calls. With a ground and
+  a sentence the founder gives time back, before or after the host collected.
+- After collection the money for that time always goes to the member's card, never into the
+  membership again: time that is free again could be booked a second time, and the month's
+  one charge cannot carry the host's share of it twice (Stripe sends no more from a charge
+  than was charged). Before collection nothing changes.
+- The line that `giveTimeBack` writes in `refunds` then carries what a card refund's carries
+  (her share before and after, what it lost, its place). From it the take-back that exists
+  does the rest: notice, 14 days, "I think this is wrong", then a reversal of that call's
+  transfer at Stripe. For a member's call the Host Agreement is proved by the time of the
+  month's charge, and its line "stands" without a refund at Stripe.
+- A form drawn before the host collected and pressed after it gives nothing back. The same
+  press again answers with what the first did. The founder's answer says that it was the
+  member's time and that its money is owed to the member's card.
+
+**Known, and left as it is.** Connect carries the amount until the host's share is back (as
+for a card call). A bank dispute lost on a part of the month while a pay-back of that month
+is on its way can be worked out a little differently than a moment later (so today). The
+phone apps have none of it.
