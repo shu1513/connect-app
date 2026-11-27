@@ -102,6 +102,7 @@ export async function gatherFacts(reader: Reader, dispute: { stage: string; reas
         addedTime: payment.extensionId !== null,
         billing: call.billing,
         chargeReason: payment.chargeReason,
+        endedByCustomerAt: call.endedNowBy === "customer" ? call.safetyEndedAt : null,
         charged: hasTotals ? { hostSeconds: payment.frozenHostSeconds!, customerSeconds: payment.frozenCustomerSeconds!, togetherSeconds: payment.frozenTogetherSeconds! } : null,
         // The same mark is also set on a charge the app cannot explain; that one has no totals, and nothing is said of a changed record.
         recordChanged: payment.flaggedAfterCharge && hasTotals,

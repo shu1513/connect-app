@@ -1,17 +1,12 @@
-import { callForParticipant } from "@/lib/payments/access";
-import { endCallForSafety } from "@/lib/safety/calls";
-import { getUser } from "@/lib/session";
+import { endNowResponse } from "@/lib/call-page/end-now";
 
-/** "End call and report", pressed inside the call by either person. */
+/**
+ * The address the call's red button had while it was "End call and report". It does exactly what
+ * "End call now" does (/api/calls/[id]/end-now), so a call page that was open when the app was
+ * updated still has a button that ends the call. What the press costs comes from the booking's
+ * own words, not from this address: such a page belongs to a booking made under the earlier
+ * words, which is charged by the host's time, and nobody can pay less by sending a press here.
+ */
 export async function POST(_request: Request, ctx: RouteContext<"/api/calls/[id]/end-for-safety">) {
-  const user = await getUser();
-  if (!user) return Response.json({ error: "Please log in." }, { status: 401 });
-  const { id } = await ctx.params;
-  const access = await callForParticipant(id, user.id);
-  if (!access) return Response.json({ error: "Call not found." }, { status: 404 });
-  const state = await endCallForSafety({ call: access.call, by: user.id, now: new Date() });
-  // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already
-  // over needs no ending: the person goes on to the report form as usual.
-  if (state === "not_open_yet") return Response.json({ error: "This call has not started yet." }, { status: 409 });
-  return Response.json({ ok: true });
+  return endNowResponse((await ctx.params).id);
 }

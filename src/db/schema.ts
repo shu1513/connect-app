@@ -648,9 +648,29 @@ export const calls = pgTable(
     roomName: text("room_name").notNull().unique(),
     /** Set once the room has been confirmed empty after closing time. */
     closedAt: timestamp("closed_at", { withTimezone: true }),
-    /** Set when someone pressed "End call and report": the call ended for both at that moment. */
+    /**
+     * Set when one of the two ended the call for both with the call's red button: when, and who (their
+     * account id). Every reader takes this as "the call is over from this moment".
+     */
     safetyEndedAt: timestamp("safety_ended_at", { withTimezone: true }),
     safetyEndedBy: text("safety_ended_by"),
+    /**
+     * The role of the person who pressed "End call now" (plans/51-end-call-now.md): "host", "customer", or
+     * "customer_untold" (the customer pressed, and the rule "you pay for your whole booked time" does not hold
+     * for him: his booking was made under words that did not say it. Such a call is charged by the host's
+     * time, as he was told).
+     * Empty on a call that carries the mark above without it: that one was ended with the earlier button,
+     * "End call and report", and keeps that button's rules (its money waits for the founder's review).
+     */
+    endedNowBy: text("ended_now_by"),
+    /**
+     * The customer's report after his own "End call now" (plans/51, decisions 14 to 16): when it was taken,
+     * and what it did to the charge: "minutes" (lowered to the time the call lasted, and counted by the
+     * guard), "minutes_uncounted" (lowered, not counted) or "whole" (not lowered). Written once, in the
+     * report's own step, and never worked out again.
+     */
+    endReportAt: timestamp("end_report_at", { withTimezone: true }),
+    endReportEffect: text("end_report_effect"),
     /** Price in cents per 15 minutes. Zero means a free call with no payment. */
     pricePer15Cents: integer("price_per_15_cents").notNull().default(0),
     /** What time is paid for: "host" (the host's time in the room, booked calls) or "together" (time both were in, instant calls). Fixed at creation. */
@@ -674,6 +694,12 @@ export const calls = pgTable(
     index("calls_customer_idx").on(t.customerId),
     // The few calls whose room is closed and whose follow has not been decided yet: what the helper asks for each round.
     index("calls_follow_due_idx").on(t.endsAt).where(sql`${t.followCheckedAt} is null and ${t.closedAt} is not null`),
+    check("calls_ended_now_by", sql`${t.endedNowBy} is null or (${t.endedNowBy} in ('host', 'customer', 'customer_untold') and ${t.safetyEndedAt} is not null and ${t.safetyEndedBy} is not null)`),
+    check(
+      "calls_end_report",
+      sql`(${t.endReportEffect} is null and ${t.endReportAt} is null)
+        or (${t.endReportEffect} is not null and ${t.endReportEffect} in ('minutes', 'minutes_uncounted', 'whole') and ${t.endReportAt} is not null and ${t.endedNowBy} is not null and ${t.endedNowBy} = 'customer')`,
+    ),
   ],
 );
 

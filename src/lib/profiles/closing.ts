@@ -125,7 +125,7 @@ async function endCallsOf(userId: string, now: Date, since: Date): Promise<numbe
   let notEnded = 0;
   for (const { call, payment } of open) {
     try {
-      // (A call that was ended with "End call and report" before its start is over already: it cannot be cancelled, and its room is being closed.)
+      // (A call that was ended with "End call now" before its start is over already: it cannot be cancelled, and its room is being closed.)
       // Not started yet: cancelled for free. So is a call that has reached its start since the account was closed or
       // paused, when the helper finishes an interrupted pause a few minutes late, but only if its room was not
       // even open at that moment: then nobody can have been in it with the person, and the other one has only been

@@ -69,7 +69,7 @@ function OneRoom({ id }: { id: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [left, setLeft] = useState(false);
   const [takenOver, setTakenOver] = useState(false);
-  /** "End call and report": the person is out at once, whatever happens next; if it could not be ended for both, that is said, with a way to try again. */
+  /** "End call now": the person is out at once, whatever happens next; if it could not be ended for both, that is said, with a way to try again. */
   const [ending, setEnding] = useState<"no" | "busy" | "failed">("no");
   const [live, setLive] = useState<AppCallLive | null>(null);
   /** The end this screen has asked the server about one last time. The call only ends on the screen once that is done. */
@@ -80,9 +80,9 @@ function OneRoom({ id }: { id: string }) {
   const front = useRef(false);
   /** Which visit to this screen this is. What began in an earlier visit (a question, a wait) is not used in a later one, even if the person is back. */
   const visit = useRef(0);
-  /** "End call and report" is being sent: a second press does not send it twice. */
+  /** "End call now" is being sent: a second press does not send it twice. */
   const endingNow = useRef(false);
-  /** The sentences of "End call and report", kept from the moment it was pressed: they are still needed if the room can no longer be read (a paused account, say). */
+  /** The sentences of "End call now", kept from the moment it was pressed: they are still needed if the room can no longer be read (a paused account, say). */
   const [endWords, setEndWords] = useState<{ ending: string; endFailed: string; tryAgain: string } | null>(null);
   /** The end the server is being asked about one last time (see "When the clock reaches the end" below). */
   const lastCheck = useRef<number | null>(null);
@@ -95,8 +95,8 @@ function OneRoom({ id }: { id: string }) {
     setChecking(value);
   }, []);
   const whereItStands = useRef<() => Promise<void>>(async () => {});
-  /** "End call and report" went through: the report form is opened, now or when the person is back on this screen. */
-  const [toReport, setToReport] = useState(false);
+  /** "End call now" went through: the screen with the three choices (report, block, neither) is opened, now or when the person is back on this screen. */
+  const [toEnded, setToEnded] = useState(false);
   const newest = useRef(0);
   const joiningNow = useRef(false);
   const path = `/api/app/calls/${id}`;
@@ -324,19 +324,19 @@ function OneRoom({ id }: { id: string }) {
     setPass(null);
   }
 
-  async function endAndReport() {
+  async function endNow() {
     if (endingNow.current) return;
     endingNow.current = true;
     if (room) setEndWords({ ending: room.words.ending, endFailed: room.words.endFailed, tryAgain: room.words.tryAgain });
     setEnding("busy");
     // Out of the room at once, on this phone, whatever happens next.
     setPass(null);
-    const answer = await ask<AppEnded>(`${path}/end-and-report`, { body: {} });
+    const answer = await ask<AppEnded>(`${path}/end-now`, { body: {} });
     endingNow.current = false;
     if (answer.ok && isEnded(answer.data)) {
       setEnding("no");
-      // On to the report form: now, or (if the person has gone to another screen meanwhile) when they are back on this one.
-      setToReport(true);
+      // On to the three choices: now, or (if the person has gone to another screen meanwhile) when they are back on this one.
+      setToEnded(true);
     } else if (!answer.ok && answer.code === "not_valid") {
       // "This call has not started yet": nothing to end.
       setEnding("no");
@@ -353,9 +353,9 @@ function OneRoom({ id }: { id: string }) {
   // says which, and leads here again when the room is open.
   const notNow = room !== null && now !== null && !pass && live === null && (!room.ready || now < opensAt);
   useEffect(() => {
-    if (toReport && inFront) router.replace({ pathname: "/report", params: { call: id } });
+    if (toEnded && inFront) router.replace({ pathname: "/ended", params: { call: id } });
     else if (notNow && inFront && ending === "no") toCall();
-  }, [toReport, notNow, inFront, ending, toCall, id]);
+  }, [toEnded, notNow, inFront, ending, toCall, id]);
 
   if (gone) {
     return (
@@ -365,15 +365,15 @@ function OneRoom({ id }: { id: string }) {
       </Page>
     );
   }
-  // "End call and report" comes before everything else, also before a room that can no longer be read (a paused
+  // "End call now" comes before everything else, also before a room that can no longer be read (a paused
   // account can still end its call): until it is known that the call is ended for both, the way to try again must
   // not be hidden by anything.
-  if (inFront && endWords && (ending === "busy" || toReport)) return <Loading words={endWords.ending} />;
+  if (inFront && endWords && (ending === "busy" || toEnded)) return <Loading words={endWords.ending} />;
   if (inFront && endWords && ending === "failed") {
     return (
       <Page>
         <Notice>{endWords.endFailed}</Notice>
-        <Button label={endWords.tryAgain} kind="danger" onPress={() => void endAndReport()} />
+        <Button label={endWords.tryAgain} kind="danger" onPress={() => void endNow()} />
       </Page>
     );
   }
@@ -399,7 +399,8 @@ function OneRoom({ id }: { id: string }) {
     return (
       <Page>
         <Words>{words.ended}</Words>
-        <Button label={words.results} onPress={toCall} />
+        {/* Ended by one of the two with "End call now": on to who ended it and "Report", "Block", "Neither". Otherwise the call's page. */}
+        <Button label={words.results} onPress={live?.safetyEnded && !live.cancelled ? () => router.replace({ pathname: "/ended", params: { call: id } }) : toCall} />
       </Page>
     );
   }
@@ -432,7 +433,7 @@ function OneRoom({ id }: { id: string }) {
   if (pass) {
     return (
       <View style={styles.fill}>
-        <InCall key={pass.token} pass={pass} choices={choices} words={words} clock={line} onLost={lost} onLeave={leave} onEndAndReport={() => void endAndReport()} onProblem={setNotice} />
+        <InCall key={pass.token} pass={pass} choices={choices} words={words} clock={line} onLost={lost} onLeave={leave} early={now < startsAt} onEndNow={() => void endNow()} onProblem={setNotice} />
         {notice ? (
           <View style={styles.over} pointerEvents="box-none">
             <Pressable accessibilityRole="alert" accessibilityLabel={notice} onPress={() => setNotice(null)} style={[styles.overNotice, { backgroundColor: colors.notice, borderColor: colors.noticeLine }]}>

@@ -1,9 +1,11 @@
 /**
  * The sentences of the call room: the check before entering, the clock, the end, a connection
- * that was taken over or lost, and "End call and report". One set for the website's call screen
+ * that was taken over or lost, and "End call now" (its own sentences are in end-words.ts). One set for the website's call screen
  * (src/app/calls/[id]/call-room.tsx) and for the phone app, which is sent them
  * (plans/45-phone-apps/09-the-call.md). Plain words, nothing of the server in them.
  */
+import { END_WORDS } from "./end-words";
+
 export const ROOM_WORDS = {
   check: "Check your camera and microphone, then join.",
   join: "Join call",
@@ -20,10 +22,9 @@ export const ROOM_WORDS = {
   takenOver: "This call is now open in another tab or device.",
   takenOverSmall: "Only one connection per person is allowed, so this one was disconnected.",
   useThisTab: "Use this tab instead",
-  endReport: "End call and report",
-  endReportSure: "End this call for both of you and report what happened?",
-  endReportYes: "Yes, end and report",
-  endReportNo: "No",
+  endNow: END_WORDS.button,
+  endNowYes: END_WORDS.yes,
+  endNowNo: END_WORDS.no,
   ending: "Ending the call…",
   endFailed: "You have left, but the call could not be ended for the other person yet.",
   tryAgain: "Try again",

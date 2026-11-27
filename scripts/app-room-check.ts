@@ -21,8 +21,10 @@ import http from "node:http";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { APP_ORIGIN } from "../src/lib/auth-rules";
 import { APP_HEADER, SIGN_IN_HEADER } from "../src/lib/app-door/rules";
-import type { AppCallLive, AppCallPage, AppPass, AppReportForm, AppReportSent, AppRoom, Refusal } from "../src/lib/app-door/types";
+import type { AppCallLive, AppCallPage, AppEndedScreen, AppPass, AppReportForm, AppReportSent, AppRoom, Refusal } from "../src/lib/app-door/types";
+import { END_WORDS } from "../src/lib/call-page/end-words";
 import { APP_ROOM_WORDS, ROOM_WORDS } from "../src/lib/call-page/room-words";
+import { BLOCK_WORDS } from "../src/lib/safety/block-words";
 import { REPORT_WORDS } from "../src/lib/safety/report-words";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
@@ -218,8 +220,8 @@ async function main() {
       check("it has exactly the parts the app knows, and is not kept on the way", keys(body) === "about,askEverySeconds,countdownSeconds,endsAt,id,opensAt,other,ready,role,serverNow,startsAt,watchSeconds,words" && String(reply.headers["cache-control"]).includes("no-store"), keys(body));
       check("no account id and no email address travels", !reply.text.includes(host.id) && !reply.text.includes(cust.id) && !reply.text.includes("@example.test"));
       const words = (body?.words ?? {}) as Record<string, string>;
-      check("every sentence came, and none is empty", Object.keys(words).length === 42 && Object.values(words).every((said) => typeof said === "string" && said.trim() !== ""), String(Object.keys(words).length));
-      check("the sentences are the website's own where the website has them", words.check === ROOM_WORDS.check && words.join === ROOM_WORDS.join && words.ended === ROOM_WORDS.ended && words.disconnected === ROOM_WORDS.disconnected && words.endReport === ROOM_WORDS.endReport && words.endReportSure === ROOM_WORDS.endReportSure && words.endFailed === ROOM_WORDS.endFailed && words.timeLeft === ROOM_WORDS.timeLeft);
+      check("every sentence came, and none is empty", Object.keys(words).length === 43 && Object.values(words).every((said) => typeof said === "string" && said.trim() !== ""), String(Object.keys(words).length));
+      check("the sentences are the website's own where the website has them", words.check === ROOM_WORDS.check && words.join === ROOM_WORDS.join && words.ended === ROOM_WORDS.ended && words.disconnected === ROOM_WORDS.disconnected && words.endNow === ROOM_WORDS.endNow && words.endNowYes === ROOM_WORDS.endNowYes && words.endNowSure === END_WORDS.sure("free") && Object.keys(words).length === 43 && words.endFailed === ROOM_WORDS.endFailed && words.timeLeft === ROOM_WORDS.timeLeft);
       check("and the app's own name the other person as this person knows them", words.notJoined === APP_ROOM_WORDS.notJoined(hostName) && words.left === APP_ROOM_WORDS.left(hostName) && words.cameraWhy === APP_ROOM_WORDS.cameraWhy(hostName) && words.useThisPhone === APP_ROOM_WORDS.useThisPhone);
       check("when to ask where the call stands comes from the server", body?.watchSeconds === 120 && body.askEverySeconds === 2 && body.countdownSeconds === 60);
       const forHost = (await room(open.call.id, host.jar)).body;
@@ -298,40 +300,58 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
-    console.log("\n4. End call and report");
+    console.log("\n4. End call now");
     const second = await newCall(host.id, cust.id, { startsIn: 2 });
     {
       const id = open.call.id;
-      check("nobody signed in, a stranger and a browser cannot end a call", refusal(await step(id, "end-and-report")) === "not_signed_in" && refusal(await step(id, "end-and-report", stranger.jar)) === "not_found" && refusal(await asBrowser(`/api/app/calls/${id}/end-and-report`, { jar: cust.jar, body: {} })) === "not_the_app" && (await callRow(id)).safetyEndedAt === null);
-      check("a call whose room is not open yet cannot be ended this way (it can be cancelled)", sentence(await step(ahead.call.id, "end-and-report", cust.jar)) === "This call has not started yet." && (await callRow(ahead.call.id)).safetyEndedAt === null);
+      check("nobody signed in, a stranger and a browser cannot end a call", refusal(await step(id, "end-now")) === "not_signed_in" && refusal(await step(id, "end-now", stranger.jar)) === "not_found" && refusal(await asBrowser(`/api/app/calls/${id}/end-now`, { jar: cust.jar, body: {} })) === "not_the_app" && (await callRow(id)).safetyEndedAt === null);
+      check("a call whose room is not open yet cannot be ended this way (it can be cancelled)", sentence(await step(ahead.call.id, "end-now", cust.jar)) === "This call has not started yet." && (await callRow(ahead.call.id)).safetyEndedAt === null);
       // The founder raises the oldest copy of the app still allowed while a call is under way: entering then asks
-      // for an update, but "End call and report" is still answered, in its own words (here: for a call whose room
+      // for an update, but "End call now" is still answered, in its own words (here: for a call whose room
       // has not opened, so nothing is ended by asking).
       const floorBefore = (await switches()).appOldestVersion;
       const raised = ["", ""];
       try {
         await setSwitches({ appOldestVersion: "9000.0.0" });
         raised[0] = refusal(await step(ahead.call.id, "enter", cust.jar)) ?? "";
-        raised[1] = sentence(await step(ahead.call.id, "end-and-report", cust.jar)) ?? "";
+        raised[1] = sentence(await step(ahead.call.id, "end-now", cust.jar)) ?? "";
       } finally {
         await setSwitches({ appOldestVersion: floorBefore });
       }
-      check("with the oldest allowed copy raised, entering asks for an update, but 'End call and report' is still answered", raised[0] === "update_needed" && raised[1] === "This call has not started yet.", raised.join(" | "));
-      const ended = await step(id, "end-and-report", cust.jar);
+      check("with the oldest allowed copy raised, entering asks for an update, but 'End call now' is still answered", raised[0] === "update_needed" && raised[1] === "This call has not started yet.", raised.join(" | "));
+      const ended = await step(id, "end-now", cust.jar);
       const row = await callRow(id);
-      check("the customer ends the call for both: it is stopped, and by whom is written down", ended.status === 200 && keys(ended.json) === "ended" && (ended.json as { ended?: boolean }).ended === true && row.safetyEndedAt !== null && row.safetyEndedBy === cust.id && row.cancelledAt === null, `${ended.status} ${ended.text.slice(0, 120)}`);
+      check("the customer ends the call for both: it is ended, and by whom and in which role is written down", ended.status === 200 && keys(ended.json) === "closed,ended" && (ended.json as { ended?: boolean }).ended === true && (ended.json as { closed?: boolean }).closed === true && row.safetyEndedAt !== null && row.safetyEndedBy === cust.id && (row.endedNowBy ?? "").startsWith("customer") && row.cancelledAt === null, `${ended.status} ${ended.text.slice(0, 120)}`);
       check("'ended' was only answered with proof: the room is written down as closed", (await callRow(id)).closedAt !== null);
       check("nobody can enter it again, and both are told it has ended", sentence(await step(id, "enter", cust.jar)) === "This call has ended." && sentence(await step(id, "enter", host.jar)) === "This call has ended." && ((await live(id, host.jar)).json as AppCallLive).safetyEnded === true && (await room(id, host.jar)).body?.ready === false);
-      check("pressed again (the first answer was lost, say), it still answers that the call is ended", (await step(id, "end-and-report", cust.jar)).status === 200 && (await callRow(id)).safetyEndedBy === cust.id);
+      check("pressed again (the first answer was lost, say), or by the other person, it still answers that the call is ended, and whose press it was stays", (await step(id, "end-now", cust.jar)).status === 200 && (await step(id, "end-now", host.jar)).status === 200 && (await callRow(id)).safetyEndedBy === cust.id);
+      check("the step's earlier name is gone (no copy of the app was ever given out with it)", refusal(await step(id, "end-and-report", cust.jar)) === "not_found");
+      // The screen after it: who ended the call, and the three choices, in the website's words. No account id travels.
+      const screenReply = await asApp(`/api/app/calls/${id}/ended`, { jar: cust.jar });
+      const screen = screenReply.json as AppEndedScreen | null;
+      check("the screen after it: who ended the call, and the three choices with what each does", screenReply.status === 200 && keys(screen) === "block,lines,neither,report,title,what" && screen?.title === END_WORDS.title && screen.lines[0] === END_WORDS.byYou(true) && screen.report.label === REPORT_WORDS.reportPerson(hostName) && screen.report.what === END_WORDS.reportWhat(hostName) && screen.block.label === BLOCK_WORDS.label(hostName) && screen.block.what === END_WORDS.blockWhat(hostName) && screen.block.done === false && keys(screen.block) === "done,doneWords,label,no,sure,what,yes" && screen.neither.label === END_WORDS.neither, screenReply.text.slice(0, 200));
+      check("it carries no account id and is not kept on the way", !screenReply.text.includes(host.id) && !screenReply.text.includes(cust.id) && String(screenReply.headers["cache-control"]).includes("no-store"));
+      const hostScreen = (await asApp(`/api/app/calls/${id}/ended`, { jar: host.jar })).json as AppEndedScreen | null;
+      check("the host reads who ended it, by the customer's name", hostScreen?.lines[0] === END_WORDS.byOther(cust.name, true) && hostScreen.block.label === BLOCK_WORDS.label(cust.name));
+      check("nobody signed in, a stranger and a browser get no such screen; nor is there one for a call that has not ended", refusal(await asApp(`/api/app/calls/${id}/ended`)) === "not_signed_in" && refusal(await asApp(`/api/app/calls/${id}/ended`, { jar: stranger.jar })) === "not_found" && refusal(await asBrowser(`/api/app/calls/${id}/ended`, { jar: cust.jar })) === "not_the_app" && refusal(await asApp(`/api/app/calls/${ahead.call.id}/ended`, { jar: cust.jar })) === "not_found");
       // The website's own button on another call, by the host: the same end.
-      const web = await asBrowser(`/api/calls/${second.call.id}/end-for-safety`, { jar: host.jar, body: {} });
-      check("the website's own button does the same to a call", web.status === 200 && (await callRow(second.call.id)).safetyEndedBy === host.id && ((await live(second.call.id, cust.jar)).json as AppCallLive).safetyEnded === true);
+      const web = await asBrowser(`/api/calls/${second.call.id}/end-now`, { jar: host.jar, body: {} });
+      check("the website's own button does the same to a call", web.status === 200 && (await callRow(second.call.id)).safetyEndedBy === host.id && (await callRow(second.call.id)).endedNowBy === "host" && ((await live(second.call.id, cust.jar)).json as AppCallLive).safetyEnded === true);
       // A paused person can still end a call they are in.
       const third = await newCall(host.id, cust.id, { startsIn: 2 });
       await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cust.id));
-      const byPaused = await step(third.call.id, "end-and-report", cust.jar);
+      const byPaused = await step(third.call.id, "end-now", cust.jar);
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
       check("a paused person can still end a call they are in", byPaused.status === 200 && (await callRow(third.call.id)).safetyEndedBy === cust.id);
+      // "Block" from the screen after the press names only the call. (Last here: it cancels the calls of the two that are still to come.)
+      check("a stranger cannot block through a call that is not theirs", refusal(await step(id, "block", stranger.jar)) === "not_found" && refusal(await step(id, "block")) === "not_signed_in");
+      const blocked = await step(id, "block", cust.jar);
+      const [blockRow] = await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, cust.id), eq(schema.blocks.blockedId, host.id)));
+      check('"Block" blocks the other person of that call, cancels their call that is still to come, and says so', blocked.status === 200 && keys(blocked.json) === "notice" && (blocked.json as { notice?: string }).notice === BLOCK_WORDS.done && Boolean(blockRow) && (await callRow(ahead.call.id)).cancelledAt !== null, `${blocked.status} ${blocked.text.slice(0, 120)}`);
+      const afterBlock = ((await asApp(`/api/app/calls/${id}/ended`, { jar: cust.jar })).json as AppEndedScreen).block;
+      check("the screen then says only that the block stands, and keeps a button to block again", afterBlock.done === true && afterBlock.doneWords === END_WORDS.blocked(hostName) && afterBlock.label === END_WORDS.blockAgain(hostName) && afterBlock.what === END_WORDS.blockAgainWhat(hostName) && !/are cancelled|have ended/.test(`${afterBlock.doneWords} ${afterBlock.what} ${afterBlock.sure}`));
+      // Taken away again: the rest of this script needs the two unblocked. (The calls the block cancelled stay cancelled.)
+      await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, cust.id), eq(schema.blocks.blockedId, host.id)));
     }
 
     // ----------------------------------------------------------------------
@@ -346,7 +366,7 @@ async function main() {
       check("nobody signed in and a browser get no form", refusal((await form(`call=${open.call.id}`)).reply) === "not_signed_in" && refusal(await asBrowser(`/api/app/report?call=${open.call.id}`, { jar: cust.jar })) === "not_the_app");
       check("the form, in the website's words, with the website's reasons", reply.status === 200 && body?.title === REPORT_WORDS.title && body.words === REPORT_WORDS.aboutPerson && body.what === REPORT_WORDS.what && body.more === REPORT_WORDS.more && body.send === REPORT_WORDS.send && body.danger === REPORT_WORDS.danger && body.textMax === 2000 && JSON.stringify(body.reasons) === JSON.stringify(REPORT_REASONS.map((reason) => ({ key: reason.key, label: reason.label }))), reply.text.slice(0, 160));
       check("it has exactly the parts the app knows, and is not kept on the way", keys(body) === "choose,danger,more,reasons,rules,send,stopped,textMax,title,what,words" && keys(body?.rules) === "after,before,link" && String(reply.headers["cache-control"]).includes("no-store"), keys(body));
-      check("after 'End call and report' it says the call was ended for both; for any other call it does not", body?.stopped === REPORT_WORDS.stopped && (await form(`call=${ahead.call.id}`, cust.jar)).body?.stopped === null && (await form(`call=${open.call.id}`, stranger.jar)).body?.stopped === null);
+      check("after 'End call now' it says the call was ended for both; for any other call it does not", body?.stopped === REPORT_WORDS.stopped && (await form(`call=${ahead.call.id}`, cust.jar)).body?.stopped === null && (await form(`call=${open.call.id}`, stranger.jar)).body?.stopped === null);
       // A call marked as stopped whose room is not confirmed closed yet: the form does not say "has been ended for both".
       const unproven = await newCall(host.id, cust.id, { startsIn: 2 });
       await db.update(schema.calls).set({ safetyEndedAt: new Date(), safetyEndedBy: cust.id }).where(eq(schema.calls.id, unproven.call.id));

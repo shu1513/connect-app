@@ -34,17 +34,17 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
 > - **In a message:** press "Report" beside the message and send the form that opens. The other
 >   person is then blocked, and we keep a copy of that part of the conversation to look at.
 
-**And a correction that has nothing to do with messages** (plan 49, "Found on the way"). The line
-about a call says today: "The call ends for both of you, the other person is blocked, and the
-money for the call waits for our review." The app blocks only when the report form that follows
-is sent. Until the app is changed, the true sentence is:
+**The line about a call** said, when this was written: "The call ends for both of you, the other
+person is blocked, and the money for the call waits for our review", and the app of that day
+blocked only when the report form after the press was sent (plan 49, "Found on the way"). That
+button is gone. Since plan 51 (26 November 2026) the button is "End call now": it ends the call,
+and the next screen offers "Report", "Block" and "Neither". The sentence for the Community Rules,
+and the matching ones for the Terms of Service, the Payment Terms and the Host Agreement, are in
+`docs/legal/end-call-now-proposed-wording.md`. In short:
 
-> - **On a call:** press **"End call and report"**. The call ends for both of you, and the money
->   for the call waits for our review. When you send the report form that follows, the other
->   person is blocked.
-
-The Terms of Service make the same promise in their section on ending a call, and need the same
-correction.
+> - **On a call:** press **"End call now"**. The call ends for both of you at once, and nobody
+>   can come back in. The next screen lets you report the other person, block them, or do
+>   neither. Reporting someone also blocks them.
 
 ## 2. Terms of Service
 

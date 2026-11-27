@@ -238,10 +238,9 @@ a lawyer's read before Connect opens to real people. The research behind them is
   EU customer can write?
 - **A child.** What must Connect do when it learns that a person who wrote messages is under 18,
   or under 13? (Section 2 asks the same for calls.)
-- **"End call and report".** The draft Community Rules and the draft Terms say that pressing it
-  ends the call and blocks the other person. The app blocks only when the report form that
-  follows is sent. Until the app is changed, should the documents say what the app does? The
-  corrected sentence is in the proposed wording.
+- **"End call and report".** Answered by plan 51 (26 November 2026): the button is now "End call
+  now", which ends the call and then offers "Report", "Block" and "Neither". The draft documents
+  still describe the old button until their new versions are in. See section 25.
 
 ## 9. The company and the founder (new, legal review of 20 November 2026)
 
@@ -809,3 +808,72 @@ top; she never owes that fee, only what she got.
   enough where the refund was owed by law?
 - Stripe keeps its own card fee when a payment is refunded. Connect carries that today, for
   every refund. May it be put on the host where the refund was her own decision?
+
+## 25. "End call now": who pays what when a call is ended, and reports that lower a charge (new, plan 51, 26 November 2026)
+
+What was built is in `plans/51-end-call-now.md`; proposed sentences for the four documents are in
+`docs/legal/end-call-now-proposed-wording.md`. The founder's decisions: one button, "End call
+now"; then "Report", "Block" or "Neither"; the host ends a booked call and the customer pays for
+her minutes; the customer ends it and pays for his whole booked time; the customer ends it and
+reports the host and pays only for the minutes; no person at Connect decides any of it. The
+guard against repeated reports is the builder's choice, which the founder asked for.
+
+- **The documents are behind the app.** The draft Terms (7.5), Payment Terms (8), Community Rules
+  and Host Agreement (8.3) still say "End call and report" and "the money waits for our review".
+  All four are drafts, marked "not in force yet". Is it acceptable to run the app like this until
+  the new versions go in together with the other waiting changes, or must these four passages be
+  corrected first?
+- **Charging the whole booking when the customer ends the call.** He is charged for time that did
+  not take place (the rest of the booking), because he ended a call the host had set time aside
+  for. He is told three times: when he books ("If you end the call yourself with 'End call now',
+  you pay for your whole booked time: the time the host was in the call, and the rest of your
+  booking", part of the words he ticks, version "2026-11-d"), on the confirm-and-pay step, and in
+  the question before the press ("Your whole booked time is still charged"), which he confirms.
+  A booking made under the earlier words is never charged this way. Is that enough for the
+  charge to stand: under US consumer law, under the card networks' rules for a dispute ("service
+  not received"), and for a customer in the UK or EU (where an unfair term, or a charge that is
+  not a real estimate of the host's loss, can fail)?
+- **The same rule before the booked start.** A press in the five minutes before the start is
+  charged as his cancelling at that moment would be (free, or the whole booking, by the host's
+  cancelling rule). Is that the right reading, and do the documents need to say it?
+- **Lowering a host's pay on a report nobody examines.** When the customer who ended the call
+  reports the host before the money is taken, he is charged only for the minutes, automatically.
+  The host is paid less because of an accusation that no person has read, is not told that she
+  was reported, and has no step in the app to answer it. Calls are not recorded, so there is
+  nothing to examine. What must the Host Agreement say for this to hold (the proposed wording
+  says it plainly, and that the most it can cost her is the difference between the whole booking
+  and the time she gave)? Does she need a way to object, and an answer within a stated time? Does
+  the UK or EU platform-to-business law ask for a statement of reasons here?
+- **Telling the customer that a report lowers the charge.** The screen after the press says: "If
+  you report [name], this call is charged only for the time it lasted." It is said openly so that
+  a person who was really treated badly does not believe they must pay for the whole booking. It
+  also tells a dishonest customer how to pay less. Does saying it create any liability toward
+  hosts, and is "a report must be true" in the Community Rules enough of an answer?
+- **Treating a customer differently after several reports.** After 3 reports among his last 5
+  booked calls that each changed a call from "the whole booking" to "the minutes", a further
+  report does not lower the charge. His report is still read and the block still stands. He is
+  told at once, by a message and an email, in words that accuse nobody. Is this a fair term?
+  Must the Payment Terms state the numbers (the proposed wording does)? Is it "automated
+  decision-making" with a legal or similarly significant effect for a customer in the UK or EU,
+  so that he must be able to ask for a person to look at it? Could it be said to punish
+  reporting, which the law protects in some places (for example a report about a child, or about
+  harassment)? A report about "someone under 18" is treated like any other for the money: should
+  it be?
+- **A report that does not count.** A report about a host whom another person has also reported,
+  from a call with her that took place, is not counted against the customer. That uses other
+  people's reports about her, unexamined, to decide how he is treated later. It never changes
+  what he pays for that call or what he is shown, so he learns nothing about those reports. Any
+  problem?
+- **What Connect now keeps.** On each call: who ended it, and for a customer's report after his
+  own press, when it was made and what it did to the charge. The privacy policy and the retention
+  schedule do not mention these. How long may they be kept, and must they be named?
+- **The message to the founder.** "[Name] has ended a call and then reported the host 3 times
+  among their last 5 calls." It is about a person, on the strength of reports nobody examined.
+  Anything to watch in how it is worded or kept?
+- **Bank disputes.** For a whole-booking charge the app's answer to the bank says that the
+  customer ended the call with "End call now" after the app told him the whole booked time would
+  still be charged, and that he confirmed. It claims nothing about the terms. Is that the right
+  thing to send, and should it cite the Payment Terms once they say so?
+- **A call ended with the old button** keeps its place on the founder's review list (the builder
+  knows of none outside test data). Nothing to do unless such calls exist when the app goes live.
+

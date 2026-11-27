@@ -6,6 +6,7 @@ import { DisconnectReason } from "livekit-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { END_WORDS, endCostFor } from "@/lib/call-page/end-words";
 import { ROOM_WORDS } from "@/lib/call-page/room-words";
 import { CLOSE_LATE_SECONDS } from "@/lib/calls";
 import { ACCEPT_CLOSES_SECONDS, ASK_CLOSES_SECONDS, ASK_OPENS_SECONDS, choicesThatFit, COUNTDOWN_SECONDS, extensionPriceCents, MAX_EXTENSION_MINUTES, MIN_EXTENSION_MINUTES, WATCH_SECONDS } from "@/lib/extend/rules";
@@ -27,6 +28,10 @@ type Props = {
   otherName: string;
   /** Zero for a free call. */
   pricePer15Cents: number;
+  /** What the call charges: the host's time ("host", a booked call) or the time both were in ("together", an "available now" call). */
+  billing: string;
+  /** This call's booking was made under words that say "End call now" costs a customer his whole booked time. The button's question follows it, and so does the charge. */
+  wholeBookingSaid: boolean;
   /**
    * Shown only while this person waits to join: before the room opens, and in the camera check.
    * For a host it is their private note about the customer (plans/32). It is never drawn next to
@@ -127,27 +132,27 @@ function AddTime(props: { fits: number; pricePer15Cents: number; membershipCover
 }
 
 /**
- * "End call and report": ends the call for both people at once, so nobody
- * can come back in, then goes to the report form. Time after this moment is
- * not counted, and the payment goes to the founder's review list.
+ * "End call now": ends the call for both people at once, so nobody can come back in, then goes to
+ * the screen with the three choices ("Report", "Block", "Neither"). Time after this moment is not
+ * counted. The question before it says what the press costs the person who presses.
  */
-function EndForSafety({ onEnd }: { onEnd: () => void }) {
+function EndNow({ sure, onEnd }: { sure: string; onEnd: () => void }) {
   const [asking, setAsking] = useState(false);
   if (!asking) {
     return (
       <button type="button" onClick={() => setAsking(true)} className="rounded border border-red-600 px-3 py-1.5 text-sm text-red-600">
-        {ROOM_WORDS.endReport}
+        {ROOM_WORDS.endNow}
       </button>
     );
   }
   return (
-    <span className="flex items-center gap-2 text-sm">
-      <span>{ROOM_WORDS.endReportSure}</span>
+    <span className="flex flex-wrap items-center gap-2 text-sm" role="alertdialog" aria-label={ROOM_WORDS.endNow}>
+      <span>{sure}</span>
       <button type="button" onClick={onEnd} className="rounded bg-red-600 px-3 py-1.5 font-medium text-white">
-        {ROOM_WORDS.endReportYes}
+        {ROOM_WORDS.endNowYes}
       </button>
       <button type="button" onClick={() => setAsking(false)} className="underline underline-offset-2">
-        {ROOM_WORDS.endReportNo}
+        {ROOM_WORDS.endNowNo}
       </button>
     </span>
   );
@@ -216,18 +221,21 @@ export function CallRoom(props: Props) {
   const [joining, setJoining] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [takenOver, setTakenOver] = useState(false);
-  // "End call and report": this person leaves at once, whatever happens next. Kept here, not inside the
+  /** The connection dropped without this person leaving, and the server is being asked where the call stands. */
+  const [askingAfterDrop, setAskingAfterDrop] = useState(false);
+  // "End call now": this person leaves at once, whatever happens next. Kept here, not inside the
   // call screen, so that if the call could not be ended for the other person, that is still shown (with
   // a way to try again) after this person is out of the room.
   const router = useRouter();
   const [ending, setEnding] = useState<"no" | "busy" | "failed">("no");
-  async function endForSafety() {
+  async function endNow() {
     setEnding("busy");
     setConnection(null);
-    const ok = await fetch(`/api/calls/${props.callId}/end-for-safety`, { method: "POST" })
+    const ok = await fetch(`/api/calls/${props.callId}/end-now`, { method: "POST" })
       .then((r) => r.ok)
       .catch(() => false);
-    if (ok) router.push(`/report?call=${props.callId}`);
+    // On to the three choices. That page says who really ended the call, from what the server wrote down.
+    if (ok) router.push(`/calls/${props.callId}/ended`);
     else setEnding("failed");
   }
 
@@ -382,13 +390,26 @@ export function CallRoom(props: Props) {
       setTakenOver(true);
     } else if (reason !== DisconnectReason.CLIENT_INITIATED) {
       setNotice(ROOM_WORDS.disconnected);
+      // The other person may have ended the call for both ("End call now"), or it may have been cancelled: the
+      // server is asked at once, and until it has answered nothing is offered (not "join again"). If it says the
+      // call has ended, this screen says so; if it cannot be reached for half a minute, the camera check comes back.
+      setAskingAfterDrop(true);
+      const settle = async () => {
+        // A server that cannot be reached is asked again for half a minute before the camera check is offered once more.
+        const giveUpAt = Date.now() + 30_000;
+        while (!(await refresh()) && Date.now() < giveUpAt) await new Promise((resolve) => setTimeout(resolve, 1_500));
+        setAskingAfterDrop(false);
+      };
+      void settle();
     }
   }
 
   if (now === null) return <p className="mt-10 opacity-70">Loading…</p>;
 
+  // After "End call now" (by either person) the way on is the screen that says who ended it and offers "Report",
+  // "Block" and "Neither"; after a call that simply ran out or was cancelled, its results.
   const resultsLink = (
-    <Link href={`/calls/${props.callId}/results`} className="underline underline-offset-2">
+    <Link href={live?.safetyEnded && !live.cancelled ? `/calls/${props.callId}/ended` : `/calls/${props.callId}/results`} className="underline underline-offset-2">
       {ROOM_WORDS.results}
     </Link>
   );
@@ -406,6 +427,7 @@ export function CallRoom(props: Props) {
   // The clock has reached the end and the server is being asked one last time. Someone who is in the
   // call stays in it for that moment; anyone else just waits for the answer.
   if (now >= closesAt && !connection) return <p className="mt-10 opacity-70">{ROOM_WORDS.oneMoment}</p>;
+  if (askingAfterDrop && !connection) return <p className="mt-10 opacity-70">{ROOM_WORDS.oneMoment}</p>;
 
   if (now < opensAt) {
     return (
@@ -505,7 +527,7 @@ export function CallRoom(props: Props) {
         ) : (
           <p role="alert" className="text-red-600">
             {ROOM_WORDS.endFailed}{" "}
-            <button type="button" onClick={endForSafety} className="ml-2 rounded border border-red-600 px-3 py-1.5 text-sm">
+            <button type="button" onClick={endNow} className="ml-2 rounded border border-red-600 px-3 py-1.5 text-sm">
               {ROOM_WORDS.tryAgain}
             </button>
           </p>
@@ -535,7 +557,7 @@ export function CallRoom(props: Props) {
     <section className="mt-4 flex flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {clockLine}
-        <EndForSafety onEnd={endForSafety} />
+        <EndNow sure={END_WORDS.sure(endCostFor({ role: props.role, billing: props.billing, pricePer15Cents: props.pricePer15Cents, wholeBookingSaid: props.wholeBookingSaid, beforeStart: now < startsAt }))} onEnd={endNow} />
       </div>
       {addTimePanel}
       <div className="mt-3 h-[72vh] min-h-[320px] overflow-hidden rounded" data-lk-theme="default">

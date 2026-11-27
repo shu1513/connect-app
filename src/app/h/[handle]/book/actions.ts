@@ -71,7 +71,7 @@ export async function bookMember(formData: FormData) {
       startsAt: new Date(start),
       lengthMinutes: length,
       requestKey: String(formData.get("requestKey") ?? ""),
-      seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")) },
+      seen: { pricePer15Cents: Number(formData.get("seenPrice")), freeCancelMinutes: Number(formData.get("seenFreeCancel")), wordsVersion: typeof formData.get("wordsVersion") === "string" ? String(formData.get("wordsVersion")) : undefined },
       now: new Date(),
     });
     const page = `/bookings/${result.booking.id}`;

@@ -22,7 +22,10 @@ export function isCallPage(data: unknown): data is AppCallPage {
   if (!isMoment(data.startsAt) || !isMoment(data.endsAt) || !isText(data.paidHow) || !isMoment(data.serverNow) || !isText(data.state) || !STATES.includes(data.state)) return false;
   if (!(data.words === null || isSentence(data.words)) || !isTextOrNull(data.small) || !isTextOrNull(data.notice)) return false;
   if (!(data.refreshSeconds === null || (typeof data.refreshSeconds === "number" && data.refreshSeconds > 0))) return false;
-  const { pay, room, about, cancel } = data;
+  const { pay, room, about, cancel, afterEnd } = data;
+  // The way to "Report", "Block" and "Neither" comes with a call that is over, and with no other.
+  if (afterEnd !== null && !(isThing(afterEnd) && isText(afterEnd.label) && afterEnd.label !== "")) return false;
+  if (afterEnd !== null && data.state !== "ended") return false;
   if (pay !== null && !(isThing(pay) && isText(pay.title) && Array.isArray(pay.points) && pay.points.every(isSentence) && isText(pay.button) && isText(pay.givenUp) && isText(pay.notHeld) && isText(pay.notConfirmed) && isText(pay.checkAgain))) return false;
   // The confirm-and-pay step comes with the state "pay" and with no other; the room with "room" and with no other.
   if ((data.state === "pay") !== (pay !== null)) return false;

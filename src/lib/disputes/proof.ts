@@ -45,8 +45,10 @@ export type CallFacts = {
   addedTime: boolean;
   /** What is paid for: the host's time in the room ("host") or the time both were in it ("together"). */
   billing: string;
-  /** attendance, late_cancel or admin. */
+  /** attendance, customer_ended, late_cancel or admin. */
   chargeReason: string | null;
+  /** When the customer ended the call with "End call now" (plans/51-end-call-now.md). Null when the customer did not. */
+  endedByCustomerAt: Date | null;
   /** The seconds the charge was worked out from, as they were at that moment. Null when the app has no such record of this charge: then no rule is given as its explanation. */
   charged: { hostSeconds: number; customerSeconds: number; togetherSeconds: number } | null;
   /** The call's record was changed by a late message after the money was taken (and the amount was worked out from the record before it). */
@@ -165,6 +167,16 @@ function callSentences(facts: ProofFacts, call: CallFacts): { what: string; serv
       rule: `The cancelling rule was shown on the booking page before the customer booked, and fixed on the booking: ${rule}`,
       rebuttal: call.cancelledAt ? `The customer cancelled at ${at(call.cancelledAt)}, after the free time had ended, for a call starting at ${at(call.startsAt)}.` : "The customer cancelled after the free time had ended.",
     };
+  } else if (call.chargeReason === "customer_ended") {
+    // The customer ended the call with "End call now", and the charge includes the rest of the booked time. It is
+    // never explained as "only time that took place": what is said is what happened and what the app asked first.
+    const before = call.charged ? call.charged.hostSeconds : null;
+    service =
+      `The customer ended this call before its booked end${call.endedByCustomerAt ? `, at ${at(call.endedByCustomerAt)}` : ""}, with the "End call now" button of the call. ` +
+      `The words the customer agreed to when booking say that a customer who ends the call with that button pays for the whole booked time, and the app's question before the button ends a call says what ending it costs. ` +
+      `The charge is for the time the host was in the call before that moment${before !== null ? ` (${minutes(before)} of the time this payment is for)` : ""} and for the rest of the booked time, which the host had set aside for this customer. ${money(facts.chargedCents)} was charged under that rule. ` +
+      `The video service's record of the call:\n${activity(call.visits)}` +
+      (call.recordChanged ? "\nA later message from the video service changed this record after the money was taken. The record above is as it stands now; the amount charged was worked out from the record as it stood at that time." : "");
   } else if (call.chargeReason === "admin") {
     service =
       `Nothing was charged automatically for this call: it was held for a review by Connect. Connect looked at the record and set the charge at ${money(facts.chargedCents)}. The video service's record of the call:\n${activity(call.visits)}`;

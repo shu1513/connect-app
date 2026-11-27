@@ -216,18 +216,24 @@ Three plain terms, each about *this host and this customer, in these roles*:
 20. **A block closes both conversations between the two, at once. (both studies)** The blocker
     still sees them, closed, with "You blocked this person". Lifting the block lets the rules
     above apply again.
-21. **After "End call and report" the two are strangers again, for messages. (builder, from
-    Astra's checks)** The press ends the call, but the block only comes when the form after it
-    is sent, and a person can leave that form. So for messages the press, once it is recorded
-    on the call, is enough: from then on a call counts, in either conversation between the two,
-    only if the customer began asking for it after the press (its very first step, before the
-    card) and the host said yes to it. A member's booking does not count for this, because it
-    needs no yes from the host. Neither does a request that was already waiting, or already
-    begun, at the press. So nobody can write until both have acted again. Until then the
-    conversation only says that it is closed, without the "Book a call to write" button. (A pair
-    who had another call booked before the press lose the messages around that call. That is
-    the price of a rule this simple.) "End call and report" itself is not changed
-    by this plan (see "Found on the way").
+21. **A call ended with "End call now" closes nothing; only the old "End call and report" still
+    cuts the two off. (rewritten on 26 November 2026 by plan 51, on the founder's decision)**
+    The founder redesigned the button (`plans/51-end-call-now.md`): "End call now" ends the call,
+    and the next screen offers "Report", "Block" and "Neither". A plain end, with no report and no
+    block, must not close the messages between the two. So a call ended that way counts for
+    messages like any other call that was not cancelled: around it both can write, and if both
+    joined they have talked. A block or a report closes the conversation by itself (decision 20).
+
+    *What stays of the old rule:* a call that was ended with the earlier button, "End call and
+    report" (the mark on the call without `endedNowBy`), still makes the two strangers again for
+    messages. That press ended the call, but the block only came when the form after it was sent,
+    and a person could leave that form. For such a call the old cut holds: from then on a call
+    counts, in either conversation between the two, only if the customer began asking for it
+    after the press (its very first step, before the card) and the host said yes to it. A
+    member's booking does not count for this, because it needs no yes from the host. Neither does
+    a request that was already waiting, or already begun, at the press. Until then the
+    conversation only says that it is closed, without the "Book a call to write" button. The app
+    writes no such call any more.
 22. **A report can be made from a message. (both studies)** Beside each message of the other
     person there is "Report". It uses the form and the reasons that exist, and blocks, as
     everywhere else. It works while messaging is switched off and for a paused person. If the
@@ -455,14 +461,14 @@ Part 2:
 ## Found on the way
 
 The Community Rules say of "End call and report": "The call ends for both of you, the other
-person is blocked". The code blocks only when the form after the press is sent
-(`src/lib/safety/calls.ts`, `src/lib/safety/reports.ts`). Someone who presses and then closes the
-form has ended the call and blocked nobody. The Terms of Service make the same promise. This
-plan does not change that: making the press itself block touches the money of other calls,
-memberships and the phone app's screen, and Astra's second check showed how much has to be right
-for it. It is a change of its own, with its own
-check. Until then the proposed wording for the lawyer says what the code does, and decision 21
-keeps messages safe either way.
+person is blocked". The code of that day blocked only when the form after the press was sent.
+Someone who pressed and then closed the form had ended the call and blocked nobody. The Terms of
+Service made the same promise. This plan did not change that.
+
+**Answered on 26 November 2026 by plan 51** (`plans/51-end-call-now.md`): the founder made ending
+and reporting two separate things. The button is "End call now", and the screen after it offers
+"Report", "Block" and "Neither". Decision 21 above was rewritten to follow it, and the wording for
+the documents is in `docs/legal/end-call-now-proposed-wording.md`.
 
 ## For the founder
 

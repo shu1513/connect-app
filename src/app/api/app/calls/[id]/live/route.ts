@@ -11,7 +11,9 @@ import { liveFor } from "@/lib/call-page/live";
  */
 export async function GET(request: Request, ctx: RouteContext<"/api/app/calls/[id]/live">) {
   // Also for someone whose account was paused a moment ago: they may still be in the call, and its end is theirs to know.
-  const asked = await appRequest(request, "member");
+  // And for a copy of the app that has become too old meanwhile: when the other person ends the call, this is how the
+  // screen learns of it and reaches "Report" and "Block".
+  const asked = await appRequest(request, "member", { safety: true });
   if (asked instanceof Response) return asked;
   const { id } = await ctx.params;
   const live = await liveFor(asked.person!.id, id);

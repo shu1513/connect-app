@@ -298,7 +298,7 @@ async function main() {
       check("a free call for its customer: who with, when, and that it is free", reply.status === 200 && body?.role === "customer" && body.title === `Call with ${hostName}` && body.roleWords === "(you are the customer)" && body.paidHow === "Free call" && body.startsAt === soon.call.startsAt.toISOString() && body.endsAt === soon.call.endsAt.toISOString(), reply.text.slice(0, 160));
       check("nothing stands in its way: the room, when it opens (5 minutes before), and that it is not open yet", body?.state === "room" && body.room?.open === false && body.room.opensAt === new Date(soon.call.startsAt.getTime() - 5 * MINUTE).toISOString() && body.words === null && body.pay === null);
       check("cancelling now is free, and says so", body?.cancel?.shown === "free" && body.cancel.words === "Cancelling now is free. Nothing is charged." && body.cancel.button === "Cancel this call" && body.cancel.yes === "Cancel the call" && body.cancel.no === "Keep it");
-      check("it has exactly the parts the app knows, and is not kept on the way", keys(body) === "about,cancel,endsAt,id,notice,paidHow,pay,refreshSeconds,role,roleWords,room,serverNow,small,startsAt,state,title,words" && String(reply.headers["cache-control"]).includes("no-store"), keys(body));
+      check("it has exactly the parts the app knows, and is not kept on the way", keys(body) === "about,afterEnd,cancel,endsAt,id,notice,paidHow,pay,refreshSeconds,role,roleWords,room,serverNow,small,startsAt,state,title,words" && String(reply.headers["cache-control"]).includes("no-store"), keys(body));
       check("no account id and no email address travels", !reply.text.includes(host.id) && !reply.text.includes(cust.id) && !reply.text.includes("@example.test"));
       const forHost = (await callPage(soon.call.id, host.jar)).body;
       check("the host reads the same call from her side", forHost?.role === "host" && forHost.title === `Call with ${cust.name}` && forHost.roleWords === "(you are the host)" && forHost.state === "room" && forHost.about === null);
@@ -396,23 +396,23 @@ async function main() {
       await settleFinishedCalls(new Date());
       const closed = await paymentOf(overNow.call.id);
       check("and the helper closes it unpaid and lets the approval go at Stripe", closed.status === "closed_uncharged" && (await stripe().paymentIntents.retrieve(closed.stripePaymentIntentId!)).status === "canceled", closed.status);
-      // "End call and report": a card the bank approved before the stop still counts, and waits for the founder's
-      // review; one approved after the stop does not.
+      // "End call now": a card the bank approved before the press still counts, and the call's money settles by
+      // itself (nothing waits for the founder); one approved after the press does not.
       const stopLater = await newCall(host.id, cust.id, { startsIn: 3, price: 2000, minutes: 10 });
       await step(stopLater.call.id, "pay", cust.jar);
       const beforeStop = await confirmAtStripe(stopLater.call.id, "pm_card_visa");
       await pause(1_500);
-      const stopped = await asBrowser(`/api/calls/${stopLater.call.id}/end-for-safety`, { jar: host.jar, body: {} });
+      const stopped = await asBrowser(`/api/calls/${stopLater.call.id}/end-now`, { jar: host.jar, body: {} });
       await step(stopLater.call.id, "pay-check", cust.jar);
       const reviewed = await paymentOf(stopLater.call.id);
-      check("a card approved before the call was stopped with a report is kept, for the founder's review", beforeStop.status === "requires_capture" && stopped.status === 200 && reviewed.status === "held" && reviewed.needsReview === true, `${stopped.status} ${reviewed.status} ${reviewed.needsReview}`);
+      check("a card approved before the call was ended with \"End call now\" is kept, and nothing waits for the founder's review", beforeStop.status === "requires_capture" && stopped.status === 200 && reviewed.status === "held" && reviewed.needsReview === false, `${stopped.status} ${reviewed.status} ${reviewed.needsReview}`);
       const stopFirst = await newCall(host.id, cust.id, { startsIn: 3, price: 2000, minutes: 10 });
       await step(stopFirst.call.id, "pay", cust.jar);
-      const stoppedFirst = await asBrowser(`/api/calls/${stopFirst.call.id}/end-for-safety`, { jar: host.jar, body: {} });
+      const stoppedFirst = await asBrowser(`/api/calls/${stopFirst.call.id}/end-now`, { jar: host.jar, body: {} });
       await pause(1_500);
       const afterStop = await confirmAtStripe(stopFirst.call.id, "pm_card_visa");
       await step(stopFirst.call.id, "pay-check", cust.jar);
-      check("one approved after the stop does not count", stoppedFirst.status === 200 && afterStop.status === "requires_capture" && (await paymentOf(stopFirst.call.id)).status === "awaiting_payment", `${stoppedFirst.status} ${(await paymentOf(stopFirst.call.id)).status}`);
+      check("one approved after the press does not count", stoppedFirst.status === 200 && afterStop.status === "requires_capture" && (await paymentOf(stopFirst.call.id)).status === "awaiting_payment", `${stoppedFirst.status} ${(await paymentOf(stopFirst.call.id)).status}`);
       // (A call paid from a membership has no card step: that refusal is in the one function both the website's
       // address and this one call, src/lib/payments/steps.ts. Making a member's call needs a whole membership with a
       // paid month, which the website's own member-calls-check sets up; it is not made again here.)

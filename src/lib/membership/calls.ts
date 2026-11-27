@@ -12,12 +12,12 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call, Payment } from "@/db/schema";
-import { loadAttendance } from "@/lib/attendance/load";
 import type { MemberMoney } from "@/lib/booking/emails";
 import type { ChargeReason, FrozenTotals, Lowered } from "@/lib/payments/actions";
 import { addLedgerEntry, lockPayment, MoneyError, type Tx } from "@/lib/payments/operations";
 import { ownPaymentOf } from "@/lib/payments/own";
-import { attendanceChargeCents, countedSeconds, splitCharge } from "@/lib/payments/pricing";
+import { owedFor } from "@/lib/payments/owed";
+import { splitCharge } from "@/lib/payments/pricing";
 import { readyToCollectAt, REVIEW_WINDOW_MS } from "@/lib/payments/rules";
 import { lockMonthsOfCall, type LockedMonth } from "./locks";
 import { canBookFrom, comeBack, finishIfSettled, spendSetAside } from "./months";
@@ -150,12 +150,9 @@ export async function monthIsFrozen(monthId: string, reader: Pick<Tx, "select"> 
 /** The last moment a member's call can wait for the founder's decision or for its record: 3 days after the call. There is no hold that could end sooner. */
 export const memberDecisionDeadline = (call: Pick<Call, "endsAt">): Date => new Date(call.endsAt.getTime() + REVIEW_WINDOW_MS);
 
-/** What a call's record says about one payment's stretch right now: not final yet, for the founder to review, or an amount. */
-async function recordOf(reader: Pick<Tx, "select">, call: Call, payment: Payment, now: Date): Promise<{ is: "not_final" } | { is: "review"; reason: string } | { is: "amount"; cents: number }> {
-  const attendance = await loadAttendance(call, now, { from: payment.coversFrom, until: payment.coversUntil }, reader);
-  if (!attendance.final || !call.closedAt) return { is: "not_final" };
-  if (attendance.result.status !== "complete" || !attendance.result.totals) return { is: "review", reason: attendance.result.reasons.join(" ") || "The call's record is incomplete." };
-  return { is: "amount", cents: attendanceChargeCents({ pricePer15Cents: payment.pricePer15Cents, bookedSeconds: attendance.bookedSeconds, countedSeconds: countedSeconds(call, attendance.result.totals) }) };
+/** What a call's record says about one payment's stretch right now: not final yet, for the founder to review, or an amount (owed.ts, the one rule every money step asks). */
+async function recordOf(reader: Pick<Tx, "select">, call: Call, payment: Payment, now: Date): Promise<{ is: "not_final" } | { is: "review"; reason: string } | { is: "amount"; cents: number; customerLeftFree: boolean }> {
+  return owedFor(call, payment, now, reader);
 }
 
 /**
@@ -177,7 +174,7 @@ export async function settleMemberOne(found: Payment, call: Call, now: Date): Pr
       const payment = await lockPayment(tx, found.id);
       if (payment.status === "held" && payment.needsReview === underReview) await work(tx, locked, payment);
     });
-  const allBack = (tx: Tx, locked: Call, payment: Payment, what: string, note: string) => closeMemberPayment(tx, locked, payment, { usedCents: 0, note, what, hostCaused: "all" }, now).then(() => undefined);
+  const allBack = (tx: Tx, locked: Call, payment: Payment, what: string, note: string, hostCaused: "all" | "as_booked" = "all") => closeMemberPayment(tx, locked, payment, { usedCents: 0, note, what, hostCaused }, now).then(() => undefined);
 
   const deadline = memberDecisionDeadline(call);
   if (found.needsReview) {
@@ -197,7 +194,8 @@ export async function settleMemberOne(found: Payment, call: Call, now: Date): Pr
     if (seen.cents > 0) return "ordinary";
     await inStep(false, async (tx, locked, payment) => {
       const fresh = await recordOf(tx, locked, payment, now);
-      if (fresh.is === "amount" && fresh.cents === 0) await allBack(tx, locked, payment, "nothing_owed", "Nothing was owed for this call.");
+      // (A member who ended the call before its start, while cancelling was free: the time comes back as it was booked, like a cancellation in time.)
+      if (fresh.is === "amount" && fresh.cents === 0) await allBack(tx, locked, payment, "nothing_owed", "Nothing was owed for this call.", fresh.customerLeftFree ? "as_booked" : "all");
     });
     return;
   }

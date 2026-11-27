@@ -75,7 +75,7 @@ export type AppRequest = {
  *   if (asked instanceof Response) return asked;
  *
  * `safety` is for the one step that must work from any copy of the app, also one the founder has
- * since declared too old: "End call and report", pressed by someone who is in a call. A person is
+ * since declared too old: "End call now", pressed by someone who is in a call. A person is
  * never left unable to end a call because the oldest allowed version was raised while it ran.
  * Everything else about that step is checked as always (the sign-in, whose call it is).
  *

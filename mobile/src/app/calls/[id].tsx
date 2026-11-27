@@ -10,7 +10,7 @@ import { placeHold, type CardOutcome } from "@/lib/card";
 import { useWatch } from "@/lib/here";
 import { agoWords, clockWords, countdownWords, localTime } from "@/lib/home-rules";
 import { useOpening } from "@/lib/opening";
-import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, Words } from "@/ui/pieces";
+import { BackLink, Button, Card, Heading, Loading, Notice, Page, Problem, TextLink, Words } from "@/ui/pieces";
 import { Sentence } from "@/ui/sentence";
 import { type, useColors } from "@/ui/theme";
 
@@ -343,6 +343,8 @@ function OneCall({ id }: { id: string }) {
           ) : null}
         </Card>
       ) : null}
+
+      {page.afterEnd ? <TextLink label={page.afterEnd.label} onPress={() => router.push({ pathname: "/ended", params: { call: page.id } })} /> : null}
 
       {cancelSaid && !cancelling ? <Notice>{cancelSaid}</Notice> : null}
       {cancelling ? (

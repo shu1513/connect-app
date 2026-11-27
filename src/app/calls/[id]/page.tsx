@@ -93,7 +93,7 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
             <PayPanel
               callId={call.id}
               title={CALL_WORDS.payTitle}
-              points={payPoints({ pricePer15: page.pricePer15!, bookedPrice: bookedPrice!, billing: call.billing, cancelRule: cancelRuleSentence(call.freeCancelMinutes, bookedPrice!) })}
+              points={payPoints({ pricePer15: page.pricePer15!, bookedPrice: bookedPrice!, billing: call.billing, cancelRule: cancelRuleSentence(call.freeCancelMinutes, bookedPrice!), wholeBookingSaid: page.wholeBookingSaid })}
               button={CALL_WORDS.payButton(bookedPrice!)}
               busyWords={CALL_WORDS.payBusy}
               notHeld={CALL_WORDS.payNotHeld}
@@ -134,6 +134,8 @@ export default async function CallPage(props: PageProps<"/calls/[id]">) {
           role={role}
           otherName={other?.name ?? (role === "host" ? "The customer" : "The host")}
           pricePer15Cents={call.pricePer15Cents}
+          billing={call.billing}
+          wholeBookingSaid={page.wholeBookingSaid}
           whileWaiting={about?.text ? <AboutCustomer name={other?.name ?? "this customer"} text={about.text} /> : null}
         />
         </>

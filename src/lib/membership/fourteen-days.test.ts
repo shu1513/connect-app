@@ -183,7 +183,7 @@ describe("what the member is told", () => {
 
 describe("the calls the note lists", () => {
   const at0 = new Date("2026-11-10T12:00:00Z");
-  const call = (over: Partial<CallPayment>): CallPayment => ({ callId: "a", startsAt: new Date("2026-11-09T15:00:00Z"), cancelledAt: null, status: "charged", chargedCents: 1500, refundedCents: 0, chargeReason: "attendance", ...over });
+  const call = (over: Partial<CallPayment>): CallPayment => ({ callId: "a", startsAt: new Date("2026-11-09T15:00:00Z"), cancelledAt: null, endedAt: null, status: "charged", chargedCents: 1500, refundedCents: 0, chargeReason: "attendance", ...over });
 
   it("lists what is kept now: after a part was given back, only the rest; nothing for a call given back whole", () => {
     expect(callsForNote([call({ refundedCents: 1000 })], at0).stays).toEqual([{ startsAt: new Date("2026-11-09T15:00:00Z"), keptCents: 500, why: "used" }]);

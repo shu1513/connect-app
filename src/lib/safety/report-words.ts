@@ -2,6 +2,8 @@
  * The sentences of the report form and of its thank-you: one set for the website's page
  * (src/app/report) and for the phone app's screen (plans/45-phone-apps/09-the-call.md).
  */
+import { END_WORDS } from "@/lib/call-page/end-words";
+
 export const REPORT_TEXT_MAX = 2000;
 
 /**
@@ -21,7 +23,14 @@ export type ReportBlock = "none" | "done" | "done_unsure" | "not_done" | "unknow
  * report's number is in every one of them. Each sentence stands by itself and names no button:
  * the phone app shows the same sentence, and has no such button on that screen.
  */
-export function reportNotice(outcome: { reference: number; block: ReportBlock; callsNotCancelled: number }): { notice: string; needsReceipt: boolean } {
+export function reportNotice(outcome: { reference: number; block: ReportBlock; callsNotCancelled: number; endEffect?: string | null; endPartly?: boolean; endTooLate?: boolean }): { notice: string; needsReceipt: boolean } {
+  const said = reportSaid(outcome);
+  // A customer's report after his own "End call now" also says what it did to that call's charge (plans/51).
+  const money = outcome.endTooLate ? END_WORDS.thanksTooLate : outcome.endEffect === "whole" ? END_WORDS.thanksNotLowered : outcome.endEffect === "minutes" || outcome.endEffect === "minutes_uncounted" ? (outcome.endPartly ? END_WORDS.thanksLoweredPartly : END_WORDS.thanksLowered) : null;
+  return money ? { notice: `${said.notice} ${money}`, needsReceipt: said.needsReceipt } : said;
+}
+
+function reportSaid(outcome: { reference: number; block: ReportBlock; callsNotCancelled: number }): { notice: string; needsReceipt: boolean } {
   const { reference } = outcome;
   if (outcome.block === "none") return { notice: REPORT_WORDS.thanksPost(reference), needsReceipt: false };
   if (outcome.block === "done" && outcome.callsNotCancelled === 0) return { notice: REPORT_WORDS.thanksPerson(reference), needsReceipt: false };
@@ -35,14 +44,14 @@ export const REPORT_WORDS = {
   /** The links that lead to the form: on a host's page, and on a request. */
   reportPage: "Report this page",
   reportPerson: (name: string) => `Report ${name}`,
-  /** Said only when true: the call really was ended with "End call and report". */
-  stopped: "The call has been ended for both of you. Nobody can rejoin, and the charge for it will be looked at by a person.",
+  /** Said only when true: the call really was ended with the call's button ("End call now", or the earlier "End call and report"). */
+  stopped: "The call has been ended for both of you. Nobody can rejoin.",
   /**
    * For the phone app, while the room's closing is not confirmed yet: nothing is promised that is not known. Not
    * "nobody can join it again": no new entry pass is handed out, but one handed out just before stays good until
    * the video service has confirmed that the room is closed.
    */
-  stopping: "The call is being ended for both of you. The charge for it will be looked at by a person.",
+  stopping: "The call is being ended for both of you.",
   aboutPost: "Tell us what is wrong with this post. Only our team reads this.",
   aboutPerson: "Tell us what happened. Only our team reads this. Reporting someone also blocks them: they cannot contact you through Connect again.",
   readThe: "Read the",

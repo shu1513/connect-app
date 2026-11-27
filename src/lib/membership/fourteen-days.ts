@@ -194,7 +194,7 @@ export function fourteenDayNote(input: {
 }
 
 /** One payment of a member's call, as the note needs it. */
-export type CallPayment = { callId: string; startsAt: Date; cancelledAt: Date | null; status: string; chargedCents: number | null; refundedCents: number; chargeReason: string | null };
+export type CallPayment = { callId: string; startsAt: Date; cancelledAt: Date | null; /** Ended by one of the two with "End call now" (possible a few minutes before the start): such a call is over, and its money is worked out as for a call that began. */ endedAt: Date | null; status: string; chargedCents: number | null; refundedCents: number; chargeReason: string | null };
 
 /**
  * The calls of the month for the member's email, one line for each call (not for each payment): what stays paid
@@ -209,7 +209,7 @@ export function callsForNote(payments: CallPayment[], at: Date): { stays: Array<
       call.keptCents += Math.max(0, (p.chargedCents ?? 0) - p.refundedCents);
       if (p.chargeReason === "late_cancel") call.late = true;
     }
-    if (p.status === "held" && (p.startsAt <= at || p.cancelledAt !== null)) call.open = true;
+    if (p.status === "held" && (p.startsAt <= at || p.cancelledAt !== null || p.endedAt !== null)) call.open = true;
     byCall.set(p.callId, call);
   }
   const all = [...byCall.values()];
@@ -369,7 +369,7 @@ export async function cancelWithin14Days(input: { membershipId: string; by: Canc
       if (taking) throw new NotFinishedYet(BEING_TAKEN);
       // The payments of this month's calls (a call can have more than one: its own, and time added from the membership).
       const payments = await tx
-        .select({ callId: schema.calls.id, startsAt: schema.calls.startsAt, cancelledAt: schema.calls.cancelledAt, status: schema.payments.status, chargedCents: schema.payments.chargedCents, refundedCents: schema.payments.refundedCents, chargeReason: schema.payments.chargeReason })
+        .select({ callId: schema.calls.id, startsAt: schema.calls.startsAt, cancelledAt: schema.calls.cancelledAt, endedAt: schema.calls.safetyEndedAt, status: schema.payments.status, chargedCents: schema.payments.chargedCents, refundedCents: schema.payments.refundedCents, chargeReason: schema.payments.chargeReason })
         .from(schema.payments)
         .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
         .where(and(eq(schema.payments.monthId, month.id), eq(schema.payments.kind, "member_call")))

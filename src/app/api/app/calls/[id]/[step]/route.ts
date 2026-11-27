@@ -1,12 +1,14 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import { callPageFor } from "@/lib/app-door/calls";
-import type { AppEnded, AppPass, AppPayStep } from "@/lib/app-door/types";
+import type { AppBlocked, AppEnded, AppPass, AppPayStep } from "@/lib/app-door/types";
 import { cancelledWords } from "@/lib/call-page/words";
 import { callForParticipant } from "@/lib/payments/access";
 import { cancelCallWith } from "@/lib/payments/cancel";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { startPaymentFor, syncPaymentFor, type StepRefused } from "@/lib/payments/steps";
-import { endCallForSafetyConfirmed } from "@/lib/safety/calls";
+import { BLOCK_WORDS } from "@/lib/safety/block-words";
+import { block } from "@/lib/safety/blocks";
+import { endCallNow } from "@/lib/safety/calls";
 import { enterCall } from "@/lib/video/enter";
 
 /**
@@ -41,7 +43,10 @@ function refusalOf(step: StepRefused): Response {
  *   POST /api/app/calls/[id]/enter           the entry pass to the call's room, by the one join check the website
  *                                            uses: only for a person of this call, only while the room is open and,
  *                                            for a paid call, the money is held
- *   POST /api/app/calls/[id]/end-and-report  "End call and report": the call is ended for both, at once
+ *   POST /api/app/calls/[id]/end-now         "End call now": the call is ended for both, at once
+ *   POST /api/app/calls/[id]/block           "Block", from the screen after "End call now": blocks the other
+ *                                            person of this call. Only the call is named; who that person is, is
+ *                                            worked out here
  *
  * Who is asking comes from the sign-in. A call that does not exist, one that is somebody else's, and a
  * step that is the other person's are the same "not found". What the app says happened in Stripe's
@@ -49,15 +54,16 @@ function refusalOf(step: StepRefused): Response {
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[id]/[step]">) {
   const { id, step } = await ctx.params;
-  if (step !== "pay" && step !== "pay-check" && step !== "cancel" && step !== "enter" && step !== "end-and-report") {
+  if (step !== "pay" && step !== "pay-check" && step !== "cancel" && step !== "enter" && step !== "end-now" && step !== "block") {
     const anyone = await appRequest(request, "anyone");
     return anyone instanceof Response ? anyone : refuse("not_found");
   }
   // Placing a hold is for someone who may act. Finding out where a hold stands, and cancelling, are also for a
   // paused person, as on the website.
-  // Entering a call is for someone who may act too. Ending a call one is in, and reporting, is for everyone.
-  // "End call and report" is answered for any copy of the app, also one that has become too old meanwhile.
-  const asked = await appRequest(request, step === "pay" || step === "enter" ? "active" : "member", { safety: step === "end-and-report" });
+  // Entering a call is for someone who may act too. Ending a call one is in, reporting and blocking are for everyone.
+  // "End call now" is answered for any copy of the app, also one that has become too old meanwhile.
+  // So is "Block" from the screen after it: someone who could end a call must be able to block the other person.
+  const asked = await appRequest(request, step === "pay" || step === "enter" ? "active" : "member", { safety: step === "end-now" || step === "block" });
   if (asked instanceof Response) return asked;
   const me = asked.person!;
   const page = async (notice: string | null = null) => {
@@ -91,26 +97,42 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
     return answer(body);
   }
 
-  if (step === "end-and-report") {
+  if (step === "end-now") {
     const access = await callForParticipant(id, me.id);
     if (!access) return refuse("not_found");
     try {
-      const { state, closed } = await endCallForSafetyConfirmed({ call: access.call, by: me.id, now: new Date() });
+      const outcome = await endCallNow({ call: access.call, by: me.id, now: new Date() });
       // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already over
-      // needs no ending: the person goes on to the report form as usual.
-      if (state === "not_open_yet") return refuse("not_valid", "This call has not started yet.");
-      // The call is marked as stopped (nobody can enter it again), but there is no proof yet that the other person
-      // is out: the video service has not confirmed that the room is closed. "Ended for both" is not said until it
-      // has: the app says so and offers to try again, and trying again asks the video service again (also after
-      // the call's booked end: the clock is no proof).
-      if (!closed) return notKnown();
+      // needs no ending: the person goes on to the three choices as usual.
+      if (outcome.state === "not_open_yet") return refuse("not_valid", "This call has not started yet.");
+      // A call that was over already, with its room not confirmed closed: nothing was pressed and nothing is known.
+      // The app says so and offers to try again, and trying again asks the video service again.
+      if (outcome.state === "over" && !outcome.closed) return notKnown();
+      // The press is saved: nobody gets a new entry pass, and the three choices are reachable at once, whatever the
+      // video service says. `closed` tells the app whether the room is confirmed closed; until it is, the screen
+      // after the press says "it is being closed for both of you", and the helper keeps closing it.
+      const body: AppEnded = { ended: true, closed: outcome.closed };
+      return answer(body);
     } catch (error) {
       // Whether it was ended for both cannot be told: the app says so and offers to try again.
       console.error("[safety] could not end a call for the app", error);
       return notKnown();
     }
-    const body: AppEnded = { ended: true };
-    return answer(body);
+  }
+
+  if (step === "block") {
+    const access = await callForParticipant(id, me.id);
+    if (!access) return refuse("not_found");
+    const otherId = access.role === "host" ? access.call.customerId : access.call.hostId;
+    try {
+      const { callsNotCancelled } = await block({ blockerId: me.id, blockedId: otherId, now: new Date() });
+      const body: AppBlocked = { notice: callsNotCancelled > 0 ? BLOCK_WORDS.notCancelled(callsNotCancelled) : BLOCK_WORDS.done };
+      return answer(body);
+    } catch (error) {
+      // Blocking saves the block first and cleans up afterwards: whether it stands cannot be told from here.
+      console.error("[safety] could not block for the app", error);
+      return notKnown();
+    }
   }
 
   if (step === "pay") {

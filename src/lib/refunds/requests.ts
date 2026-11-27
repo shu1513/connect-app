@@ -50,7 +50,7 @@ export async function loadSummary(call: Call, reader: Reader = db): Promise<{ su
     .where(eq(schema.attendanceEvents.callId, call.id))
     .orderBy(asc(schema.attendanceEvents.providerTime), asc(schema.attendanceEvents.id));
   const notes = await reader.select().from(schema.qualityNotes).where(eq(schema.qualityNotes.callId, call.id));
-  // A call ended with "End call and report" stops at that moment.
+  // A call ended with the call's button ("End call now") stops at that moment.
   const end = call.safetyEndedAt && call.safetyEndedAt < call.endsAt ? call.safetyEndedAt : call.endsAt;
   const summary = summarise({ hostId: call.hostId, customerId: call.customerId, start: call.startsAt, end, messages, notes });
   const json = JSON.stringify(summary);

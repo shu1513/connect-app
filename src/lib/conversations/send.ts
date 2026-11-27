@@ -7,7 +7,7 @@
  * limits hold), and `block()` itself needs no change. Then the conversation's row. Only then the
  * clock is read, once, and everything that is decided is decided by what is read after the locks.
  *
- * Not locked, on purpose: a call being cancelled, the press of "End call and report", the
+ * Not locked, on purpose: a call being cancelled, a call being ended with its button, the
  * founder's switch, an account being paused, a host's page being hidden. A message sent in the
  * very moment one of these changes may go either way; one sent after it sees the change.
  */
@@ -79,7 +79,7 @@ export type SendResult =
   | { ok: true; number: number }
   | { ok: false; kind: "not_found" }
   | { ok: false; kind: "text"; which: "empty" | "too_long" | "key" }
-  /** `stopped`: an "End call and report" stands between the two, so "book again" is not offered. */
+  /** `stopped`: an old "End call and report" stands between the two, so "book again" is not offered. */
   | { ok: false; kind: "refused"; why: Refusal; stopped: boolean }
   | { ok: false; kind: "limit"; problem: LimitProblem };
 

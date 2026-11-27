@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { readNotice } from "@/lib/notice";
+import { endedScreenFor } from "@/lib/call-page/ended";
 import { callStopState } from "@/lib/safety/report-form";
 import { REPORT_TEXT_MAX, REPORT_WORDS } from "@/lib/safety/report-words";
 import { REPORT_REASONS } from "@/lib/safety/reports";
@@ -11,7 +12,7 @@ import { SitePage } from "@/components/site-page";
 
 export const metadata: Metadata = { title: "Report" };
 
-/** The report form. Reached from a host's page, a request, a call's page, "End call and report", a post of a host's diary, or a message of a conversation. */
+/** The report form. Reached from a host's page, a request, a call's page, the screen after "End call now", a post of a host's diary, or a message of a conversation. */
 export default async function ReportPage(props: PageProps<"/report">) {
   const user = await requireUser();
   const query = await props.searchParams;
@@ -22,6 +23,9 @@ export default async function ReportPage(props: PageProps<"/report">) {
   // Said only when true: the call really was ended with the button. And "has been ended for both" only once the
   // room is written down as closed; until then, "is being ended" (as in the phone app).
   const stop = context === "call" ? await callStopState(user.id, contextId) : "no";
+  // For a customer who ended the call himself: what a report does to that call's charge right now (plans/51, decision 19).
+  const ended = stop !== "no" ? await endedScreenFor(user.id, contextId, new Date()) : null;
+  const money = ended && ended !== "not_ended" ? ended.report.money : null;
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";
 
   return (
@@ -30,6 +34,7 @@ export default async function ReportPage(props: PageProps<"/report">) {
       {stop !== "no" && (
         <p className="mt-2 text-sm">{stop === "stopped" ? REPORT_WORDS.stopped : REPORT_WORDS.stopping}</p>
       )}
+      {money && <p className="mt-2 text-sm">{money}</p>}
       <p className="mt-2 text-sm opacity-70">
         {context === "post" ? REPORT_WORDS.aboutPost : REPORT_WORDS.aboutPerson} {REPORT_WORDS.readThe}{" "}
         <Link href="/rules" target="_blank" className="underline underline-offset-2">

@@ -4,7 +4,7 @@
  *
  * Needs: the app running (npm run dev), the test accounts (npm run seed), and
  * the test admin's second step set up (npx tsx scripts/secure-test-admin.ts).
- * Usage: npx tsx scripts/safety-check.ts
+ * Usage: npx tsx scripts/safety-check.ts [--app=http://localhost:3000]
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -16,7 +16,7 @@ import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 import { totpCode } from "./totp";
 
-const BASE = "http://localhost:3000";
+const BASE = process.argv.find((arg) => arg.startsWith("--app="))?.slice("--app=".length).replace(/\/$/, "") ?? "http://localhost:3000";
 const RUN = randomUUID().slice(0, 8);
 const HOUR = 3_600_000;
 
@@ -58,7 +58,7 @@ async function main() {
   const { block, blockedBy, unblock } = await import("../src/lib/safety/blocks");
   const { isBlockedEitherWay } = await import("../src/lib/safety/block-check");
   const R = await import("../src/lib/safety/reports");
-  const { endCallForSafety } = await import("../src/lib/safety/calls");
+  const { endCallNow } = await import("../src/lib/safety/calls");
   const { identityState, startIdentityCheck, refreshIdentity, saveIdentityResult } = await import("../src/lib/safety/identity");
   const { finishPausesAndClosures } = await import("../src/lib/profiles/closing");
   const { setSwitches, switches } = await import("../src/lib/safety/switches");
@@ -213,7 +213,7 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
-    console.log("\n5. End call and report");
+    console.log("\n5. End call now (the money and the guard are in scripts/end-now-check.ts)");
     {
       const [hana] = await db.select().from(schema.user).where(eq(schema.user.email, "host@test.local"));
       const cust = await person("cust5");
@@ -227,12 +227,12 @@ async function main() {
       await syncHold((await payment()).id, new Date());
       check("the money is held before the call", (await payment()).status === "held");
 
-      await endCallForSafety({ call, by: cust.id, now: new Date() });
+      const pressed = await endCallNow({ call, by: cust.id, now: new Date() });
       const [ended] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
-      check("the call is marked as ended for safety, by the customer", ended.safetyEndedAt !== null && ended.safetyEndedBy === cust.id);
-      check("the charge goes to the founder's review list instead of being charged automatically", (await payment()).needsReview === true);
-      await endCallForSafety({ call, by: hana.id, now: new Date() });
-      check("pressing it twice changes nothing", (await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].safetyEndedBy === cust.id);
+      check("the call is marked as ended, by the customer, in his role", pressed.state === "ended" && pressed.byMe && ended.safetyEndedAt !== null && ended.safetyEndedBy === cust.id && ended.endedNowBy === "customer");
+      check("nothing goes to the founder's review list: the charge settles by itself", (await payment()).needsReview === false && (await payment()).status === "held");
+      const second = await endCallNow({ call, by: hana.id, now: new Date() });
+      check("pressing it again changes nothing, and the other person is told who ended it", second.state === "ended" && !second.byMe && second.by === "customer" && (await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].safetyEndedBy === cust.id);
 
       console.log("   …and the same through the app, with the clock and the door");
       const [cory] = await db.select().from(schema.user).where(eq(schema.user.email, "customer@test.local"));
@@ -244,22 +244,22 @@ async function main() {
       const live = await B.createTestCall({ hostId: liveHost.id, customerId: cory.id, startsAt: liveStart, endsAt: new Date(liveStart.getTime() + 10 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
       const before = await send(`/api/calls/${live.callId}/token`, { method: "POST", jar: coryJar });
       check("before the stop, the customer can get into the call", before.status === 200, String(before.status));
-      const stop = await send(`/api/calls/${live.callId}/end-for-safety`, { method: "POST", jar: coryJar });
-      check("the stop button's request is accepted", stop.status === 200, String(stop.status));
+      const stop = await send(`/api/calls/${live.callId}/end-now`, { method: "POST", jar: coryJar });
+      check("the button's request is accepted, and says he ended it", stop.status === 200 && stop.json?.ended === "you", String(stop.status));
       const after = await send(`/api/calls/${live.callId}/token`, { method: "POST", jar: coryJar });
       check("after it, nobody gets back in", after.status === 409, String(after.status));
-      const strangerStop = await send(`/api/calls/${callId}/end-for-safety`, { method: "POST", jar: coryJar });
+      const strangerStop = await send(`/api/calls/${callId}/end-now`, { method: "POST", jar: coryJar });
       check("someone not on a call cannot stop it", strangerStop.status === 404, String(strangerStop.status));
       // Only a call that is going on can be ended this way: not one that has yet to open (that would dodge
       // the host's cancelling rule), and not one that is over (that would stop it being charged or rated as usual).
       const later = new Date(Date.now() + 3 * 3_600_000);
       const future = await B.createTestCall({ hostId: liveHost.id, customerId: cory.id, startsAt: later, endsAt: new Date(later.getTime() + 10 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
-      const early = await send(`/api/calls/${future.callId}/end-for-safety`, { method: "POST", jar: coryJar });
+      const early = await send(`/api/calls/${future.callId}/end-now`, { method: "POST", jar: coryJar });
       check("a call that has not opened yet cannot be ended this way", early.status === 409 && (await db.select().from(schema.calls).where(eq(schema.calls.id, future.callId)))[0].safetyEndedAt === null, String(early.status));
       const earlier = new Date(Date.now() - 30 * 60_000);
       const over = await B.createTestCall({ hostId: liveHost.id, customerId: cory.id, startsAt: earlier, endsAt: new Date(earlier.getTime() + 10 * 60_000), pricePer15Cents: 0, freeCancelMinutes: 0 });
-      const late = await send(`/api/calls/${over.callId}/end-for-safety`, { method: "POST", jar: coryJar });
-      check("and a call that is already over is left as it is", late.status === 200 && (await db.select().from(schema.calls).where(eq(schema.calls.id, over.callId)))[0].safetyEndedAt === null, String(late.status));
+      const late = await send(`/api/calls/${over.callId}/end-now`, { method: "POST", jar: coryJar });
+      check("and a call that is already over is left as it is", late.status === 200 && late.json?.ended === "over" && (await db.select().from(schema.calls).where(eq(schema.calls.id, over.callId)))[0].safetyEndedAt === null, String(late.status));
       // The clock: the host was connected the whole booked time, but only the time before the stop counts.
       const [stopped] = await db.select().from(schema.calls).where(eq(schema.calls.id, live.callId));
       const row = (identity: string, type: string, at: Date) => ({ provider: "livekit", providerEventId: `EV_${randomUUID()}`, callId: live.callId, type, roomSessionId: "RM_safety", participantIdentity: identity, participantSessionId: `PA_${identity}`, providerTime: at, payload: "{}" });
@@ -276,6 +276,7 @@ async function main() {
       check("the report is about the other person on the call, worked out by the server", report.reportedId === hana.id && report.urgent === true);
       check("the admin is emailed at once because it is urgent", (await emails("admin@test.local", `Urgent report R-${reference}`)) === 1);
       check("reporting also blocks", await isBlockedEitherWay(cust.id, hana.id));
+      check("his report after ending the call himself is written on the call: charged by the minutes, with nothing for the founder to decide", ["minutes", "minutes_uncounted"].includes((await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].endReportEffect ?? "") && (await payment()).needsReview === false);
       await unblock(cust.id, hana.id);
 
       check("a report about a call you are not on is refused", await refused(R.createReport({ reporterId: (await person("nosy")).id, context: "call", contextId: callId, reason: "other", text: "", now: new Date() })));

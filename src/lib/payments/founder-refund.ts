@@ -16,7 +16,9 @@ import { splitAfterRefunds } from "./pricing";
  * founder names one and adds a sentence; the host is told both.
  */
 export const REFUND_GROUNDS = {
-  reported: 'The call was ended with "End call and report".',
+  // (The key is from the time of the earlier button, "End call and report". The host reads this sentence, so it says
+  // only how the call ended, never that anybody reported anybody.)
+  reported: 'The call was ended early with "End call now".',
   host_absent: "The host did not join the call.",
   required: "The law or the rules of the card companies require this refund.",
   mistake: "The charge was made by mistake, by fraud, or for a call that broke the Community Rules.",
