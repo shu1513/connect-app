@@ -34,14 +34,18 @@ const months = schema.membershipMonths;
  * THE one place in the clean-up that cancels a membership's upcoming member calls (the rulebook's
  * "How the parts connect"). Part two fills it. In part one there are no member calls, so there is
  * nothing to cancel. Returns whether none is left.
+ *
+ * `onlyMonthId` keeps it to the calls booked from one month: a cancelling within 14 days is about the first month
+ * alone, and must never touch a call of a month that began while it was under way. The clean-up after an ending
+ * leaves it out: then every coming call of the membership goes.
  */
-export async function cancelUpcomingMemberCalls(membershipId: string, now: Date): Promise<boolean> {
+export async function cancelUpcomingMemberCalls(membershipId: string, now: Date, onlyMonthId?: string): Promise<boolean> {
   const upcoming = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.payments)
     .innerJoin(months, eq(months.id, schema.payments.monthId))
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .where(and(eq(months.membershipId, membershipId), eq(schema.payments.kind, "member_call"), isNull(schema.payments.extensionId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
+    .where(and(eq(months.membershipId, membershipId), onlyMonthId ? eq(months.id, onlyMonthId) : undefined, eq(schema.payments.kind, "member_call"), isNull(schema.payments.extensionId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
   let noneLeft = true;
   for (const { call, payment } of upcoming) {
     try {
@@ -51,7 +55,7 @@ export async function cancelUpcomingMemberCalls(membershipId: string, now: Date)
     } catch (error) {
       // A call that started meanwhile is under way: it is left alone and settles in the usual way.
       if (error instanceof MoneyError) continue;
-      console.error(`[membership] could not cancel member call ${call.id} of ended membership ${membershipId}; will retry`, error);
+      console.error(`[membership] could not cancel member call ${call.id} of membership ${membershipId}, which has ended or is being cancelled; will retry`, error);
       noneLeft = false;
     }
   }

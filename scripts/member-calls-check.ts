@@ -1075,6 +1075,31 @@ async function main() {
     };
     const intentOf = async (monthId: string) => stripe().paymentIntents.retrieve((await M(monthId)).stripePaymentIntentId!);
     const host = await newHost({ freeCancelMinutes: 60 });
+    /**
+     * Runs the work while the database refuses to cancel this one call ("refuse"), or takes two seconds over it
+     * ("slow"): a trigger of this journey's own on the calls table, for this call alone, taken away again whatever
+     * happens. "refuse" stands in for the database failing for one call in the middle of a cancellation; "slow"
+     * holds one press between its two looks while another one starts.
+     */
+    const whileCallCannotBeCancelled = async <T>(callId: string, work: () => Promise<T>, how: "refuse" | "slow" = "refuse"): Promise<T> => {
+      if (!/^[0-9a-f-]{36}$/i.test(callId)) throw new Error("not a call's id");
+      const does = how === "refuse" ? `raise exception 'member-calls-check: this call cannot be cancelled just now'` : `perform pg_sleep(2); return new`;
+      await db.execute(sql.raw(`create or replace function fourteen_check_refuse() returns trigger language plpgsql as $$ begin ${does}; end $$`));
+      await db.execute(sql.raw(`create or replace trigger fourteen_check_refuse before update on calls for each row when (new.id = '${callId}' and new.cancelled_at is not null) execute function fourteen_check_refuse()`));
+      try {
+        return await work();
+      } finally {
+        await db.execute(sql.raw(`drop trigger if exists fourteen_check_refuse on calls`));
+        await db.execute(sql.raw(`drop function if exists fourteen_check_refuse()`));
+      }
+    };
+    /**
+     * The helper's job for requests that are not finished, with the clock moved, and kept to these memberships of
+     * this journey: in a database that other work shares, a moved clock must never finish anybody else's request.
+     */
+    const finishFor = (now: Date, ids: string[], batch?: number) => F.runFourteenDayRequests(now, { only: ids, batch });
+    const endedEmails = async (to: string) => (await db.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, to), like(schema.emailOutbox.subject, "%has ended%")))).length;
+    const founderRecords = (membershipId: string) => db.select().from(schema.adminActions).where(and(eq(schema.adminActions.targetId, membershipId), eq(schema.adminActions.action, "membership cancelled within 14 days")));
 
     console.log("   …the sentence before joining");
     const sentences = W.agreementSentences({ hostName: "Host", monthlyCents: 6000, includedMinutes: 120 });
@@ -1173,6 +1198,9 @@ async function main() {
     check("the member's own button on day 20: refused, with the normal way named, and nothing changed", /The 14 days after joining are over/.test(ownTooLate ?? "") && /normal way of cancelling is still there/.test(ownTooLate ?? "") && (await MS(d.membershipId)).status === "active" && (await F.ownFourteenDays(await MS(d.membershipId), onDay20)) === null, ownTooLate);
     const tooLate = await press(d.membershipId, { day: day15, now: onDay20 });
     check("a written request that reached Connect on day 15: refused", /more than 14 days after joining/.test(tooLate ?? "") && (await MS(d.membershipId)).status === "active", tooLate);
+    const madeUp = await refused(F.cancelWithin14Days({ membershipId: d.membershipId, by: { as: "helper" }, now: onDay20 }));
+    await finishFor(onDay20, [d.membershipId]);
+    check("a press that was not in time leaves nothing on record, and the helper can make nothing up: it finishes only what is on record", (await MS(d.membershipId)).fourteenAskedAt === null && (await MS(d.membershipId)).fourteenMonthId === null && /No request to cancel this membership within 14 days is on record/.test(madeUp ?? "") && (await MS(d.membershipId)).status === "active", madeUp);
     const future = await press(d.membershipId, { day: F.dayOf(new Date(Date.now() + DAY)) });
     check("a day in the future: refused", /cannot be later than today/.test(future ?? ""), future);
     const early = await press(d.membershipId, { day: F.dayOf(new Date(joinedAt.getTime() - DAY)) });
@@ -1185,6 +1213,193 @@ async function main() {
     check("the member is told the day their request arrived", new RegExp(`your request reached us on ${lastDay}`).test(await emailText(d.member.email, "has ended")));
     const [record] = await db.select().from(schema.adminActions).where(and(eq(schema.adminActions.targetId, d.membershipId), eq(schema.adminActions.action, "membership cancelled within 14 days")));
     check("the founder's action is on record, with the day", Boolean(record) && record.adminId === founder.id && record.detail.includes(`The request reached Connect on ${lastDay}`), record?.detail);
+
+    console.log("   …pressed on the last day, and it could not be finished then: a call the database would not cancel");
+    const g = await member(host);
+    const stuck = await booked(g, { nth: 0 });
+    const fine = await booked(g, { nth: 1 });
+    const gLast = F.lastDayFor((await M(g.monthId)).authorisedAt!);
+    const onLastDay = new Date(Date.parse(`${gLast}T12:00:00Z`));
+    const onDay15 = new Date(onLastDay.getTime() + DAY);
+    // Both calls are still to come on day 15 (and at an hour of the night, where nothing else is booked).
+    const stuckCall = await moveCall(stuck.call, new Date(Date.parse(`${gLast}T03:00:00Z`) + 3 * DAY));
+    await moveCall(fine.call, new Date(Date.parse(`${gLast}T04:00:00Z`) + 3 * DAY));
+    const firstPress = await whileCallCannotBeCancelled(stuckCall.id, () => own(g, { now: onLastDay, shown: g.monthId }));
+    const half = await MS(g.membershipId);
+    check("the press is not finished, and says so: the membership runs on, and the request is on record with its moment and its month", /could not be cancelled just now, so the membership was not cancelled yet/.test(firstPress ?? "") && /on record with the moment it was first made/.test(firstPress ?? "") && half.status === "active" && half.fourteenAskedAt?.getTime() === onLastDay.getTime() && half.fourteenMonthId === g.monthId && half.fourteenAdminId === null && half.fourteenRequestDay === null, `${firstPress} ${half.status} ${half.fourteenAskedAt?.toISOString()}`);
+    check("the call that could be cancelled is cancelled, the other is not, and nothing went to the card yet", Boolean((await callOf(fine.booking)).cancelledAt) && !(await callOf(stuck.booking)).cancelledAt && (await refundsOf(g.monthId)).length === 0 && (await places(g.monthId)) === "4500/1500/0/0/0/0", await places(g.monthId));
+    const stillOffered = await F.ownFourteenDays(half, onDay15);
+    const listed = await F.openFourteenDayRequests([half], onDay15);
+    const form = (await F.fourteenDayCases([half], onDay15)).get(g.membershipId);
+    check("on day 15 the member's page still offers the button, and names the day it was asked", stillOffered?.lastDay === gLast && stillOffered?.asked?.day === gLast && stillOffered?.asked?.inWriting === false, JSON.stringify(stillOffered));
+    check("the founder's page lists it as not finished, with nothing that stops it, and the form on the membership has the day filled in", listed.length === 1 && listed[0].membershipId === g.membershipId && listed[0].askedDay === gLast && listed[0].by.as === "member" && listed[0].stoppedBy === null && form?.onRecordDay === gLast, JSON.stringify([listed, form]));
+    const byStranger = await own(g, { as: stranger, now: onDay15 });
+    check("somebody else cannot use it: not found", /Membership not found/.test(byStranger ?? "") && (await MS(g.membershipId)).status === "active", byStranger);
+    // Every other rule is asked again at the later press. A bank's question (played by the month's own mark):
+    await db.update(months).set({ dispute: "open" }).where(eq(months.id, g.monthId));
+    const withBankLater = await own(g, { now: onDay15 });
+    await finishFor(new Date(onDay15.getTime() + HOUR), [g.membershipId]);
+    const stoppedByBank = await F.openFourteenDayRequests([await MS(g.membershipId)], onDay15);
+    check("a bank's question that came meanwhile still refuses, the helper leaves it alone, and the founder's page says what stops it", /Your bank is looking at this month's payment/.test(withBankLater ?? "") && (await MS(g.membershipId)).status === "active" && /bank has a question or a dispute/.test(stoppedByBank[0]?.stoppedBy ?? "") && stoppedByBank[0]?.byHand === false, `${withBankLater} | ${stoppedByBank[0]?.stoppedBy}`);
+    const pageWithBank = await F.ownFourteenDays(await MS(g.membershipId), onDay15);
+    check("the member's page then has no button, but still says that the request of that day is on record and what stops it", pageWithBank !== null && pageWithBank.lastDay === null && pageWithBank.asked?.day === gLast && /cannot be finished while your bank is looking/.test(pageWithBank.blockedBy ?? ""), JSON.stringify(pageWithBank));
+    await db.update(months).set({ dispute: "none" }).where(eq(months.id, g.monthId));
+    // A payment with a problem:
+    await db.update(months).set({ problem: "Stripe took $20.00 of $60.00." }).where(eq(months.id, g.monthId));
+    const withProblemLater = await own(g, { now: onDay15 });
+    const pageWithProblem = await F.ownFourteenDays(await MS(g.membershipId), onDay15);
+    check("a payment with a problem that came meanwhile still refuses, and the page says the request stays on record", /please write to us/.test(withProblemLater ?? "") && (await MS(g.membershipId)).status === "active" && pageWithProblem?.lastDay === null && /problem with this month's payment/.test(pageWithProblem?.blockedBy ?? "") && /stays on record/.test(pageWithProblem?.blockedBy ?? ""), `${withProblemLater} | ${JSON.stringify(pageWithProblem)}`);
+    await db.update(months).set({ problem: null }).where(eq(months.id, g.monthId));
+    // And a first month that has ended:
+    const afterItsMonth = new Date((await M(g.monthId)).endsAt!.getTime() + HOUR);
+    const monthOverLater = await own(g, { now: afterItsMonth });
+    const stoppedByMonth = await F.openFourteenDayRequests([await MS(g.membershipId)], afterItsMonth);
+    check("after the first month has ended, a request on record is refused like any other, and the founder's page says to settle it by hand", /first 14 days of a new membership/.test(monthOverLater ?? "") && (await MS(g.membershipId)).status === "active" && /settle this case by hand/.test(stoppedByMonth[0]?.stoppedBy ?? ""), `${monthOverLater} | ${stoppedByMonth[0]?.stoppedBy}`);
+    // The member presses again on day 15, after the last day: it counts from the first press.
+    const secondPress = await own(g, { now: onDay15, shown: g.monthId });
+    await helper(new Date());
+    const done = await MS(g.membershipId);
+    const gLines = await refundsOf(g.monthId);
+    check("the press on day 15 is not too late: the membership is ended, by the member, with the reason of the 14 days", secondPress === null && done.status === "ended" && done.endedBy === g.member.id && done.endedReason === F.FOURTEEN_DAYS_REASON && done.endedAt?.getTime() === onDay15.getTime() && done.fourteenAskedAt?.getTime() === onLastDay.getTime(), `${secondPress} ${done.status} ${done.endedBy}`);
+    check("the call that was left is cancelled now, and the whole month goes back to the card once, in one line", Boolean((await callOf(stuck.booking)).cancelledAt) && gLines.length === 1 && gLines[0].sourceKey === `ending:${g.monthId}` && gLines[0].amountCents === 6000 && (await places(g.monthId)) === "0/0/0/0/0/6000", `${JSON.stringify(gLines.map((line) => [line.sourceKey, line.amountCents]))} ${await places(g.monthId)}`);
+    const thirdPress = await own(g, { now: onDay15 });
+    const thirdByFounder = await press(g.membershipId, { day: gLast, now: onDay15 });
+    await finishFor(new Date(onDay15.getTime() + HOUR), [g.membershipId]);
+    await helper(new Date());
+    check("pressed again, by the member, by the founder and by the helper: nothing more, and nothing is paid back twice", /already ended/.test(thirdPress ?? "") && /already ended/.test(thirdByFounder ?? "") && (await refundsOf(g.monthId)).length === 1 && (await places(g.monthId)) === "0/0/0/0/0/6000" && (await F.openFourteenDayRequests([await MS(g.membershipId)], onDay15)).length === 0, `${thirdPress} | ${thirdByFounder}`);
+    check("after all of that the member has one email that the membership ended, and it says they cancelled within the 14 days", (await endedEmails(g.member.email)) === 1 && (await emailText(g.member.email, "has ended")).split("You cancelled your new membership within 14 days of joining.").length === 2 && (await founderRecords(g.membershipId)).length === 0, `${await endedEmails(g.member.email)}`);
+    await audit("after a 14-day cancellation that a later press finished", g);
+
+    console.log("   …the same, and nobody presses again: the helper finishes it by itself, also behind one that a rule stops");
+    // An older request that a rule stops (a payment with a problem), and a newer one that can be finished.
+    const q = await member(host);
+    const qBooked = await booked(q, { nth: 0 });
+    const qCall = await moveCall(qBooked.call, new Date(Date.now() + 22 * DAY + 2 * HOUR));
+    const qPress = await whileCallCannotBeCancelled(qCall.id, () => own(q));
+    await db.update(months).set({ problem: "Stripe took $20.00 of $60.00." }).where(eq(months.id, q.monthId));
+    const a = await member(host);
+    const aBooked = await booked(a, { nth: 0 });
+    // Still to come on day 20, when the helper gets to it.
+    const aCall = await moveCall(aBooked.call, new Date(Date.now() + 22 * DAY));
+    const aPress = await whileCallCannotBeCancelled(aCall.id, () => own(a));
+    const aAsked = (await MS(a.membershipId)).fourteenAskedAt;
+    const qAsked = (await MS(q.membershipId)).fourteenAskedAt;
+    await finishFor(new Date(), [q.membershipId, a.membershipId]);
+    check("neither is finished; and the helper leaves a press a minute to finish by itself", /was not cancelled yet/.test(qPress ?? "") && /was not cancelled yet/.test(aPress ?? "") && aAsked !== null && qAsked !== null && qAsked < aAsked && (await MS(a.membershipId)).status === "active", `${qPress} | ${aPress}`);
+    const aLater = new Date(Date.now() + 20 * DAY);
+    // One at a time, the oldest first: the one that a rule stops comes first and must not keep the other waiting.
+    await finishFor(aLater, [q.membershipId, a.membershipId], 1);
+    await helper(new Date());
+    const aDone = await MS(a.membershipId);
+    check("on day 20 the helper finishes it, as the member who asked: ended, the call cancelled, the month back to the card once", aDone.status === "ended" && aDone.endedBy === a.member.id && aDone.endedReason === F.FOURTEEN_DAYS_REASON && aDone.fourteenAskedAt?.getTime() === aAsked?.getTime() && Boolean((await callOf(aBooked.booking)).cancelledAt) && (await refundsOf(a.monthId)).length === 1 && (await places(a.monthId)) === "0/0/0/0/0/6000" && /You cancelled your new membership within 14 days of joining\./.test(await emailText(a.member.email, "has ended")) && (await endedEmails(a.member.email)) === 1 && aDone.cleanupDoneAt !== null && aDone.cleanupDoneAt >= aDone.endedAt!, `${aDone.status} ${aDone.endedBy} ${await places(a.monthId)}`);
+    const qStopped = await F.openFourteenDayRequests([await MS(q.membershipId)], aLater);
+    check("the older one, which a payment with a problem stops, is left alone, did not keep the other waiting, and is on the founder's list with that reason", (await MS(q.membershipId)).status === "active" && !(await callOf(qBooked.booking)).cancelledAt && qStopped.length === 1 && /settle the payment by hand/.test(qStopped[0].stoppedBy ?? ""), qStopped[0]?.stoppedBy);
+    await audit("after a 14-day cancellation that the helper finished", a);
+
+    console.log("   …the founder finishes a member's own request with the form: it stays the member's, on the day they pressed");
+    await db.update(months).set({ problem: null }).where(eq(months.id, q.monthId));
+    // The form is posted with another day that would count (day 5): with a request on record, that day changes nothing.
+    const qByFounder = await press(q.membershipId, { day: F.dayOf(new Date(Date.now() + 5 * DAY)), now: aLater });
+    await helper(new Date());
+    const qDone = await MS(q.membershipId);
+    const qRecords = await founderRecords(q.membershipId);
+    const qTold = await emailText(q.member.email, "has ended");
+    check("ended as the member's own cancellation: by their account, their email says they cancelled and names no other day, the month goes back once", qByFounder === null && qDone.status === "ended" && qDone.endedBy === q.member.id && qDone.fourteenAdminId === null && qDone.fourteenAskedAt?.getTime() === qAsked?.getTime() && /You cancelled your new membership within 14 days of joining\./.test(qTold) && !/your request reached us on/.test(qTold) && (await endedEmails(q.member.email)) === 1 && (await refundsOf(q.monthId)).length === 1 && (await places(q.monthId)) === "0/0/0/0/0/6000", `${qByFounder} ${qDone.status} ${qDone.endedBy}`);
+    check("the founder's part is on record once, as finishing the member's own request of that day", qRecords.length === 1 && qRecords[0].adminId === founder.id && qRecords[0].detail.includes(`The member pressed their own button on ${F.dayOf(qAsked!)}`) && qRecords[0].detail.includes("finished with the founder's form"), JSON.stringify(qRecords.map((row) => row.detail)));
+    await audit("after a member's 14-day cancellation that the founder's form finished", q);
+
+    console.log("   …the founder's form, not finished: on record with its day; the member's own press finishes it, and it stays the request in writing");
+    const w = await member(host);
+    const wBooked = await booked(w, { nth: 0 });
+    const wCall = await moveCall(wBooked.call, new Date(Date.now() + 22 * DAY + HOUR));
+    const wDay = today();
+    const wPress = await whileCallCannotBeCancelled(wCall.id, () => press(w.membershipId, { day: wDay }));
+    const wHalf = await MS(w.membershipId);
+    check("the founder is told it is not finished and on record; the record has who entered it and the day", /was not cancelled yet/.test(wPress ?? "") && /on record/.test(wPress ?? "") && wHalf.status === "active" && wHalf.fourteenAdminId === founder.id && wHalf.fourteenRequestDay === wDay && wHalf.fourteenMonthId === w.monthId && (await founderRecords(w.membershipId)).length === 0, wPress);
+    const wOffered = await F.ownFourteenDays(wHalf, aLater);
+    check("the member's own button counts from it too, also on day 20, and their page says when the request arrived", wOffered?.asked?.inWriting === true && wOffered.asked.day === wDay, JSON.stringify(wOffered));
+    const wByMember = await own(w, { now: aLater });
+    await helper(new Date());
+    const wDone = await MS(w.membershipId);
+    const wRecords = await founderRecords(w.membershipId);
+    check("the member's press on day 20 finishes it as the request in writing: ended by \"admin\", the member told the day it arrived, once", wByMember === null && wDone.status === "ended" && wDone.endedBy === "admin" && new RegExp(`your request reached us on ${wDay}`).test(await emailText(w.member.email, "has ended")) && (await endedEmails(w.member.email)) === 1 && (await places(w.monthId)) === "0/0/0/0/0/6000" && (await refundsOf(w.monthId)).length === 1, `${wByMember} ${wDone.status} ${wDone.endedBy}`);
+    check("the founder's action is on record exactly once, under who entered it, with the day and how it was finished", wRecords.length === 1 && wRecords[0].adminId === founder.id && wRecords[0].detail.includes(`The request reached Connect on ${wDay}`) && wRecords[0].detail.includes("Finished by the member's own press"), JSON.stringify(wRecords.map((row) => row.detail)));
+    await audit("after a founder's 14-day cancellation that the member's press finished", w);
+
+    console.log("   …two presses of one request at the same moment: the founder's form and the helper");
+    const x = await member(host);
+    const xBooked = await booked(x, { nth: 0 });
+    const xCall = await moveCall(xBooked.call, new Date(Date.now() + 22 * DAY + 3 * HOUR));
+    const xDay = today();
+    // The form's press is held for two seconds while it cancels the call, between its two looks. The helper starts
+    // meanwhile, finds the request on record, and takes its own first look before either has ended anything.
+    // (The helper starts as soon as the form's request is on record, however long that took. Its first look then
+    // waits for the month's lock, which the slow cancelling holds, and is in the queue for the host's calendar
+    // before the form's second look asks for it.)
+    const onceOnRecord = async () => {
+      for (let i = 0; i < 400 && !(await MS(x.membershipId)).fourteenAskedAt; i++) await new Promise((resolve) => setTimeout(resolve, 25));
+      if (!(await MS(x.membershipId)).fourteenAskedAt) throw new Error("the form's request was never on record");
+    };
+    const both = await whileCallCannotBeCancelled(xCall.id, () => Promise.all([press(x.membershipId, { day: xDay }), onceOnRecord().then(() => refused(F.cancelWithin14Days({ membershipId: x.membershipId, by: { as: "helper" } })))]), "slow");
+    await helper(new Date());
+    const xDone = await MS(x.membershipId);
+    const xRecords = await founderRecords(x.membershipId);
+    check("both come back without a refusal, and the membership is ended once, as the request in writing", both[0] === null && both[1] === null && xDone.status === "ended" && xDone.endedBy === "admin" && xDone.fourteenAdminId === founder.id && Boolean((await callOf(xBooked.booking)).cancelledAt), JSON.stringify(both));
+    check("one email that it ended, one line on the founder's record, one pay-back of the whole month", (await endedEmails(x.member.email)) === 1 && xRecords.length === 1 && xRecords[0].detail.includes(`The request reached Connect on ${xDay}`) && (await refundsOf(x.monthId)).length === 1 && (await places(x.monthId)) === "0/0/0/0/0/6000", `${await endedEmails(x.member.email)} emails, ${xRecords.length} records, ${await places(x.monthId)}`);
+    await audit("after two presses of one 14-day request at the same moment", x);
+
+    console.log("   …a request on record, and the first month ends before it is finished: the founder's list keeps it");
+    const r = await member(host);
+    const [rOnItsWay] = await db.insert(schema.moneyOperations).values({ monthId: r.monthId, kind: "capture", label: `monthcapture:${r.monthId}:9`, params: JSON.stringify({ intentId: (await M(r.monthId)).stripePaymentIntentId, amountCents: 6000 }) }).returning();
+    const rPress = await own(r);
+    await db.delete(schema.moneyOperations).where(eq(schema.moneyOperations.id, rOnItsWay.id));
+    // The member had also stopped the renewal, and the month ends with the request still not finished. (Here the
+    // helper is simply not run in between; in life it would take something that stops it for the rest of the month.)
+    await E.stopRenewal({ membershipId: r.membershipId, by: "member", actorId: r.member.id, now: new Date() });
+    const rEnd = (await M(r.monthId)).endsAt!;
+    await closeMonth(r.monthId, rEnd);
+    const rAfter = new Date(rEnd.getTime() + HOUR);
+    await finishFor(rAfter, [r.membershipId]);
+    const rPaused = await MS(r.membershipId);
+    const rListed = await F.openFourteenDayRequests([rPaused], rAfter);
+    check("the membership is paused with its month closed, the helper does nothing more, and the member's page has no button", /on record/.test(rPress ?? "") && rPaused.status === "paused" && (await M(r.monthId)).status !== "running" && rPaused.fourteenAskedAt !== null && (await F.ownFourteenDays(rPaused, rAfter)) === null, `${rPress} ${rPaused.status} ${(await M(r.monthId)).status}`);
+    check("the founder's list still has it, and says to settle it by hand", rListed.length === 1 && rListed[0].membershipId === r.membershipId && rListed[0].byHand && /first month ended before this could be finished/.test(rListed[0].stoppedBy ?? "") && /settle this case by hand/.test(rListed[0].stoppedBy ?? ""), JSON.stringify(rListed));
+    // The host ends the membership some time later. That does nothing for the first month, so the list keeps it.
+    await E.endByHost({ membershipId: r.membershipId, hostId: host.id, now: rAfter });
+    const rEnded = await MS(r.membershipId);
+    const rStill = await F.openFourteenDayRequests([rEnded], rAfter);
+    check("when the membership ends some other way after that month, the request stays on the founder's list", rEnded.status === "ended" && rEnded.endedReason !== F.FOURTEEN_DAYS_REASON && rStill.length === 1 && rStill[0].byHand, `${rEnded.status} ${JSON.stringify(rStill)}`);
+    const settledRows = () => db.select().from(schema.adminActions).where(and(eq(schema.adminActions.targetId, r.membershipId), eq(schema.adminActions.action, F.SETTLED_BY_HAND)));
+    const tooEarly = await refused(F.settleFourteenDayRequestByHand({ membershipId: w.membershipId, adminId: founder.id }));
+    const stillOpenOne = await member(host);
+    const [soOnItsWay] = await db.insert(schema.moneyOperations).values({ monthId: stillOpenOne.monthId, kind: "capture", label: `monthcapture:${stillOpenOne.monthId}:9`, params: JSON.stringify({ intentId: (await M(stillOpenOne.monthId)).stripePaymentIntentId, amountCents: 6000 }) }).returning();
+    await own(stillOpenOne);
+    await db.delete(schema.moneyOperations).where(eq(schema.moneyOperations.id, soOnItsWay.id));
+    const notYet = await refused(F.settleFourteenDayRequestByHand({ membershipId: stillOpenOne.membershipId, adminId: founder.id }));
+    check("\"Settled by hand\" is refused where there is nothing to settle, and for a request the button can still finish", /no request to cancel this membership within 14 days that is waiting/.test(tooEarly ?? "") && /can still be finished/.test(notYet ?? "") && (await MS(stillOpenOne.membershipId)).status === "active", `${tooEarly} | ${notYet}`);
+    const stillOpenDone = await own(stillOpenOne);
+    await helper(new Date());
+    check("(and that request is then finished by the member's next press)", stillOpenDone === null && (await MS(stillOpenOne.membershipId)).status === "ended" && (await places(stillOpenOne.monthId)) === "0/0/0/0/0/6000", `${stillOpenDone} ${await places(stillOpenOne.monthId)}`);
+    await F.settleFourteenDayRequestByHand({ membershipId: r.membershipId, adminId: founder.id });
+    await F.settleFourteenDayRequestByHand({ membershipId: r.membershipId, adminId: founder.id });
+    const rRows = await settledRows();
+    check("the founder notes it as settled by hand: on record once, also when pressed twice, and off the list; no money moves", rRows.length === 1 && rRows[0].adminId === founder.id && rRows[0].detail.includes("the first month ended before it could be finished") && (await F.openFourteenDayRequests([await MS(r.membershipId)], rAfter)).length === 0 && (await refundsOf(r.monthId)).length === 0, JSON.stringify(rRows.map((row) => row.detail)));
+    await db.delete(schema.adminActions).where(and(eq(schema.adminActions.targetId, r.membershipId), eq(schema.adminActions.action, F.SETTLED_BY_HAND)));
+
+    console.log("   …pressed on the last day while the month's money is being taken at that very moment");
+    const t = await member(host, { take: false });
+    const tLast = F.lastDayFor((await M(t.monthId)).authorisedAt!);
+    const tOnLastDay = new Date(Date.parse(`${tLast}T23:59:00Z`));
+    const [onItsWay] = await db.insert(schema.moneyOperations).values({ monthId: t.monthId, kind: "capture", label: `monthcapture:${t.monthId}:1`, params: JSON.stringify({ intentId: (await M(t.monthId)).stripePaymentIntentId, amountCents: 6000 }) }).returning();
+    const whileTaking = await own(t, { now: tOnLastDay });
+    check("nothing is promised while the outcome is not known, but the request is on record", /being taken at this moment, so the membership was not cancelled yet/.test(whileTaking ?? "") && /on record/.test(whileTaking ?? "") && (await MS(t.membershipId)).status === "active" && (await MS(t.membershipId)).fourteenAskedAt?.getTime() === tOnLastDay.getTime() && (await M(t.monthId)).endedHow === null, whileTaking);
+    // (The taking that was only played is taken away again: the month is still only held.)
+    await db.delete(schema.moneyOperations).where(eq(schema.moneyOperations.id, onItsWay.id));
+    const afterTaking = await own(t, { now: new Date(tOnLastDay.getTime() + 2 * MIN) });
+    await helper(new Date());
+    const tIntent = await intentOf(t.monthId);
+    check("a month that was given up with nothing taken is not on the founder's list, whatever became of the membership", (await F.openFourteenDayRequests([{ ...(await MS(t.membershipId)), status: "paused" }], new Date())).length === 0 && (await M(t.monthId)).status === "given_up");
+    check("two minutes later it is day 15, and the press still counts: ended, the hold let go, nothing charged", afterTaking === null && (await MS(t.membershipId)).status === "ended" && (await MS(t.membershipId)).endedBy === t.member.id && (await M(t.monthId)).status === "given_up" && tIntent.status === "canceled" && tIntent.amount_received === 0, `${afterTaking} ${(await MS(t.membershipId)).status} ${tIntent.status}`);
 
     console.log("   …what it is not for");
     const over = await member(host);
