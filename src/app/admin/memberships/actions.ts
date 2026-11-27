@@ -25,7 +25,8 @@ export async function cancelWithin14DaysAction(formData: FormData) {
     await cancelWithin14Days({ membershipId, by: { as: "founder", adminId: admin.id, requestDay: String(formData.get("day") ?? "").trim() }, shownMonthId: UUID.test(shown) ? shown : undefined });
     notice = "The membership is cancelled within the 14 days. The member and the host are told. A hold is let go, calls still to come are cancelled, and what goes back to the card shows under \"Pay-backs not done\" until Stripe has confirmed it.";
   } catch (error) {
-    // On record, but not finished: calls may have been cancelled already, and the helper goes on with it.
+    // On record, but not finished (or stopped by a rule after the cancelling had begun): calls may have been
+    // cancelled already, so this never says "nothing was changed".
     if (error instanceof NotFinishedYet) notice = error.message;
     // Any other MembershipError is a refusal before anything changed. Anything else may have happened after the ending was saved.
     else if (error instanceof MembershipError) notice = `${error.message} Nothing was changed.`;

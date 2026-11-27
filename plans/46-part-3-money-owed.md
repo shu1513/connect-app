@@ -1475,10 +1475,15 @@ calls and a membership that ran on. Nothing recorded the first press.
   columns on `memberships`, migration 0065). For the founder's form, who entered it and the day
   the request reached Connect are saved too. It is never cleared: on an ended membership it
   says when the member asked.
-- **A later press counts from it.** With a request on record, the member's press is not asked
+- **A later press counts from it.** With a request on record, a later press is not asked
   about the 14 days again, whatever the day is by then. The founder's form has that day filled
   in. Every other rule is asked again at the later press, as things stand then: a first month
   that has ended, a bank's question, a payment with a problem, a form drawn for another month.
+- **Who asked first stays who asked.** Whoever presses later only finishes the request. If the
+  member pressed first, it ends as the member's own cancellation, on their day, also when the
+  founder's form finishes it (the day typed into the form then changes nothing). If the
+  founder entered a request in writing first, it ends as that, with its day, also when the
+  member's own press finishes it. The founder's record says who finished it.
 - **The helper finishes it by itself.** Each round it looks for requests on record whose
   membership is still running in the month they were asked for, and finishes them as whoever
   asked (the member's own account, or "admin" with the day entered). It leaves a press one
@@ -1498,7 +1503,11 @@ calls and a membership that ran on. Nothing recorded the first press.
   last day, and says from which day it counts.
 - **The founder's Memberships page** has a list "Cancelled within 14 days, not finished". It
   is normally empty. It names who asked and when, and either "the helper is finishing it" or
-  the rule that stops it, which then needs the founder.
+  the rule that stops it, which then needs the founder. A membership that has moved on to a
+  second month, or was paused when the first month ended, stays on the list: that is when the
+  founder is needed. Only a month that was given up with nothing taken is left off.
+- **Only the first month's calls are cancelled** by this button. A call booked from a month
+  that began while the cancelling was under way is never touched.
 - **Two presses of one request** (the member's second press and the helper, say) can meet. The
   one that comes second finds the membership ended this very way and says nothing more.
   Nothing is paid back twice: the ending is one step, and the pay-back has one line.
@@ -1516,16 +1525,48 @@ helper; the rest can be changed):
 5. The membership ends at the moment it is finished, not at the moment of the first press.
    Time used between the two is paid for like any time used before an ending.
 
-**Checked by** `scripts/member-calls-check.ts`, journey 11 (61 checks, 23 of them new),
-against Stripe's test mode. A trigger of the script's own makes the database refuse to cancel
-one call. A press on the last day is not finished and is on record; the page and the founder's
-list show it on day 15; a stranger, a bank's question, a payment with a problem and a month that
-has ended all still refuse; the press on day 15 ends the membership and pays the month back
-once, in one line; pressed again three ways, nothing more. The helper finishes one by itself,
-after leaving it a minute. The founder's form, not finished, is on record with its day and is
-finished by the helper as the founder's, with the action on record. A press during the taking
-of the money is on record and counts two minutes later, on day 15. A press on day 20 leaves
-nothing on record, and the helper can make nothing up. The real pages:
+**Checked by** `scripts/member-calls-check.ts`, journey 11, against Stripe's test mode. A
+trigger of the script's own makes the database refuse to cancel one call. A press on the last
+day is not finished and is on record; the page and the founder's list show it on day 15; a
+stranger, a bank's question, a payment with a problem and a month that has ended all still
+refuse; the press on day 15 ends the membership and pays the month back once, in one line;
+pressed again three ways, nothing more, and one email. The helper finishes one by itself,
+after leaving it a minute, and gets to it behind an older one that a rule stops. The
+founder's form finishes a member's own request, which stays the member's. The founder's form,
+not finished, is on record with its day; the member's press finishes it, and it stays the
+request in writing, on the founder's record once. Two presses of one request at the same
+moment (the form and the helper, with the first held between its two looks): no refusal, one
+ending, one email, one record, one pay-back. A request on record whose month ends first: the
+membership is paused and the founder's list keeps it. A press during the taking of the money
+is on record and counts two minutes later, on day 15. A press on day 20 leaves nothing on
+record, and the helper can make nothing up. The real pages:
 `scripts/membership-journey-check.ts`, part 4c: on day 20 no button; with a press of day 10 on
 record, the button and its sentence; the founder's list and the day filled in; his press ends
 it.
+
+**What Astra found in this change, and what was done.** It said "hold the merge", with eight
+points. All were taken.
+
+1. **A retry could cancel a call of the next month.** The calls were found by membership, not
+   by month. A request passing its first look just before the month's end could, after a
+   renewal, cancel a call booked from month two. The button now cancels the calls of its own
+   month only; the clean-up after an ending still takes every coming call.
+2. **Fifty requests that a rule stops could keep every later one from a try.** The helper took
+   the oldest fifty and stopped. It now goes through all of them, page after page, in every
+   round.
+3. **A request could vanish from the founder's list just when the founder was needed:** when
+   the first month ended and the membership was paused. The list now keeps every request whose
+   membership has not ended, except where the month was given up with nothing taken.
+4. **A later press could change who had asked and on which day,** in the email and on the
+   founder's record. Now whoever asked first stays who asked (see above).
+5. **The founder could still read "Nothing was changed"** after calls had been cancelled, when
+   a rule stopped the second look. Such a stop now says that calls may already have been
+   cancelled and that the request stays on record. And "ended meanwhile by another press" is
+   now seen under the lock itself, not by a second read.
+6. **The clean-up could be dated before the ending,** because it used the clock handed in
+   before the wait for the locks. It reads the clock afresh now. The lawyer's note said
+   "normally within a minute"; it now says what the code does.
+7. **The check did not play two presses at once.** It does now (above), and counts emails,
+   records and pay-backs after every press is done.
+8. **The page check skipped the founder's view when the page was broken.** It skips only when
+   the test admin's login is not set up; with the login, the page must open.

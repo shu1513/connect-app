@@ -9,7 +9,7 @@ vi.mock("./join", () => ({}));
 vi.mock("./locks", () => ({}));
 vi.mock("./state", () => ({}));
 
-import { BEING_TAKEN, callsForNote, CALLS_NOT_CANCELLED, dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, memberInTime, NOTHING_ON_RECORD, NotFinishedYet, requestDayRefusal, requestOnRecord, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays, type CallPayment } from "./fourteen-days";
+import { BEING_TAKEN, callsForNote, CALLS_NOT_CANCELLED, MONTH_ENDED_UNFINISHED, STOPPED_MEANWHILE, dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, memberInTime, NOTHING_ON_RECORD, NotFinishedYet, requestDayRefusal, requestOnRecord, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays, type CallPayment } from "./fourteen-days";
 import { MembershipError } from "./rules";
 
 const at = (iso: string) => new Date(iso);
@@ -99,6 +99,13 @@ describe("a request that is on record", () => {
     // Not a refusal like the others (calls may have been cancelled), but still a sentence for a person.
     expect(new NotFinishedYet(CALLS_NOT_CANCELLED)).toBeInstanceOf(MembershipError);
     expect(NOTHING_ON_RECORD).toContain("No request");
+  });
+
+  it("never says \"nothing was changed\" for a rule that stops it after the cancelling had begun, and sends the founder to settle a month that ended", () => {
+    expect(STOPPED_MEANWHILE).toContain("may already have been cancelled");
+    expect(STOPPED_MEANWHILE).toContain("stays on record");
+    expect(STOPPED_MEANWHILE).not.toContain("Nothing was changed");
+    expect(MONTH_ENDED_UNFINISHED).toContain("settle this case by hand");
   });
 });
 

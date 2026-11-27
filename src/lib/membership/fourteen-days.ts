@@ -27,7 +27,7 @@
  * the request stays on record: a later press counts as made in time, also after the 14 days, and
  * the helper finishes it by itself. Every other rule is asked again at that later moment.
  */
-import { and, eq, inArray, isNotNull, lte, ne } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, lte, ne, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Membership, MembershipMonth } from "@/db/schema";
 import { whenFor } from "@/lib/booking/emails";
@@ -227,6 +227,8 @@ export type Canceller = { as: "member"; memberId: string } | { as: "founder"; ad
  * have been cancelled already, and the helper goes on with it.
  */
 export class NotFinishedYet extends MembershipError {}
+/** Only inside this file: the second look found the membership ended this very way by another press of the same request. */
+class FinishedMeanwhile extends MembershipError {}
 
 /** What whoever pressed is told when it could not be finished: it is on record, and what happens next. */
 export const ON_RECORD = "The request is on record with the moment it was first made, so the 14 days cannot run out on it. Connect keeps trying to finish it by itself; you can also press again in a minute.";
@@ -234,6 +236,11 @@ export const ON_RECORD = "The request is on record with the moment it was first 
 export const CALLS_NOT_CANCELLED = `One of the calls booked from this membership could not be cancelled just now, so the membership was not cancelled yet. ${ON_RECORD}`;
 /** The month's money is being taken at this very moment: its outcome is not known yet, so nothing is ended yet. */
 export const BEING_TAKEN = `This month's payment is being taken at this moment, so the membership was not cancelled yet. ${ON_RECORD}`;
+/**
+ * A rule stopped it after the request was on record and the cancelling had begun (a bank's question that arrived
+ * in that moment, say). Added to the rule's own sentence: not "nothing was changed".
+ */
+export const STOPPED_MEANWHILE = "This came up while the cancelling was under way: calls booked from this membership that were still to come may already have been cancelled. The request stays on record.";
 /** The helper was asked to finish a request that is not on record: it never makes one up. */
 export const NOTHING_ON_RECORD = "No request to cancel this membership within 14 days is on record for its current month.";
 
@@ -246,8 +253,9 @@ export const NOTHING_ON_RECORD = "No request to cancel this membership within 14
  * is written down, with this moment. That is the member's own press on one of the 14 days, or the founder's form
  * with a day that counts; nothing else can make one. The helper never does: it only finishes what is on record.
  *
- * With a request on record, the member's later press is not asked about the 14 days again. Everything else is
- * asked again, as it stands now: the first month's end, a bank's question, a payment with a problem.
+ * With a request on record, a later press is not asked about the 14 days again, and it is finished as whoever
+ * asked first: a later press never changes who asked or on which day. Everything else is asked again, as it
+ * stands now: the first month's end, a bank's question, a payment with a problem.
  *
  * `fixedAt` is the moment of a first look that already said yes: the second look, right before the ending, judges
  * the month's end by that same moment, so that a press a second before the month ends is not refused a second
@@ -256,7 +264,7 @@ export const NOTHING_ON_RECORD = "No request to cancel this membership within 14
  * `taking` says that the month's money is being taken at this very moment. That is handed back, not thrown: the
  * request that was just written down must stay written down.
  */
-async function decide(tx: Tx, input: { membershipId: string; by: Canceller; shownMonthId?: string; now?: Date }, fixedAt?: Date): Promise<{ membership: Membership; month: MembershipMonth; joinedAt: Date; at: Date; who: Asker; taking: boolean }> {
+async function decide(tx: Tx, input: { membershipId: string; by: Canceller; shownMonthId?: string; now?: Date }, fixedAt?: Date): Promise<{ membership: Membership; month: MembershipMonth; joinedAt: Date; at: Date; /** Who asked first: the request on record, or this press when it is the first. */ who: Asker; /** Whether this press is the one that put the request on record. */ first: boolean; taking: boolean }> {
   const { by } = input;
   const [found] = await tx.select({ hostId: schema.memberships.hostId, customerId: schema.memberships.customerId }).from(schema.memberships).where(eq(schema.memberships.id, input.membershipId));
   // Someone else's membership and one that does not exist look the same.
@@ -264,6 +272,9 @@ async function decide(tx: Tx, input: { membershipId: string; by: Canceller; show
   await lockCalendar(tx, found.hostId);
   await lockPeople(tx, [found.hostId, found.customerId]);
   const membership = await lockMembership(tx, input.membershipId);
+  // The second look of a press whose first look said yes: if the membership has ended this very way meanwhile,
+  // another press of the same request got there first (the member's second press, or the helper).
+  if (fixedAt && membership.status === "ended" && membership.endedReason === FOURTEEN_DAYS_REASON && membership.fourteenAskedAt) throw new FinishedMeanwhile(WHY_FOR_FOUNDER.ended);
   // Its current month is locked before anything is judged (a collection, or the taking of the money, can hold it).
   if (membership.currentMonthId) await lockMonth(tx, membership.currentMonthId);
   // The moment is taken only now, with every lock held: which side of the month's end, and of the last day, it
@@ -278,14 +289,18 @@ async function decide(tx: Tx, input: { membershipId: string; by: Canceller; show
   const onRecord = requestOnRecord(membership, month.id);
   // The helper finishes a request as whoever asked it, and has nothing to finish without one.
   if (by.as === "helper" && !onRecord) throw new MembershipError(NOTHING_ON_RECORD);
-  const who: Asker = by.as === "helper" ? onRecord!.by : by.as === "member" ? { as: "member" } : { as: "founder", adminId: by.adminId, requestDay: by.requestDay };
-  if (who.as === "member") {
+  // With a request on record, it is finished as whoever asked first, on the day that is on record: whoever presses
+  // now only finishes it, and the day the founder's form carries is not looked at. Without one, this press is judged.
+  let who: Asker;
+  if (onRecord) who = onRecord.by;
+  else if (by.as === "member") {
     if (!memberInTime({ joinedAt: judged.joinedAt, now: at, onRecord })) throw new MembershipError(DAYS_OVER_FOR_MEMBER);
-  } else {
-    // The founder's day is always checked: with a request on record, the form carries the day of that request.
-    const refusal = requestDayRefusal({ requestDay: who.requestDay, joinedAt: judged.joinedAt, now: at });
+    who = { as: "member" };
+  } else if (by.as === "founder") {
+    const refusal = requestDayRefusal({ requestDay: by.requestDay, joinedAt: judged.joinedAt, now: at });
     if (refusal) throw new MembershipError(refusal);
-  }
+    who = { as: "founder", adminId: by.adminId, requestDay: by.requestDay };
+  } else throw new MembershipError(NOTHING_ON_RECORD);
   // Every rule has passed. The first time that happens, it is written down, before anything is cancelled.
   let recorded = membership;
   if (!onRecord) {
@@ -297,7 +312,7 @@ async function decide(tx: Tx, input: { membershipId: string; by: Canceller; show
   }
   // If the month's money is being taken at this very moment, its outcome is not known yet.
   const [taking] = await tx.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.monthId, month.id), eq(schema.moneyOperations.kind, "capture"), eq(schema.moneyOperations.status, "started")));
-  return { membership: recorded, month, joinedAt: judged.joinedAt, at, who, taking: Boolean(taking) };
+  return { membership: recorded, month, joinedAt: judged.joinedAt, at, who, first: !onRecord, taking: Boolean(taking) };
 }
 
 /**
@@ -327,17 +342,19 @@ export async function cancelWithin14Days(input: { membershipId: string; by: Canc
   const { by } = input;
   // A first look: every refusal comes before any call is cancelled, and the request is on record from here on.
   const first = await db.transaction(async (tx) => {
-    const { at, taking } = await decide(tx, input);
-    return { at, taking };
+    const { at, taking, month } = await decide(tx, input);
+    return { at, taking, monthId: month.id };
   });
   if (first.taking) throw new NotFinishedYet(BEING_TAKEN);
-  // The calls still to come. (Each in a step of its own, with its own locks: the membership's are not held here.)
-  if (!(await cancelUpcomingMemberCalls(input.membershipId, first.at))) throw new NotFinishedYet(CALLS_NOT_CANCELLED);
+  // The calls still to come, of this month alone: a month that begins while this is under way is none of its
+  // business. (Each call in a step of its own, with its own locks: the membership's are not held here.)
+  if (!(await cancelUpcomingMemberCalls(input.membershipId, first.at, first.monthId))) throw new NotFinishedYet(CALLS_NOT_CANCELLED);
 
-  // The ending, judged once more under the locks, by the moment of the first look.
-  const ended = await db
-    .transaction(async (tx) => {
-      const { membership, month, joinedAt, at, who, taking } = await decide(tx, input, first.at);
+  // The ending, judged once more under the locks, by the moment of the first look, and for the same month.
+  let ended: boolean;
+  try {
+    ended = await db.transaction(async (tx) => {
+      const { membership, month, joinedAt, at, who, taking } = await decide(tx, { ...input, shownMonthId: first.monthId }, first.at);
       if (taking) throw new NotFinishedYet(BEING_TAKEN);
       // The payments of this month's calls (a call can have more than one: its own, and time added from the membership).
       const payments = await tx
@@ -357,23 +374,30 @@ export async function cancelWithin14Days(input: { membershipId: string; by: Canc
         unsettled: calls.unsettled,
       });
 
+      // The founder's record: the request that came in writing, under whoever entered it; and a member's own
+      // request that the founder's form finished, under whoever pressed.
+      const action = { action: "membership cancelled within 14 days", targetUserId: membership.customerId, targetId: membership.id };
       if (who.as === "founder") {
-        await recordAdminAction({ adminId: who.adminId, action: "membership cancelled within 14 days", targetUserId: membership.customerId, targetId: membership.id, detail: `The request reached Connect on ${who.requestDay}; joined ${dayOf(joinedAt)}.${by.as === "helper" ? " Finished by the helper: it could not be finished when the form was pressed." : ""}` }, tx);
+        const finishedBy = by.as === "helper" ? " Finished by the helper: it could not be finished when the form was pressed." : by.as === "member" ? " Finished by the member's own press: it could not be finished when the form was pressed." : "";
+        await recordAdminAction({ ...action, adminId: who.adminId, detail: `The request reached Connect on ${who.requestDay}; joined ${dayOf(joinedAt)}.${finishedBy}` }, tx);
+      } else if (by.as === "founder") {
+        await recordAdminAction({ ...action, adminId: by.adminId, detail: `The member pressed their own button on ${dayOf(membership.fourteenAskedAt ?? at)}, and it could not be finished then; finished with the founder's form. Joined ${dayOf(joinedAt)}.` }, tx);
       }
-      // (Who ended it: "admin", or the member's own account, as for every ending.)
+      // (Who ended it: "admin", or the member's own account, as for every ending. It is whoever asked first.)
       return endMembership(tx, membership, { by: who.as === "founder" ? "admin" : membership.customerId, reason: FOURTEEN_DAYS_REASON, memberNote: note }, at);
-    })
-    .catch(async (error) => {
-      // The first look said yes, and by now the membership has ended this very way: another press of the same
-      // request got there first (the member's second press, or the helper). This press has what it asked for.
-      if (error instanceof MembershipError && !(error instanceof NotFinishedYet)) {
-        const [now] = await db.select({ status: schema.memberships.status, endedReason: schema.memberships.endedReason }).from(schema.memberships).where(eq(schema.memberships.id, input.membershipId));
-        if (now?.status === "ended" && now.endedReason === FOURTEEN_DAYS_REASON) return false;
-      }
-      throw error;
     });
-  // The clean-up: the hold let go, free money owed back, and any call booked in the moment between. The helper repeats it until it is done.
-  if (ended) await cleanUpEnding(input.membershipId, input.now ?? new Date()).catch((error) => console.error(`[membership] the clean-up of membership ${input.membershipId}, cancelled within 14 days, did not finish; the helper will retry`, error));
+  } catch (error) {
+    // Another press of the same request got there first: this press has what it asked for, and adds nothing.
+    if (error instanceof FinishedMeanwhile) return;
+    // A rule that stops it only now, with the request on record and calls perhaps cancelled: said as that, never
+    // as "nothing was changed".
+    if (error instanceof MembershipError && !(error instanceof NotFinishedYet)) throw new NotFinishedYet(`${error.message} ${STOPPED_MEANWHILE}`);
+    throw error;
+  }
+  // The clean-up: the hold let go, free money owed back, and any call booked in the moment between. The helper
+  // repeats it until it is done. (Its clock is read now: a moment handed in before the wait for the locks would
+  // date the clean-up before the ending.)
+  if (ended) await cleanUpEnding(input.membershipId, new Date(Math.max(first.at.getTime(), Date.now()))).catch((error) => console.error(`[membership] the clean-up of membership ${input.membershipId}, cancelled within 14 days, did not finish; the helper will retry`, error));
 }
 
 /** A press is left this long to finish by itself before the helper takes its request up. */
@@ -386,44 +410,67 @@ const LIVE = ["joining", "active", "unpaid"];
  * was being taken) are finished, as whoever asked them, without anybody pressing again. Only a membership that is
  * still in the month the request was for is looked at, and only while the case is open as it stands now: one that
  * a rule stops (a bank's question, a payment with a problem) waits for the founder, whose page lists it.
+ *
+ * Every such request gets its turn in every round, page after page (`batch` at a time): ones that a rule stops,
+ * or that keep failing, never keep a later one from being tried.
  */
-export async function runFourteenDayRequests(now: Date): Promise<void> {
-  const waiting = await db
-    .select()
-    .from(schema.memberships)
-    .where(and(isNotNull(schema.memberships.fourteenAskedAt), lte(schema.memberships.fourteenAskedAt, new Date(now.getTime() - LEFT_TO_FINISH_MS)), inArray(schema.memberships.status, LIVE), eq(schema.memberships.currentMonthId, schema.memberships.fourteenMonthId)))
-    .orderBy(schema.memberships.fourteenAskedAt)
-    .limit(50);
-  for (const membership of waiting) {
-    try {
-      // Asked without a lock first, so that a case a rule stops is not locked round after round.
-      if (!(await fourteenDayCase(db, membership, now)).ok) continue;
-      await cancelWithin14Days({ membershipId: membership.id, by: { as: "helper" }, shownMonthId: membership.fourteenMonthId ?? undefined, now });
-      console.log(`[membership] finished the cancelling within 14 days of membership ${membership.id}, asked on ${dayOf(membership.fourteenAskedAt!)}`);
-    } catch (error) {
-      if (error instanceof MembershipError) console.log(`[membership] the cancelling within 14 days of membership ${membership.id} is not finished yet: ${error.message}`);
-      else console.error(`[membership] could not finish the cancelling within 14 days of membership ${membership.id}; will retry`, error);
+export async function runFourteenDayRequests(now: Date, batch = 50): Promise<void> {
+  const m = schema.memberships;
+  const old = new Date(now.getTime() - LEFT_TO_FINISH_MS);
+  let after: { askedAt: Date; id: string } | null = null;
+  for (;;) {
+    const page: Membership[] = await db
+      .select()
+      .from(m)
+      .where(and(isNotNull(m.fourteenAskedAt), lte(m.fourteenAskedAt, old), inArray(m.status, LIVE), eq(m.currentMonthId, m.fourteenMonthId), after ? or(gt(m.fourteenAskedAt, after.askedAt), and(eq(m.fourteenAskedAt, after.askedAt), gt(m.id, after.id))) : undefined))
+      .orderBy(m.fourteenAskedAt, m.id)
+      .limit(batch);
+    for (const membership of page) {
+      try {
+        // Asked without a lock first, so that a case a rule stops is not locked round after round.
+        if (!(await fourteenDayCase(db, membership, now)).ok) continue;
+        await cancelWithin14Days({ membershipId: membership.id, by: { as: "helper" }, shownMonthId: membership.fourteenMonthId ?? undefined, now });
+        console.log(`[membership] finished the cancelling within 14 days of membership ${membership.id}, asked on ${dayOf(membership.fourteenAskedAt!)}`);
+      } catch (error) {
+        if (error instanceof MembershipError) console.log(`[membership] the cancelling within 14 days of membership ${membership.id} is not finished yet: ${error.message}`);
+        else console.error(`[membership] could not finish the cancelling within 14 days of membership ${membership.id}; will retry`, error);
+      }
     }
+    if (page.length < batch) return;
+    const last = page[page.length - 1];
+    after = { askedAt: last.fourteenAskedAt!, id: last.id };
   }
 }
 
 /** A request on record that is not finished, for the founder's page. */
 export type OpenRequest = { membershipId: string; askedDay: string; by: Asker; /** Why it cannot be finished as things stand, in the founder's sentence; null when it can, and the helper is at it. */ stoppedBy: string | null };
 
+/** The request was in time and was not finished before its month ended: the founder's sentence. */
+export const MONTH_ENDED_UNFINISHED = "The first month ended before this could be finished. Its unused money may have gone to the host, and a second month may have begun or the membership may be paused: settle this case by hand.";
+
 /**
  * For the founder's page: every request on record whose membership has not ended. Normally none: a press finishes
  * in the same moment, and the helper finishes what a press could not. What stays here is what a rule stops (a
  * bank's question, a payment with a problem, a first month that ended meanwhile), which the founder settles.
+ *
+ * Wider than what the helper looks at: a membership that has moved on from the month of the request, or was
+ * paused when that month ended, is listed too, because that is exactly when the founder is needed. The one case
+ * left out is a month that was given up without any money taken (the member's "Cancel now", say): nothing is owed.
  */
 export async function openFourteenDayRequests(memberships: Membership[], now: Date): Promise<OpenRequest[]> {
   const open: OpenRequest[] = [];
   for (const membership of memberships) {
-    if (!membership.fourteenAskedAt || !membership.fourteenMonthId || !LIVE.includes(membership.status)) continue;
+    if (!membership.fourteenAskedAt || !membership.fourteenMonthId || membership.status === "ended") continue;
     const onRecord = requestOnRecord(membership, membership.fourteenMonthId)!;
-    const judged = await fourteenDayCase(db, membership, now);
-    // A membership that has moved on to another month is past its first month, whatever that month is.
-    const stoppedBy = judged.ok ? (judged.month.id === membership.fourteenMonthId ? null : WHY_FOR_FOUNDER.month_over) : WHY_FOR_FOUNDER[judged.why];
-    open.push({ membershipId: membership.id, askedDay: dayOf(onRecord.askedAt), by: onRecord.by, stoppedBy });
+    const listed = (stoppedBy: string | null) => open.push({ membershipId: membership.id, askedDay: dayOf(onRecord.askedAt), by: onRecord.by, stoppedBy });
+    if (membership.currentMonthId === membership.fourteenMonthId && LIVE.includes(membership.status)) {
+      const judged = await fourteenDayCase(db, membership, now);
+      listed(judged.ok ? null : WHY_FOR_FOUNDER[judged.why]);
+      continue;
+    }
+    // No longer in the month of the request: listed unless that month never became money.
+    const [month] = await db.select({ status: schema.membershipMonths.status }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, membership.fourteenMonthId));
+    if (month && month.status !== "given_up") listed(MONTH_ENDED_UNFINISHED);
   }
   return open;
 }

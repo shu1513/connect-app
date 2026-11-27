@@ -200,12 +200,15 @@ async function main() {
     await payInBrowser(person, started.membershipId, started.monthId);
     return { person, ...started };
   }
-  /** The test admin, signed in with the second step when that login is set up on this machine (test-accounts.local.md); otherwise not signed in. */
-  async function founderSignedIn(): Promise<Person> {
+  /**
+   * The test admin, signed in with the second step when that login is set up on this machine
+   * (test-accounts.local.md). `setUp` says whether it is: only without it may the founder's view be skipped.
+   */
+  async function founderSignedIn(): Promise<Person & { setUp: boolean }> {
     const accounts = existsSync("test-accounts.local.md") ? readFileSync("test-accounts.local.md", "utf8").split("\n") : [];
     const adminSecret = accounts.find((l) => l.startsWith("admin TOTP secret:"))?.replace("admin TOTP secret:", "").trim();
     const adminPassword = accounts.find((l) => l.includes("admin@test.local"))?.split("|").map((c) => c.trim())[3];
-    const admin: Person = { id: "", name: "admin", email: "admin@test.local", jar: new Map() };
+    const admin = { id: "", name: "admin", email: "admin@test.local", jar: new Map() as Jar, setUp: Boolean(adminSecret && adminPassword) };
     if (adminSecret && adminPassword) {
       await send("/api/auth/sign-in/email", { json: { email: "admin@test.local", password: adminPassword }, jar: admin.jar });
       await send("/api/auth/two-factor/verify-totp", { json: { code: totpCode(adminSecret), trustDevice: false }, jar: admin.jar });
@@ -430,9 +433,10 @@ async function main() {
     check("with his press of day 10 on record, the button is there on day 20, and the page says it is on record and from which day", formsOf(gusOpen.text).some((f) => f.buttons.includes("Cancel within 14 days")) && gusOpen.words.includes(`You pressed "Cancel within 14 days" on ${gusDay} (UTC), in time, and it could not be finished yet.`) && gusOpen.words.includes("It is on record, so the 14 days cannot run out on it") && gusOpen.words.includes("ends your membership at once, for good"), gusOpen.words.slice(0, 400));
     const early = await founderSignedIn();
     const earlyPage = await page("/admin/memberships", early);
-    if (earlyPage.status !== 200) {
+    if (!early.setUp) {
       console.log("   SKIPPED the founder's view of it: the test admin's login is not set up (npx tsx scripts/secure-test-admin.ts).");
     } else {
+      check("the founder's page opens for the signed-in founder", earlyPage.status === 200, earlyPage.status);
       const gusForm = formsOf(earlyPage.text).find((f) => f.buttons.includes("Cancel this membership within the 14 days") && f.fields.some(([name, value]) => name === "membership" && value === gus.membershipId));
       check("the founder's page lists it under \"Cancelled within 14 days, not finished\", and his membership's form has the day filled in", earlyPage.words.includes("Cancelled within 14 days, not finished") && earlyPage.words.includes(`${gus.person.name} with ${host.name}: the member pressed their own button on ${gusDay}`) && earlyPage.words.includes("The helper is finishing it.") && gusForm !== undefined && gusForm.fields.some(([name, value]) => name === "day" && value === gusDay), `${JSON.stringify(gusForm?.fields)} ${earlyPage.words.match(/Cancelled within 14 days, not finished.{0,500}/)?.[0] ?? "(no such list)"}`);
       await send("/api/auth/sign-out", { json: {}, jar: early.jar });
@@ -669,9 +673,10 @@ async function main() {
     const admin = await founderSignedIn();
     check("the founder's page is \"not found\" for a host and for a member", (await page("/admin/memberships", host)).status === 404 && (await page("/admin/memberships", alice)).status === 404);
     const founder = await page("/admin/memberships", admin);
-    if (founder.status !== 200) {
+    if (!admin.setUp) {
       console.log("   SKIPPED the founder's own view: the test admin's login is not set up (npx tsx scripts/secure-test-admin.ts).");
     } else {
+      check("the founder's page opens for the signed-in founder", founder.status === 200, founder.status);
       check("the founder sees every membership of this journey with where it stands, and each month's six places", [alice, bob.person, carol.person, dave.person, erin.person].every((p) => founder.words.includes(`${p.name} with ${host.name}`)) && founder.words.includes("Ended: the host ended it.") && founder.words.includes("Set aside") && founder.words.includes("The host paused it after this month.") && !founder.words.includes("THE PLACES DO NOT ADD UP"), founder.words.slice(0, 400));
       // The one thing the page changes: a new membership cancelled within 14 days, for a member who wrote to us (plans/46, part 3c).
       const founderForms = formsOf(founder.text);

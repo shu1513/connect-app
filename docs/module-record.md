@@ -5740,6 +5740,29 @@ being taken, which was also answered "try again in a minute", is on record in th
 All of it is in `src/lib/membership/fourteen-days.ts`; the full account is at the end of
 `plans/46-part-3-money-owed.md`.
 
+Whoever asked first stays who asked: a later press only finishes the request, and never
+changes whose it was or its day. The button cancels the calls of its own month only.
+
+**What the reviewer found.** Astra said "hold the merge" with eight points, all taken (the list
+is at the end of the plan). The ones that mattered most: a retry could have cancelled a call
+booked from the next month; a request could vanish from the founder's list exactly when the
+first month ended and the founder was needed; a later press could change who had asked and on
+which day; and the founder could still read "Nothing was changed" after calls had been
+cancelled.
+
+**How it was checked.** Type check, lint, the automatic tests (7 new: the request on record,
+its month, who asked, the sentences). `scripts/member-calls-check.ts`, journey 11 (72 checks,
+34 of them new), against Stripe's test mode, with a trigger of the script's own that makes the
+database refuse, or take two seconds, to cancel one call: a press on the last day finished on
+day 15; the helper finishing one by itself, behind an older one that a rule stops; the
+founder's form finishing a member's request and the other way round; two presses at the same
+moment; a month that ends first; a press during the taking of the money; a press that was too
+late. The whole of that script once (303 checks at the time). The real pages in
+`scripts/membership-journey-check.ts` (124 checks, 6 new).
+
+**What the checks cannot cover.** A real database fault in the middle of a real press. The
+helper's own loop over many days (its job is called directly, with the clock moved).
+
 **What was not built.** A button for the founder to mark a line of that list as settled by
 hand. A cancellation after the first month has ended (still the founder, by hand, also when a
 request in time is on record). The phone apps' button (plan 45, part 13c), which will use the
