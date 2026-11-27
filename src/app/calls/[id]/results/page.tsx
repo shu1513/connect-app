@@ -152,7 +152,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   // after a cancelled or missed call too. Fetched only for the host of this call, with the logged-in person as the
   // host, and never loaded for anyone else: a founder looking at someone else's call is "admin" here and gets nothing.
   const note = role === "host" ? await hostNoteAbout(user.id, call.customerId) : null;
-  // A call ended with the call's red button. With "End call now" (plans/50) the page says who ended it and which
+  // A call ended with the call's red button. With "End call now" (plans/51) the page says who ended it and which
   // rule the charge follows; a host is never told here that she was reported. A call ended with the earlier
   // button, "End call and report", keeps its own line: its charge is the founder's to decide.
   const oldStop = call.safetyEndedAt !== null && call.endedNowBy === null;

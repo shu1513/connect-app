@@ -23,7 +23,7 @@ export default async function ReportPage(props: PageProps<"/report">) {
   // Said only when true: the call really was ended with the button. And "has been ended for both" only once the
   // room is written down as closed; until then, "is being ended" (as in the phone app).
   const stop = context === "call" ? await callStopState(user.id, contextId) : "no";
-  // For a customer who ended the call himself: what a report does to that call's charge right now (plans/50, decision 19).
+  // For a customer who ended the call himself: what a report does to that call's charge right now (plans/51, decision 19).
   const ended = stop !== "no" ? await endedScreenFor(user.id, contextId, new Date()) : null;
   const money = ended && ended !== "not_ended" ? ended.report.money : null;
   const field = "mt-1 w-full rounded border border-neutral-400 bg-transparent px-3 py-2";

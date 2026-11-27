@@ -132,7 +132,7 @@ Testing tools:
 - `npx tsx scripts/safety-check.ts` runs the safety journeys: the admin's second login step, pausing,
   blocking, "End call now", reports and the founder's actions, the identity check, and the
   stop switches. Needs the app running and the test admin set up as above.
-- `npx tsx scripts/end-now-check.ts` runs "End call now" (plans/50): who pressed, how the call is
+- `npx tsx scripts/end-now-check.ts` runs "End call now" (plans/51): who pressed, how the call is
   charged in each case (with real holds and charges in the Stripe sandbox), what a customer's report
   after his own press does to the charge, the guard against repeated reports, and the screen with
   "Report", "Block" and "Neither". Needs the app running (`--app=<address>` if not on port 3000) and

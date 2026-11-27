@@ -1,6 +1,6 @@
 /**
  * The website's "End call now" step, for its address and for the address the button had before
- * (plans/50-end-call-now.md, decision 23): a page that was open when the app was updated still
+ * (plans/51-end-call-now.md, decision 23): a page that was open when the app was updated still
  * presses a button that ends the call.
  */
 import "server-only";

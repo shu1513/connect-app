@@ -24,7 +24,7 @@ export function paidHowWords(input: { kind: string | null; role: "host" | "custo
 }
 
 /** The points of the confirm-and-pay step: what it costs, that it is only held, what is paid for, and the cancelling rule. */
-export function payPoints(input: { pricePer15: string; bookedPrice: string; billing: string; cancelRule: string; /** This booking was made under words that say what "End call now" costs (plans/50). */ wholeBookingSaid?: boolean }): Part[][] {
+export function payPoints(input: { pricePer15: string; bookedPrice: string; billing: string; cancelRule: string; /** This booking was made under words that say what "End call now" costs (plans/51). */ wholeBookingSaid?: boolean }): Part[][] {
   const { bookedPrice } = input;
   return [
     [`This call costs ${input.pricePer15} per 15 minutes, up to `, { bold: bookedPrice }, " in total."],

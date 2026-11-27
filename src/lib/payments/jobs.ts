@@ -609,7 +609,7 @@ export async function flagChangedRecords(now: Date): Promise<void> {
       and(
         eq(schema.payments.status, "charged"),
         // Both kinds of charge that were worked out from the record: by the time that counted, and that plus the
-        // rest of the booking after the customer ended the call (plans/50).
+        // rest of the booking after the customer ended the call (plans/51).
         inArray(schema.payments.chargeReason, ["attendance", "customer_ended"]),
         eq(schema.payments.flaggedAfterCharge, false),
         isNotNull(schema.payments.pricedThroughEventId),

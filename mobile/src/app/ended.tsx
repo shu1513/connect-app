@@ -10,7 +10,7 @@ import { isBlocked, isEndedScreen } from "@/lib/room-rules";
 import { Button, Card, Loading, Notice, Page, Problem, Words } from "@/ui/pieces";
 
 /**
- * The screen after "End call now" (plans/50-end-call-now.md, decision 19): who ended the call,
+ * The screen after "End call now" (plans/51-end-call-now.md, decision 19): who ended the call,
  * what that means for the money, and three choices, each with what it does: "Report" (the
  * report form), "Block" (asked once more, then done) and "Neither". The call is over whatever
  * is chosen here, or if this screen is simply left. Every sentence comes from the server, and

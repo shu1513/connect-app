@@ -26,7 +26,7 @@ const joined = (who: "host_id" | "customer_id") =>
  * talked, when the latest call that counts was agreed, and whether an old "End call and report"
  * stands between them with no call that counts since (then the conversation is simply closed).
  *
- * A call ended with "End call now" (plans/50-end-call-now.md, decision 22) counts like any other
+ * A call ended with "End call now" (plans/51-end-call-now.md, decision 22) counts like any other
  * call that was not cancelled: a plain end closes nothing, and a block or a report closes the
  * conversation by itself. Only a call ended with the earlier button, "End call and report"
  * (the mark without `endedNowBy`), still cuts the two off until both have acted again

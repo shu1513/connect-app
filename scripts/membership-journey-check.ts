@@ -200,6 +200,21 @@ async function main() {
     await payInBrowser(person, started.membershipId, started.monthId);
     return { person, ...started };
   }
+  /**
+   * The test admin, signed in with the second step when that login is set up on this machine
+   * (test-accounts.local.md). `setUp` says whether it is: only without it may the founder's view be skipped.
+   */
+  async function founderSignedIn(): Promise<Person & { setUp: boolean }> {
+    const accounts = existsSync("test-accounts.local.md") ? readFileSync("test-accounts.local.md", "utf8").split("\n") : [];
+    const adminSecret = accounts.find((l) => l.startsWith("admin TOTP secret:"))?.replace("admin TOTP secret:", "").trim();
+    const adminPassword = accounts.find((l) => l.includes("admin@test.local"))?.split("|").map((c) => c.trim())[3];
+    const admin = { id: "", name: "admin", email: "admin@test.local", jar: new Map() as Jar, setUp: Boolean(adminSecret && adminPassword) };
+    if (adminSecret && adminPassword) {
+      await send("/api/auth/sign-in/email", { json: { email: "admin@test.local", password: adminPassword }, jar: admin.jar });
+      await send("/api/auth/two-factor/verify-totp", { json: { code: totpCode(adminSecret), trustDevice: false }, jar: admin.jar });
+    }
+    return admin;
+  }
   /** The always-on helper's membership work, now: it finishes what a step left for it (a hold to let go, a clean-up). */
   async function helper() {
     for (let i = 0; i < 2; i++) {
@@ -397,6 +412,44 @@ async function main() {
     check("she and the host are told by email", Boolean(await emailTo(fay.person.email, "has ended")) && Boolean(await emailTo(host.email, "Fay")));
     const fayAgain = await press(fay.person, fayPath, "Cancel within 14 days", {}, { drawn: fayDrawn });
     check("the same form pressed again is refused: it has already ended", fayAgain.found && /already ended/.test(noticeOf(fayAgain)), noticeOf(fayAgain));
+
+    // ----------------------------------------------------------------------
+    console.log("\n4c. A press that was in time and could not be finished: the button stays after the 14 days");
+    // (Sign-ups are limited to 10 an hour, and with Gus this journey has eleven. The counters are test data here,
+    // emptied when the script starts and again when it ends.)
+    await db.delete(schema.rateLimit);
+    const gus = await memberOf(host, "Gus");
+    const gusPath = `/memberships/${gus.membershipId}`;
+    // Day 20 of his membership: the moment the bank said yes is moved back 20 days.
+    await db.update(months).set({ authorisedAt: new Date(Date.now() - 20 * DAY) }).where(eq(months.id, gus.monthId));
+    const gusLate = await page(gusPath, gus.person);
+    check("on day 20 his page offers no \"Cancel within 14 days\"", gusLate.status === 200 && !formsOf(gusLate.text).some((f) => f.buttons.includes("Cancel within 14 days")) && !/data-fourteen-on-record/.test(gusLate.text));
+    // His press of day 10, as the library writes it down when it passed every rule and could not be finished
+    // (scripts/member-calls-check.ts plays that with a real press and a call the database will not cancel).
+    const gusAsked = new Date(Date.now() - 10 * DAY);
+    const gusDay = gusAsked.toISOString().slice(0, 10);
+    await db.update(schema.memberships).set({ fourteenAskedAt: gusAsked, fourteenMonthId: gus.monthId }).where(eq(schema.memberships.id, gus.membershipId));
+    const gusOpen = await page(gusPath, gus.person);
+    check("with his press of day 10 on record, the button is there on day 20, and the page says it is on record and from which day", formsOf(gusOpen.text).some((f) => f.buttons.includes("Cancel within 14 days")) && gusOpen.words.includes(`You pressed "Cancel within 14 days" on ${gusDay} (UTC), in time, and it could not be finished yet.`) && gusOpen.words.includes("It is on record, so the 14 days cannot run out on it") && gusOpen.words.includes("ends your membership at once, for good"), gusOpen.words.slice(0, 400));
+    const early = await founderSignedIn();
+    const earlyPage = await page("/admin/memberships", early);
+    if (!early.setUp) {
+      console.log("   SKIPPED the founder's view of it: the test admin's login is not set up (npx tsx scripts/secure-test-admin.ts).");
+    } else {
+      check("the founder's page opens for the signed-in founder", earlyPage.status === 200, earlyPage.status);
+      const gusForm = formsOf(earlyPage.text).find((f) => f.buttons.includes("Cancel this membership within the 14 days") && f.fields.some(([name, value]) => name === "membership" && value === gus.membershipId));
+      check("the founder's page lists it under \"Cancelled within 14 days, not finished\", and his membership's form has the day filled in", earlyPage.words.includes("Cancelled within 14 days, not finished") && earlyPage.words.includes(`${gus.person.name} with ${host.name}: the member pressed their own button on ${gusDay}`) && earlyPage.words.includes("The helper is finishing it.") && gusForm !== undefined && gusForm.fields.some(([name, value]) => name === "day" && value === gusDay), `${JSON.stringify(gusForm?.fields)} ${earlyPage.words.match(/Cancelled within 14 days, not finished.{0,500}/)?.[0] ?? "(no such list)"}`);
+      await send("/api/auth/sign-out", { json: {}, jar: early.jar });
+    }
+    // A rule that stops it for now (a payment with a problem): no button, but the page still says it is on record.
+    await db.update(months).set({ problem: "Stripe took $20.00 of $60.00." }).where(eq(months.id, gus.monthId));
+    const gusBlocked = await page(gusPath, gus.person);
+    check("while a payment problem stops it, his page has no such button, and still says the request is on record and what stops it", gusBlocked.status === 200 && !formsOf(gusBlocked.text).some((f) => f.buttons.includes("Cancel within 14 days")) && /data-fourteen-on-record/.test(gusBlocked.text) && gusBlocked.words.includes(`You pressed "Cancel within 14 days" on ${gusDay} (UTC), in time, and it could not be finished yet.`) && gusBlocked.words.includes("It cannot be finished while there is a problem with this month's payment"), gusBlocked.words.slice(0, 400));
+    await db.update(months).set({ problem: null }).where(eq(months.id, gus.monthId));
+    const gusCancelled = await press(gus.person, gusPath, "Cancel within 14 days");
+    await helper();
+    const gusAfter = await page(gusPath, gus.person);
+    check("his press on day 20 ends it, because the first one was in time; afterwards the button is gone", gusCancelled.found && /Your membership is cancelled and has ended/.test(noticeOf(gusCancelled)) && (await MS(gus.membershipId)).status === "ended" && (await MS(gus.membershipId)).endedBy === gus.person.id && gusAfter.words.includes("it was cancelled within 14 days of joining, as the member asked") && !formsOf(gusAfter.text).some((f) => f.buttons.includes("Cancel within 14 days")), `${noticeOf(gusCancelled)} | ${gusAfter.words.slice(0, 200)}`);
 
     // ----------------------------------------------------------------------
     console.log("\n5. She books a time that is for members only");
@@ -622,24 +675,18 @@ async function main() {
 
     // ----------------------------------------------------------------------
     console.log("\n13. The founder's page");
-    const accounts = existsSync("test-accounts.local.md") ? readFileSync("test-accounts.local.md", "utf8").split("\n") : [];
-    const adminSecret = accounts.find((l) => l.startsWith("admin TOTP secret:"))?.replace("admin TOTP secret:", "").trim();
-    const adminPassword = accounts.find((l) => l.includes("admin@test.local"))?.split("|").map((c) => c.trim())[3];
-    const admin: Person = { id: "", name: "admin", email: "admin@test.local", jar: new Map() };
-    if (adminSecret && adminPassword) {
-      await send("/api/auth/sign-in/email", { json: { email: "admin@test.local", password: adminPassword }, jar: admin.jar });
-      await send("/api/auth/two-factor/verify-totp", { json: { code: totpCode(adminSecret), trustDevice: false }, jar: admin.jar });
-    }
+    const admin = await founderSignedIn();
     check("the founder's page is \"not found\" for a host and for a member", (await page("/admin/memberships", host)).status === 404 && (await page("/admin/memberships", alice)).status === 404);
     const founder = await page("/admin/memberships", admin);
-    if (founder.status !== 200) {
+    if (!admin.setUp) {
       console.log("   SKIPPED the founder's own view: the test admin's login is not set up (npx tsx scripts/secure-test-admin.ts).");
     } else {
+      check("the founder's page opens for the signed-in founder", founder.status === 200, founder.status);
       check("the founder sees every membership of this journey with where it stands, and each month's six places", [alice, bob.person, carol.person, dave.person, erin.person].every((p) => founder.words.includes(`${p.name} with ${host.name}`)) && founder.words.includes("Ended: the host ended it.") && founder.words.includes("Set aside") && founder.words.includes("The host paused it after this month.") && !founder.words.includes("THE PLACES DO NOT ADD UP"), founder.words.slice(0, 400));
       // The one thing the page changes: a new membership cancelled within 14 days, for a member who wrote to us (plans/46, part 3c).
       const founderForms = formsOf(founder.text);
       const fourteen = founderForms.filter((f) => f.buttons.includes("Cancel this membership within the 14 days"));
-      check("the page has nothing to press but the 14-day form of a new membership, and each such form asks for the day", founderForms.every((f) => fourteen.includes(f) || f.buttons.every((b) => /log out/i.test(b))) && fourteen.every((f) => f.fields.some(([name]) => name === "membership")) && (fourteen.length === 0 || founder.words.includes("request reached Connect")), JSON.stringify(founderForms.map((f) => f.buttons)));
+      check("the page has nothing to press but the 14-day form of a new membership (and \"Settled by hand\" for a request that ran out of its month), and each such form asks for the day", founderForms.every((f) => fourteen.includes(f) || f.buttons.every((b) => /log out/i.test(b) || b === "Settled by hand")) && fourteen.every((f) => f.fields.some(([name]) => name === "membership")) && (fourteen.length === 0 || founder.words.includes("request reached Connect")), JSON.stringify(founderForms.map((f) => f.buttons)));
       // Dave joined in this journey and is in his first month: his membership must have the form, with its three fields.
       const daveForm = fourteen.find((f) => f.fields.some(([name, value]) => name === "membership" && value === dave.membershipId));
       check("a new membership in its first month (Dave's) has the founder's 14-day form, with the membership, its month and the day", daveForm !== undefined && daveForm.fields.some(([name, value]) => name === "month" && value === dave.monthId) && /name="day"/.test(founder.text), JSON.stringify(fourteen.map((f) => f.fields)));

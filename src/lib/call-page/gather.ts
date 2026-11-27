@@ -52,7 +52,7 @@ export type CallPage = {
   state: CallPageState;
   /**
    * This call's booking was made under words that say what "End call now" costs a customer: his whole booked
-   * time (plans/50-end-call-now.md). Only then is it charged that way, and only then does the button's question say so.
+   * time (plans/51-end-call-now.md). Only then is it charged that way, and only then does the button's question say so.
    */
   wholeBookingSaid: boolean;
   /** The hold may land any second (an instant call's saved card, a booked call about to start). */

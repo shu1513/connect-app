@@ -37,7 +37,7 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
 **The line about a call** said, when this was written: "The call ends for both of you, the other
 person is blocked, and the money for the call waits for our review", and the app of that day
 blocked only when the report form after the press was sent (plan 49, "Found on the way"). That
-button is gone. Since plan 50 (26 November 2026) the button is "End call now": it ends the call,
+button is gone. Since plan 51 (26 November 2026) the button is "End call now": it ends the call,
 and the next screen offers "Report", "Block" and "Neither". The sentence for the Community Rules,
 and the matching ones for the Terms of Service, the Payment Terms and the Host Agreement, are in
 `docs/legal/end-call-now-proposed-wording.md`. In short:

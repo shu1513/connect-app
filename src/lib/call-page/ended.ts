@@ -1,5 +1,5 @@
 /**
- * The screen after "End call now" (plans/50-end-call-now.md, decision 19): who ended the call,
+ * The screen after "End call now" (plans/51-end-call-now.md, decision 19): who ended the call,
  * what that means for the money, and the three choices, "Report", "Block" and "Neither". One
  * reading for the website's page (/calls/[id]/ended) and for the phone app's screen. It only reads.
  */

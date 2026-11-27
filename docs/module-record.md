@@ -5719,9 +5719,64 @@ a contact address for the police. And one change that was found on the way and i
 "End call and report" blocks only when the form after it is sent, while the written rules say it
 blocks at the press (plan 49, "Found on the way").
 
-## "End call now": ending and reporting are two things, and the money settles by itself (plan 50, 26 November 2026)
+## Cancelling within 14 days: a press in time can always be finished (plan 46, part 3c, 26 November 2026)
 
-**The plan:** `plans/50-end-call-now.md`. It answers what plan 49 found on the way ("End call and
+**Why.** "Cancel within 14 days" works in steps: a look, then the coming calls are cancelled,
+then the membership is ended. If the database failed for one call, nothing was ended and the
+member was asked to press again. A next press after the last of the 14 days was refused as too
+late, and the button was gone: the member had pressed in time and was left with cancelled calls
+and a membership that ran on. CodeRabbit found this while reading the phone apps' plan (pull
+request 107). It needs the database to fail at that very moment, so it is rare.
+
+**What was built.** The first press that passes every rule is written down on the membership
+before anything is cancelled: its moment, its month, and for the founder's form who entered it
+and the day of the request (migration 0065, four columns on `memberships`). With that on
+record, a later press by the member is not asked about the 14 days again, and the founder's
+form has the day filled in. Every other rule is asked again at the later press. The helper
+finishes such a request by itself, as whoever asked it, after leaving the press a minute. The
+member's page keeps the button, and says from which day it counts. The founder's Memberships
+page lists what is not finished and what stops it. A press made while the month's money was
+being taken, which was also answered "try again in a minute", is on record in the same way.
+All of it is in `src/lib/membership/fourteen-days.ts`; the full account is at the end of
+`plans/46-part-3-money-owed.md`.
+
+Whoever asked first stays who asked: a later press only finishes the request, and never
+changes whose it was or its day. The button cancels the calls of its own month only.
+
+**What the reviewer found.** Astra said "hold the merge" with eight points, all taken (the list
+is at the end of the plan). The ones that mattered most: a retry could have cancelled a call
+booked from the next month; a request could vanish from the founder's list exactly when the
+first month ended and the founder was needed; a later press could change who had asked and on
+which day; and the founder could still read "Nothing was changed" after calls had been
+cancelled.
+
+**How it was checked.** Type check, lint, the automatic tests (8 new: the request on record,
+its month, who asked, the sentences). `scripts/member-calls-check.ts`, journey 11 (77 checks,
+39 of them new), against Stripe's test mode, with a trigger of the script's own that makes the
+database refuse, or take two seconds, to cancel one call: a press on the last day finished on
+day 15; the helper finishing one by itself, behind an older one that a rule stops; the
+founder's form finishing a member's request and the other way round; two presses at the same
+moment; a month that ends first, the membership ended later by the host, and "Settled by
+hand"; a press during the taking of the money; a press that was too late. The whole of that
+script once (303 checks at the time). The real pages in `scripts/membership-journey-check.ts`
+(125 checks, 7 new).
+
+**What the checks cannot cover.** A real database fault in the middle of a real press. The
+helper's own loop over many days (its job is called directly, with the clock moved).
+
+CodeRabbit made seven points, all taken (also listed there). The ones that changed what the
+app does: a request that ran out of its month stays on the founder's list until the founder
+presses "Settled by hand" (new; it writes a line on the founder's record and moves no money);
+the member's page says that a request is on record also while a rule stops it; and the check
+no longer moves the clock for anybody else's data in the shared test database.
+
+**What was not built.** A cancellation after the first month has ended (still the founder, by hand, also when a
+request in time is on record). The phone apps' button (plan 45, part 13c), which will use the
+same piece of the server.
+
+## "End call now": ending and reporting are two things, and the money settles by itself (plan 51, 26 November 2026)
+
+**The plan:** `plans/51-end-call-now.md`. It answers what plan 49 found on the way ("End call and
 report" blocked only when the form after it was sent, while the written rules said it blocked at
 the press).
 

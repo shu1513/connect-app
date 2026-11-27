@@ -18,7 +18,7 @@ export type AppReportPlace = (typeof APP_REPORT_PLACES)[number];
 /** The form. Like the website's page it shows itself for any place; whether the place is this person's to report from is decided when the report is sent. */
 export async function reportFormFor(person: { id: string }, place: AppReportPlace, placeId: string): Promise<AppReportForm> {
   const stop = place === "call" ? await callStopState(person.id, placeId) : "no";
-  // For a customer who ended the call himself: what a report does to that call's charge right now (plans/50, decision 19).
+  // For a customer who ended the call himself: what a report does to that call's charge right now (plans/51, decision 19).
   const ended = stop !== "no" ? await endedScreenFor(person.id, placeId, new Date()) : null;
   const money = ended && ended !== "not_ended" && ended.report.money ? ` ${ended.report.money}` : "";
   return {

@@ -1,5 +1,5 @@
 /**
- * The sentences of "End call now" (plans/50-end-call-now.md): the question before the press, the
+ * The sentences of "End call now" (plans/51-end-call-now.md): the question before the press, the
  * screen after it with its three choices, what the call's page says about the money, and the two
  * messages of the guard. One set for the website and for the phone app, which is sent them.
  * Plain words, nothing of the server in them.

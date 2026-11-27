@@ -1,6 +1,6 @@
 /**
  * What the call's record says one payment is owed: the one place that works it out
- * (plans/50-end-call-now.md, decision 12). The helper's first look, the taking of the money, the
+ * (plans/51-end-call-now.md, decision 12). The helper's first look, the taking of the money, the
  * member's call and the call's own page all ask here, so they can never disagree.
  *
  * For almost every call it is the rule that always held: the seconds that count by the call's own

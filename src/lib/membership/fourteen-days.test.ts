@@ -9,7 +9,8 @@ vi.mock("./join", () => ({}));
 vi.mock("./locks", () => ({}));
 vi.mock("./state", () => ({}));
 
-import { callsForNote, dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, requestDayRefusal, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays, type CallPayment } from "./fourteen-days";
+import { BEING_TAKEN, BLOCKED_FOR_MEMBER, callsForNote, CALLS_NOT_CANCELLED, MONTH_ENDED_UNFINISHED, STOPPED_MEANWHILE, dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, memberInTime, NOTHING_ON_RECORD, NotFinishedYet, requestDayRefusal, requestOnRecord, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays, type CallPayment } from "./fourteen-days";
+import { MembershipError } from "./rules";
 
 const at = (iso: string) => new Date(iso);
 const joinedAt = at("2026-11-04T22:30:00Z");
@@ -50,6 +51,69 @@ describe("the day a written request reached Connect, as the founder enters it", 
 
   it("refuses what is not a day", () => {
     for (const typed of ["", "18/11/2026", "2026-11-18T00:00", "2026-02-31", "2026-13-01", "yesterday"]) expect(refusal(typed)).toBe("Enter the day the member's request reached Connect.");
+  });
+});
+
+describe("a request that is on record", () => {
+  const month = "11111111-1111-4111-8111-111111111111";
+  const otherMonth = "22222222-2222-4222-8222-222222222222";
+  const nothing = { fourteenAskedAt: null, fourteenMonthId: null, fourteenAdminId: null, fourteenRequestDay: null };
+  const pressedOnDay14 = { ...nothing, fourteenAskedAt: at("2026-11-18T23:59:30Z"), fourteenMonthId: month };
+  const inWriting = { ...pressedOnDay14, fourteenAdminId: "admin-1", fourteenRequestDay: "2026-11-10" };
+
+  it("is there only with its moment, and only for the month it was asked for", () => {
+    expect(requestOnRecord(nothing, month)).toBeNull();
+    expect(requestOnRecord(pressedOnDay14, month)).toEqual({ askedAt: at("2026-11-18T23:59:30Z"), by: { as: "member" } });
+    expect(requestOnRecord(pressedOnDay14, otherMonth)).toBeNull();
+  });
+
+  it("says who asked: the member with their own button, or the founder with the day a written request arrived", () => {
+    expect(requestOnRecord(inWriting, month)?.by).toEqual({ as: "founder", adminId: "admin-1", requestDay: "2026-11-10" });
+    expect(requestOnRecord(pressedOnDay14, month)?.by).toEqual({ as: "member" });
+  });
+
+  it("keeps the member's press in time after the last day, and for as long as it takes", () => {
+    const onRecord = requestOnRecord(pressedOnDay14, month);
+    expect(memberInTime({ joinedAt, now: at("2026-11-19T00:00:01Z"), onRecord })).toBe(true);
+    expect(memberInTime({ joinedAt, now: at("2026-12-01T10:00:00Z"), onRecord })).toBe(true);
+  });
+
+  it("without one, the member's press is judged by the day it is made: day 14 yes, day 15 no", () => {
+    expect(memberInTime({ joinedAt, now: at("2026-11-18T23:59:59Z"), onRecord: null })).toBe(true);
+    expect(memberInTime({ joinedAt, now: at("2026-11-19T00:00:00Z"), onRecord: null })).toBe(false);
+    // One that was written down for another month counts for nothing.
+    expect(memberInTime({ joinedAt, now: at("2026-11-19T00:00:00Z"), onRecord: requestOnRecord(pressedOnDay14, otherMonth) })).toBe(false);
+  });
+
+  it("the founder's form is never refused for the day of a press that was in time, whenever it is handled", () => {
+    for (const pressed of ["2026-11-04T22:30:01Z", "2026-11-11T08:00:00Z", "2026-11-18T23:59:59Z"]) expect(refusal(dayOf(at(pressed)), at("2026-12-02T09:00:00Z"))).toBeNull();
+  });
+
+  it("tells whoever pressed that it is on record and goes on by itself, when it could not be finished", () => {
+    for (const sentence of [CALLS_NOT_CANCELLED, BEING_TAKEN]) {
+      expect(sentence).toContain("was not cancelled yet");
+      expect(sentence).toContain("on record with the moment it was first made, so the 14 days cannot run out on it");
+      expect(sentence).toContain("Connect keeps trying to finish it by itself");
+      expect(sentence).not.toContain("Nothing was changed");
+    }
+    // Not a refusal like the others (calls may have been cancelled), but still a sentence for a person.
+    expect(new NotFinishedYet(CALLS_NOT_CANCELLED)).toBeInstanceOf(MembershipError);
+    expect(NOTHING_ON_RECORD).toContain("No request");
+  });
+
+  it("never says \"nothing was changed\" for a rule that stops it after the cancelling had begun, and sends the founder to settle a month that ended", () => {
+    expect(STOPPED_MEANWHILE).toContain("may already have been cancelled");
+    expect(STOPPED_MEANWHILE).toContain("stays on record");
+    expect(STOPPED_MEANWHILE).not.toContain("Nothing was changed");
+    expect(MONTH_ENDED_UNFINISHED).toContain("settle this case by hand");
+  });
+
+  it("tells a member whose request a rule stops for now that it stays on record, and never to press or to settle anything", () => {
+    for (const sentence of Object.values(BLOCKED_FOR_MEMBER)) {
+      expect(sentence).toContain("stays on record");
+      expect(sentence).not.toContain("by hand");
+      expect(sentence).not.toContain("press");
+    }
   });
 });
 

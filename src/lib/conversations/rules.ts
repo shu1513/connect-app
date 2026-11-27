@@ -30,7 +30,7 @@ export const CONVERSATION = {
 const DAY = 24 * 3_600_000;
 export const OPEN_MS = CONVERSATION.openDays * DAY;
 /**
- * After an old "End call and report" (the button before "End call now", plans/50), a request
+ * After an old "End call and report" (the button before "End call now", plans/51), a request
  * counts only when it was begun more than this long after the press. The two moments are written by two clocks (the request's by the database, the
  * press's by the app), which can differ by a little; nobody asks the same person for a new call
  * within a minute of ending one that way.
@@ -119,7 +119,7 @@ export function mayWrite(facts: Facts, now: Date): Verdict {
 /**
  * A call between this host and this customer, in these roles, that is not cancelled and was not
  * ended with the old "End call and report". A call ended with "End call now" is one of these: a
- * plain end closes nothing (plans/50-end-call-now.md, decision 22).
+ * plain end closes nothing (plans/51-end-call-now.md, decision 22).
  */
 export type PairCall = {
   /** How it was asked for: "customer" (a booked request), "now", "member", or "admin" (a check script). */
@@ -135,7 +135,7 @@ export type PairCall = {
 };
 
 /**
- * Which of the pair's calls count (decision 21, as rewritten by plan 50). A call made by a check
+ * Which of the pair's calls count (decision 21, as rewritten by plan 51). A call made by a check
  * script never does. After an old "End call and report" between the two people (`latestStop`: only
  * ever a press of that earlier button, never an "End call now"), in either direction, a call counts only if
  * the customer began asking for it after that press and the host said yes to it: so not a

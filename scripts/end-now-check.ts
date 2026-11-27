@@ -1,5 +1,5 @@
 /**
- * Testing tool: "End call now" (plans/50-end-call-now.md), against the local database, the running
+ * Testing tool: "End call now" (plans/51-end-call-now.md), against the local database, the running
  * app and Stripe's test area. It makes its own people, and tidies up after itself.
  *
  * What it proves: who pressed is what was written; how a call is charged in each case (with a real

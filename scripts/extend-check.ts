@@ -537,7 +537,7 @@ async function main() {
     }
 
     // ----------------------------------------------------------------------
-    console.log("\n10. \"End call now\" on a paid call with more time (plans/50-end-call-now.md)");
+    console.log("\n10. \"End call now\" on a paid call with more time (plans/51-end-call-now.md)");
     {
       const cust = await person("p6");
       const { callId } = await instantCall(hana, cust, slot(18), 2000);

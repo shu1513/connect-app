@@ -5,7 +5,7 @@ import { endedScreenFor } from "@/lib/call-page/ended";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
 
 /**
- * GET /api/app/calls/[id]/ended: the screen after "End call now" (plans/50-end-call-now.md,
+ * GET /api/app/calls/[id]/ended: the screen after "End call now" (plans/51-end-call-now.md,
  * decision 19), the same reading as the website's page /calls/[id]/ended: who ended the call, what
  * that means for the money, and the three choices with what each does.
  */

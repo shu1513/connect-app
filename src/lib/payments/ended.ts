@@ -1,5 +1,5 @@
 /**
- * A call ended with "End call now" (plans/50-end-call-now.md): what that does to the charge.
+ * A call ended with "End call now" (plans/51-end-call-now.md): what that does to the charge.
  *
  * Time stops counting at the press for every call (`countedWindow` in attendance/calc.ts). What
  * this file adds is the one case where more than the counted time is charged: the customer

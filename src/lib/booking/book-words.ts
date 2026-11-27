@@ -66,7 +66,7 @@ export function bookPoints(input: { hostName: string; totalCents: number; freeCa
         { bold: "That includes time they spend waiting if you are late or do not join." },
         " If they are late, leave early or do not show up, you do not pay for that time.",
       ],
-      // What "End call now" costs him (plans/50): part of the wording CARD_CONSENT_VERSION names.
+      // What "End call now" costs him (plans/51): part of the wording CARD_CONSENT_VERSION names.
       [END_NOW_RULE],
       [CANCEL_RULE[input.freeCancelMinutes]],
       ["If your card cannot be held, we email you and you can fix it until ", { time: input.payBy.toISOString() }, ". After that an unpaid call is cancelled at no cost."],

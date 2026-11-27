@@ -131,7 +131,7 @@ export async function viewFor(userId: string, conversationId: string, now: Date,
   const facts = await factsFor(db, conversation, userId, now);
   const verdict = mayWrite(facts, now);
   const known = (await namesOf([otherId])).get(otherId);
-  // No way to book is offered across a block, or after an old "End call and report" (decision 21; never after an "End call now", plans/50).
+  // No way to book is offered across a block, or after an old "End call and report" (decision 21; never after an "End call now", plans/51).
   const bookHref = role === "customer" && !facts.stopped && !facts.blockedByMe && !facts.blockedByOther ? await bookHrefFor(conversation, now) : null;
 
   let shown: ConversationMessage[] = [];

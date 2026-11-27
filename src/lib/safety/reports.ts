@@ -111,7 +111,7 @@ export type ReportOutcome = {
   reportedId: string;
   block: ReportBlock;
   callsNotCancelled: number;
-  /** For a customer's report after his own "End call now": what it did to that call's charge (plans/50). Null for every other report. */
+  /** For a customer's report after his own "End call now": what it did to that call's charge (plans/51). Null for every other report. */
   endEffect: EndReportEffect | null;
   /** With `endEffect`: a part of that call's money was already taken when the report came, and stays as it is. */
   endPartly: boolean;

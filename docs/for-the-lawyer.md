@@ -238,7 +238,7 @@ a lawyer's read before Connect opens to real people. The research behind them is
   EU customer can write?
 - **A child.** What must Connect do when it learns that a person who wrote messages is under 18,
   or under 13? (Section 2 asks the same for calls.)
-- **"End call and report".** Answered by plan 50 (26 November 2026): the button is now "End call
+- **"End call and report".** Answered by plan 51 (26 November 2026): the button is now "End call
   now", which ends the call and then offers "Report", "Block" and "Neither". The draft documents
   still describe the old button until their new versions are in. See section 24.
 
@@ -753,6 +753,15 @@ first membership with a host; after that month has ended, the founder settles a 
 - A call that has already begun when the member cancels is worked out as any call (what took
   place is paid for; a member who does not come can be charged under the booking's terms).
   Calls still to come are cancelled at no charge. Is that the right line?
+- **A press in time that could not be finished at once** (added 26 November 2026). The app
+  writes the request down at the moment the member presses, before it cancels anything. If the
+  cancelling cannot be finished then (a fault on our side), the request still counts as made
+  on that day, and the app finishes it by itself: it tries again after one minute at the
+  earliest, and then every few seconds until it is done. The membership ends at the time of
+  the try that finishes it, not at the moment of the press. Time the member uses between the
+  two would be paid for like any time used before the ending. Is that right, or
+  must nothing after the moment of the request be charged? And if the first month ends before
+  it could be finished, the app stops and the founder settles it by hand: is that enough?
 - Time used is kept only because the person was told of the right and asked for the service to
   start at once. The sentence they tick before joining now ends: "By joining you ask for your
   membership to start today." It is one line of a list with one tick for the whole list. Is
@@ -771,9 +780,9 @@ first membership with a host; after that month has ended, the founder settles a 
   confirmation the member gets), and does the model withdrawal form have to be offered too?
 - The phone apps have no such button yet; a member there uses the website or writes to us.
 
-## 24. "End call now": who pays what when a call is ended, and reports that lower a charge (new, plan 50, 26 November 2026)
+## 24. "End call now": who pays what when a call is ended, and reports that lower a charge (new, plan 51, 26 November 2026)
 
-What was built is in `plans/50-end-call-now.md`; proposed sentences for the four documents are in
+What was built is in `plans/51-end-call-now.md`; proposed sentences for the four documents are in
 `docs/legal/end-call-now-proposed-wording.md`. The founder's decisions: one button, "End call
 now"; then "Report", "Block" or "Neither"; the host ends a booked call and the customer pays for
 her minutes; the customer ends it and pays for his whole booked time; the customer ends it and

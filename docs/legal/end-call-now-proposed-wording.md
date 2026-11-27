@@ -1,6 +1,6 @@
 # "End call now": proposed wording
 
-Written on 26 November 2026 by the builder, for plan 50 (`plans/50-end-call-now.md`, decision 24).
+Written on 26 November 2026 by the builder, for plan 51 (`plans/51-end-call-now.md`, decision 24).
 **Nothing here is in force, and none of it was written or checked by a lawyer.** It is proposed
 wording for four of the documents in `src/legal/documents/`, for a lawyer to read and correct.
 

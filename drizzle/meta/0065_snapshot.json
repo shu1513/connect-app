@@ -1,5 +1,5 @@
 {
-  "id": "605cc051-cea8-47e8-aff3-fde0e014a9fa",
+  "id": "250261f0-ca3a-4237-8133-83a5847d3b1a",
   "prevId": "92a44226-fb9c-454b-a602-f7070f5b2290",
   "version": "7",
   "dialect": "postgresql",
@@ -1348,24 +1348,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "ended_now_by": {
-          "name": "ended_now_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_report_at": {
-          "name": "end_report_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_report_effect": {
-          "name": "end_report_effect",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "price_per_15_cents": {
           "name": "price_per_15_cents",
           "type": "integer",
@@ -1507,16 +1489,7 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "calls_ended_now_by": {
-          "name": "calls_ended_now_by",
-          "value": "\"calls\".\"ended_now_by\" is null or (\"calls\".\"ended_now_by\" in ('host', 'customer', 'customer_untold') and \"calls\".\"safety_ended_at\" is not null and \"calls\".\"safety_ended_by\" is not null)"
-        },
-        "calls_end_report": {
-          "name": "calls_end_report",
-          "value": "(\"calls\".\"end_report_effect\" is null and \"calls\".\"end_report_at\" is null)\n        or (\"calls\".\"end_report_effect\" is not null and \"calls\".\"end_report_effect\" in ('minutes', 'minutes_uncounted', 'whole') and \"calls\".\"end_report_at\" is not null and \"calls\".\"ended_now_by\" is not null and \"calls\".\"ended_now_by\" = 'customer')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.collection_items": {
@@ -6917,6 +6890,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "fourteen_asked_at": {
+          "name": "fourteen_asked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fourteen_month_id": {
+          "name": "fourteen_month_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fourteen_admin_id": {
+          "name": "fourteen_admin_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fourteen_request_day": {
+          "name": "fourteen_request_day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "invite_id": {
           "name": "invite_id",
           "type": "uuid",
@@ -7081,6 +7078,10 @@
         "memberships_status": {
           "name": "memberships_status",
           "value": "\"memberships\".\"status\" in ('invited', 'joining', 'active', 'unpaid', 'paused', 'ended')"
+        },
+        "memberships_fourteen_request": {
+          "name": "memberships_fourteen_request",
+          "value": "(\"memberships\".\"fourteen_asked_at\" is null) = (\"memberships\".\"fourteen_month_id\" is null) and (\"memberships\".\"fourteen_admin_id\" is null) = (\"memberships\".\"fourteen_request_day\" is null) and (\"memberships\".\"fourteen_admin_id\" is null or \"memberships\".\"fourteen_asked_at\" is not null)"
         }
       },
       "isRLSEnabled": false

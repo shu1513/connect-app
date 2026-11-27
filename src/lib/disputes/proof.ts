@@ -47,7 +47,7 @@ export type CallFacts = {
   billing: string;
   /** attendance, customer_ended, late_cancel or admin. */
   chargeReason: string | null;
-  /** When the customer ended the call with "End call now" (plans/50-end-call-now.md). Null when the customer did not. */
+  /** When the customer ended the call with "End call now" (plans/51-end-call-now.md). Null when the customer did not. */
   endedByCustomerAt: Date | null;
   /** The seconds the charge was worked out from, as they were at that moment. Null when the app has no such record of this charge: then no rule is given as its explanation. */
   charged: { hostSeconds: number; customerSeconds: number; togetherSeconds: number } | null;

@@ -1,5 +1,5 @@
 /**
- * "End call now" (plans/50-end-call-now.md): one of the two ends the call for both at once, nobody
+ * "End call now" (plans/51-end-call-now.md): one of the two ends the call for both at once, nobody
  * can come back in, and time after that moment is not counted. The money of the call settles by
  * itself, by who pressed (src/lib/payments/owed.ts). Nothing is put on the founder's review list.
  *

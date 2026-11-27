@@ -25,7 +25,7 @@ export type ReportBlock = "none" | "done" | "done_unsure" | "not_done" | "unknow
  */
 export function reportNotice(outcome: { reference: number; block: ReportBlock; callsNotCancelled: number; endEffect?: string | null; endPartly?: boolean; endTooLate?: boolean }): { notice: string; needsReceipt: boolean } {
   const said = reportSaid(outcome);
-  // A customer's report after his own "End call now" also says what it did to that call's charge (plans/50).
+  // A customer's report after his own "End call now" also says what it did to that call's charge (plans/51).
   const money = outcome.endTooLate ? END_WORDS.thanksTooLate : outcome.endEffect === "whole" ? END_WORDS.thanksNotLowered : outcome.endEffect === "minutes" || outcome.endEffect === "minutes_uncounted" ? (outcome.endPartly ? END_WORDS.thanksLoweredPartly : END_WORDS.thanksLowered) : null;
   return money ? { notice: `${said.notice} ${money}`, needsReceipt: said.needsReceipt } : said;
 }

@@ -21,7 +21,7 @@ import { stripe } from "./stripe";
 export type FrozenTotals = { hostSeconds: number; customerSeconds: number; togetherSeconds: number };
 /**
  * Why a charge is what it is. "customer_ended": the customer ended a booked call with "End call now", and the
- * amount includes the rest of the booking (plans/50-end-call-now.md, decision 13).
+ * amount includes the rest of the booking (plans/51-end-call-now.md, decision 13).
  */
 export type ChargeReason = "attendance" | "customer_ended" | "late_cancel" | "admin";
 

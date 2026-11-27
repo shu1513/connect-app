@@ -217,8 +217,8 @@ Three plain terms, each about *this host and this customer, in these roles*:
     still sees them, closed, with "You blocked this person". Lifting the block lets the rules
     above apply again.
 21. **A call ended with "End call now" closes nothing; only the old "End call and report" still
-    cuts the two off. (rewritten on 26 November 2026 by plan 50, on the founder's decision)**
-    The founder redesigned the button (`plans/50-end-call-now.md`): "End call now" ends the call,
+    cuts the two off. (rewritten on 26 November 2026 by plan 51, on the founder's decision)**
+    The founder redesigned the button (`plans/51-end-call-now.md`): "End call now" ends the call,
     and the next screen offers "Report", "Block" and "Neither". A plain end, with no report and no
     block, must not close the messages between the two. So a call ended that way counts for
     messages like any other call that was not cancelled: around it both can write, and if both
@@ -465,7 +465,7 @@ person is blocked". The code of that day blocked only when the form after the pr
 Someone who pressed and then closed the form had ended the call and blocked nobody. The Terms of
 Service made the same promise. This plan did not change that.
 
-**Answered on 26 November 2026 by plan 50** (`plans/50-end-call-now.md`): the founder made ending
+**Answered on 26 November 2026 by plan 51** (`plans/51-end-call-now.md`): the founder made ending
 and reporting two separate things. The button is "End call now", and the screen after it offers
 "Report", "Block" and "Neither". Decision 21 above was rewritten to follow it, and the wording for
 the documents is in `docs/legal/end-call-now-proposed-wording.md`.

@@ -1,5 +1,5 @@
 /**
- * A customer's report after his own "End call now" (plans/50-end-call-now.md, decisions 14 to 17):
+ * A customer's report after his own "End call now" (plans/51-end-call-now.md, decisions 14 to 17):
  * whether it lowers the call's charge from the whole booking to the time the call lasted, and the
  * guard against someone who does that again and again.
  *

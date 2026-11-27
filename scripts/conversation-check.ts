@@ -165,7 +165,7 @@ async function main() {
         closedAt: endsAt.getTime() < Date.now() ? new Date(endsAt.getTime() + 1000) : null,
         cancelledAt: input.cancelled ? new Date() : null,
         cancelledBy: input.cancelled ? "host" : null,
-        // Ended with the call's button. With `endedNow` it was "End call now" (plans/50), pressed by that person; without,
+        // Ended with the call's button. With `endedNow` it was "End call now" (plans/51), pressed by that person; without,
         // the earlier "End call and report".
         safetyEndedAt: input.safetyEnded ?? null,
         safetyEndedBy: input.safetyEnded ? (input.endedNow === "customer" ? input.customerId : input.hostId) : null,
@@ -664,7 +664,7 @@ async function main() {
     // ----------------------------------------------------------------------
     console.log('\n9. "End call now" closes nothing; a block does. After an old "End call and report" the two are strangers again');
     {
-      // A plain "End call now" (plans/50-end-call-now.md, decision 22): the call counts like any other that was not cancelled.
+      // A plain "End call now" (plans/51-end-call-now.md, decision 22): the call counts like any other that was not cancelled.
       const hostNow = await asHost(await person("nowh"), "nowh", `Now Host ${RUN}`);
       const guestNow = await person("nowc");
       const endedCall = await agreed({ hostId: hostNow.id, customerId: guestNow.id, startsInDays: -1, joined: [hostNow.id, guestNow.id], safetyEnded: new Date(Date.now() - DAY + 10 * MINUTE), endedNow: "customer" });

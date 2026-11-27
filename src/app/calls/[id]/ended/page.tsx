@@ -10,7 +10,7 @@ import { requireUser } from "@/lib/session";
 export const metadata: Metadata = { title: "The call has ended" };
 
 /**
- * The screen after "End call now" (plans/50-end-call-now.md, decision 19): who ended the call,
+ * The screen after "End call now" (plans/51-end-call-now.md, decision 19): who ended the call,
  * what that means for the money, and three choices, each with what it does: "Report", "Block"
  * and "Neither". The call is over whatever is chosen here, or if this page is simply closed.
  */
