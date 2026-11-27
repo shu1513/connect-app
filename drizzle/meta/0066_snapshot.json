@@ -1,5 +1,5 @@
 {
-  "id": "fb119546-e9f3-4bf2-86fc-3ca048ecf525",
+  "id": "9b906006-b0d4-46a7-854e-930ae3735792",
   "prevId": "250261f0-ca3a-4237-8133-83a5847d3b1a",
   "version": "7",
   "dialect": "postgresql",
@@ -1348,24 +1348,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "ended_now_by": {
-          "name": "ended_now_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_report_at": {
-          "name": "end_report_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "end_report_effect": {
-          "name": "end_report_effect",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "price_per_15_cents": {
           "name": "price_per_15_cents",
           "type": "integer",
@@ -1507,16 +1489,7 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "calls_ended_now_by": {
-          "name": "calls_ended_now_by",
-          "value": "\"calls\".\"ended_now_by\" is null or (\"calls\".\"ended_now_by\" in ('host', 'customer', 'customer_untold') and \"calls\".\"safety_ended_at\" is not null and \"calls\".\"safety_ended_by\" is not null)"
-        },
-        "calls_end_report": {
-          "name": "calls_end_report",
-          "value": "(\"calls\".\"end_report_effect\" is null and \"calls\".\"end_report_at\" is null)\n        or (\"calls\".\"end_report_effect\" is not null and \"calls\".\"end_report_effect\" in ('minutes', 'minutes_uncounted', 'whole') and \"calls\".\"end_report_at\" is not null and \"calls\".\"ended_now_by\" is not null and \"calls\".\"ended_now_by\" = 'customer')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.collection_items": {
@@ -2414,6 +2387,19 @@
           "notNull": true,
           "default": false
         },
+        "after_collection": {
+          "name": "after_collection",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "failed_at": {
+          "name": "failed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -2528,7 +2514,15 @@
       "checkConstraints": {
         "contribution_refunds_status": {
           "name": "contribution_refunds_status",
-          "value": "\"contribution_refunds\".\"status\" in ('owed', 'at_stripe', 'done')"
+          "value": "\"contribution_refunds\".\"status\" in ('owed', 'at_stripe', 'done', 'failed')"
+        },
+        "contribution_refunds_one_way": {
+          "name": "contribution_refunds_one_way",
+          "value": "not (\"contribution_refunds\".\"connects_own\" and \"contribution_refunds\".\"after_collection\")"
+        },
+        "contribution_refunds_failed_shape": {
+          "name": "contribution_refunds_failed_shape",
+          "value": "(\"contribution_refunds\".\"status\" = 'failed') = (\"contribution_refunds\".\"failed_at\" is not null)"
         },
         "contribution_refunds_amount": {
           "name": "contribution_refunds_amount",
@@ -9482,9 +9476,31 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "contribution_refund_id": {
+          "name": "contribution_refund_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
+        "refunds_contribution_refund_idx": {
+          "name": "refunds_contribution_refund_idx",
+          "columns": [
+            {
+              "expression": "contribution_refund_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"refunds\".\"contribution_refund_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "refunds_payment_idx": {
           "name": "refunds_payment_idx",
           "columns": [
@@ -9537,6 +9553,19 @@
           "tableTo": "user",
           "columnsFrom": [
             "decided_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "refunds_contribution_refund_id_contribution_refunds_id_fk": {
+          "name": "refunds_contribution_refund_id_contribution_refunds_id_fk",
+          "tableFrom": "refunds",
+          "tableTo": "contribution_refunds",
+          "columnsFrom": [
+            "contribution_refund_id"
           ],
           "columnsTo": [
             "id"

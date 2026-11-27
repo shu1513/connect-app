@@ -166,7 +166,7 @@ export function TipLine({ view, role, otherName }: { view: TipView; role: "host"
               <span className="basis-full opacity-70">The customer paid {formatMoney(payment.takenCents ?? payment.amountCents)} (the tip and the payment fee). What you give back goes to their card, and your share gets smaller in the same proportion.</span>
             </form>
           )}
-          {role === "host" && state === "taken" && sent && <p className="mt-1 opacity-70">You have collected this tip, so only Connect can refund it now.</p>}
+          {role === "host" && state === "taken" && sent && <p className="mt-1 opacity-70">You have collected this tip, so only Connect can refund it now. If Connect does, you owe your share of it back.</p>}
         </>
       )}
     </section>

@@ -483,3 +483,16 @@ export function refundTotalsWordsForFounder(input: { what: string; hostName: str
   };
 }
 
+/**
+ * To the founder: a refund of a contribution or a tip failed at Stripe after it had been confirmed, and it had no
+ * take-back (it was given before the host collected, or in the old way from Connect's own money).
+ */
+export function contributionRefundFailedWordsForFounder(input: { what: string; customerName: string; hostName: string; refunded: string; reason: string; connectsOwn: boolean; underpaid: string | null }): Told {
+  return {
+    subject: "A refund failed at Stripe after it was confirmed",
+    text:
+      `The refund of ${input.refunded} for ${input.what} did not go through after all. Stripe first confirmed it and then reported that it failed (${input.reason}): the customer's bank sent the money back. ${input.customerName} did not get the money.\n\n` +
+      `The app has undone its record of it: the payment counts as refunded by that much less, and ${input.connectsOwn ? "Connect's cost for it is off the books" : `${input.hostName}'s share of the payment is whole again`}. It is not sent again by itself. If the customer should still have the money, refund it again: that is a new refund.` +
+      (input.underpaid ? `\n\n${input.hostName} collected their share while it was smaller: ${input.underpaid} more is theirs now. The app does not send it by itself. Send it to them in Stripe.` : ""),
+  };
+}

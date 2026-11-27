@@ -5774,6 +5774,65 @@ no longer moves the clock for anybody else's data in the shared test database.
 request in time is on record). The phone apps' button (plan 45, part 13c), which will use the
 same piece of the server.
 
+## A tip or a contribution refunded after collection is owed back by the host (plan 50, part 1, 26 November 2026)
+
+**What the founder decided.** "The host also pays, connect shouldn't pay for this." Until now a
+tip or a contribution that Connect refunded after its host had collected it was paid entirely
+from Connect's money, and she kept her share.
+
+**What was built.** The plans are `plans/50-giving-back-after-collecting.md` (the rulebook) and
+`plans/50-part-1-gifts-owed-back.md`.
+
+- The founder's refund of a collected tip or contribution no longer writes a line of
+  "Connect's own money". The line is marked "after collection". When Stripe confirms it, the
+  share shrinks (her share and our fee, in proportion), nothing is booked as Connect's cost,
+  and **the share gets a refund line of its own** in `refunds`, done at once, with her share
+  before and after and what it lost.
+- From that line the take-back that calls already have does the rest: the helper writes what
+  she owes (never more than was sent, never more than is left on the transfer), she is told on
+  her Messages page and by email, has 14 days from the notice's arrival and "I think this is
+  wrong", and then the app takes it out of her transfer at Stripe. Without a published Host
+  Agreement accepted before that payment it is written down and told, and waits for the
+  founder.
+- Where the take-back's code asks about "the payment", a share of a tip or a contribution
+  now answers through its contribution (the host, the charge, Stripe's total of refunds, the
+  words "a tip for the call on ..." and "a contribution to ..."). A lost bank dispute over a
+  contribution compares Stripe's total of refunds with the app's before it works anything
+  out, as a call's already did.
+- A refund Stripe confirms and later says failed is undone as a call's is: the share is whole
+  again, the take-back is called off, what went back is written back once under the
+  contribution's payment, and the contribution's line is over ("failed"). It is not sent
+  again by itself.
+- The founder's form for a share that was sent says what the host will owe at most and how
+  it is taken. A form drawn before she collected and pressed after it refunds nothing.
+- The host's pages say that a refund by Connect would make her owe her share back; her
+  project's page shows what was really sent beside her share as it now stands; the yearly
+  statement's explanation is put right.
+- Lines written the old way keep the old treatment to their end.
+
+**What was left out.** A button for the host herself to give money back after collecting
+(Astra's check of the first plan: "not ready"; the reasons are in the rulebook). A member's
+time given back after collection (part 2). The phone apps.
+
+**Known, and left as it is.** The contribution machine's own follow-up of an unanswered
+refund is weaker than a call's and could, on a part refund, pay a customer twice; it is so
+today for every contribution refund, and this part adds no new try (a fix of its own was
+proposed). What a host had already paid for a refund that then failed is not sent back by
+the app.
+
+**What the reviewer found.** Astra checked the rulebook ("not ready": the host's own give-back
+was taken out), then this part's plan ("not ready", the idea sound: reworked), then the code:
+"merge after fixes", seven points. Six were taken (a take-back and another refund of the same
+gift could each start while the other was unanswered; a failed refund whose two records did
+not fit was half undone; a refund with no line on its share that failed late was never
+noticed and would have held up later take-backs; the form could be sent without saying what
+it showed, and showed 5.00 where 4.75 was sent; two sentences and two email links; the
+checks). One is written in the plan and left: it needs a line written the old way, which
+exists only in test data. CodeRabbit then found three more, all taken: the form promised a
+smaller take-back for every part refund; refunds held up by a take-back could fill the
+helper's batch of 50; and a take-back that was already written was still taken while
+Stripe's total of refunds was not the app's (now it is not, for a call's refund too).
+
 ## "End call now": ending and reporting are two things, and the money settles by itself (plan 51, 26 November 2026)
 
 **The plan:** `plans/51-end-call-now.md`. It answers what plan 49 found on the way ("End call and
@@ -5890,7 +5949,7 @@ for report and block."
   screen, which names only the call). The old step's address still answers.
 - **For the lawyer** (not in force, not in the app): proposed wording for the four documents in
   `docs/legal/end-call-now-proposed-wording.md`, and the questions in `docs/for-the-lawyer.md`,
-  section 24. **The documents in the app still describe the old button.** They are drafts; a new
+  section 25. **The documents in the app still describe the old button.** They are drafts; a new
   version would send every account back to the welcome step, so the wording waits for the
   lawyer, as with messages.
 
@@ -5935,7 +5994,19 @@ for report and block."
   and not yet tidied away. Astra was not asked a fourth time: the points had become edge cases
   of edge cases, and the pull request's own reviewer reads the whole change next.
 
-CodeRabbit's part is added below once the pull request is open.
+- **CodeRabbit read the whole pull request (#111): five points, four taken.** The booking words
+  said "you pay for your whole booked time" with no word about a press before the booked start,
+  where the page after it can say "nothing is charged" (the words now add: "If you end it before
+  its booked start, that is charged as cancelling it at that moment would be"). "The amount is on
+  the call's page a few minutes after the call" was wrong for a call ended early: the record is
+  final after the BOOKED end. The page after the press called the money "settled" while a charge
+  for added time was still waiting. And a customer could have been shown the host's account name
+  where a host has no page (now "the host", as everywhere else). Not changed: its one "major"
+  point, that the phone's question is fixed when it opens while the server judges the press by
+  when it is confirmed. The question shown before the start was reworded for exactly that in
+  Astra's third round ("Ended before its start, it is charged as cancelling it would be; once it
+  has started, your whole booked time is charged"), so what is shown holds on both sides of the
+  start.
 
 **How it was checked.** Type check, lint, 1,162 automatic tests (new: the rule for "the rest of
 the booking" at its edges, the guard at 2 and 3 of 5 and with a sixth call, a report that does
@@ -5991,5 +6062,5 @@ connection. The helper taking the money a real day later (the scripts move the c
 
 **Before Connect opens to real people** (the founder's, not code): the four draft documents still
 describe the old button, and wait for the lawyer's words (`docs/legal/end-call-now-proposed-wording.md`,
-`docs/for-the-lawyer.md` section 24). The app and its helper must be put out together: an older
+`docs/for-the-lawyer.md` section 25). The app and its helper must be put out together: an older
 helper would charge a call that a customer ended by the minutes.

@@ -420,7 +420,7 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 
 ## What gets built
 
-- **Database** (`drizzle/0066_end_call_now.sql`): on `calls`, `ended_now_by` (text), and for the
+- **Database** (`drizzle/0067_end_call_now.sql`): on `calls`, `ended_now_by` (text), and for the
   report after it `end_report_at` (time) and `end_report_effect` (text: `minutes`,
   `minutes_uncounted`, `whole`), with checks on the allowed values.
 - **The words a customer agrees to when booking**: a new version, "2026-11-d", with the sentence

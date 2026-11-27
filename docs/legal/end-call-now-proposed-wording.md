@@ -12,7 +12,7 @@ are drafts and say so on every page. Until the new versions are in, **they descr
 it was** ("End call and report", with the money waiting for our review), and the app is ahead of
 them: the button is "End call now" and the money settles by itself.
 
-The open questions behind this wording are in `docs/for-the-lawyer.md`, section 24.
+The open questions behind this wording are in `docs/for-the-lawyer.md`, section 25.
 
 ## What the app does (so the wording can be checked against it)
 
@@ -20,7 +20,8 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
   nobody can come back in. Before it does, the app asks once and says what it costs that person.
 - A customer is also told when he books, in the words he ticks (version "2026-11-d"), and on the
   confirm-and-pay step: "If you end the call yourself with 'End call now', you pay for your whole
-  booked time: the time the host was in the call, and the rest of your booking." A booking made
+  booked time: the time the host was in the call, and the rest of your booking. If you end it
+  before its booked start, that is charged as cancelling it at that moment would be." A booking made
   under the earlier words is charged by the host's time, whoever ends the call.
 - Right after, one screen offers "Report", "Block" and "Neither". Reporting blocks. Blocking also
   cancels the two people's other calls that are still to come, at no charge, and ends any

@@ -335,6 +335,13 @@ async function main() {
     const steps: Array<() => Promise<unknown>> = [
       () => db.delete(schema.collectionItems).where(inArray(schema.collectionItems.collectionId, db.select({ id: schema.collections.id }).from(schema.collections).where(inArray(schema.collections.hostId, ids)))),
       () => db.delete(schema.collections).where(inArray(schema.collections.hostId, ids)),
+      // Take-backs of these shares, the emails about them, and the shares' own refund lines go before the shares (plan 50, part 1).
+      async () => {
+        if (shares.length === 0) return;
+        for (const debt of await db.select({ id: schema.hostDebts.id }).from(schema.hostDebts).where(inArray(schema.hostDebts.paymentId, shares))) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `takeback:${debt.id}:%`));
+        await db.delete(schema.hostDebts).where(inArray(schema.hostDebts.paymentId, shares));
+        await db.delete(schema.refunds).where(inArray(schema.refunds.paymentId, shares));
+      },
       async () => shares.length > 0 && (await db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.paymentId, shares))),
       async () => shares.length > 0 && (await db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.paymentId, shares))),
       async () => calls.length > 0 && (await db.delete(schema.refundRequests).where(inArray(schema.refundRequests.callId, calls))),
@@ -568,6 +575,31 @@ async function main() {
           check("at Stripe the transfer comes from the tip's own charge", transfer?.destination === payoutAccount && transfer.source_transaction === taken.stripeChargeId);
           const hostSent = await results(goodCall, host);
           check("once collected, the host is offered no refund: only Connect can refund it now", hostSent.words.includes("sent to you") && hostSent.words.includes("only Connect can refund it now") && !formsOf(hostSent.text).some((f) => f.buttons.some((b) => b.words === "Refund")) && /already been collected/.test(await refused(R.refundContribution({ paymentId, amountCents: 100, by: "host", deciderId: host.id, reason: "a check", requestKey: randomUUID() }))));
+          check("and her page says what a refund by Connect would mean for her", hostSent.words.includes("If Connect does, you owe your share of it back"));
+          // Plan 50, part 1: the founder refunds the collected tip in full. She owes what she got of it, never the payment fee.
+          const [boss] = await db.select({ id: schema.admins.userId }).from(schema.admins).limit(1);
+          if (!boss) console.log("   (No admin in this database: the founder's refund of a collected tip was not tried.)");
+          else {
+            const TB = await import("../src/lib/disputes/takeback");
+            // In two halves of $2.73: each takes $2.50 off her share, and the payment fee is never hers to owe.
+            const half = async () => {
+              const line = await R.refundContribution({ paymentId, amountCents: 273, by: "founder", deciderId: boss.id, reason: "A mistake of ours", requestKey: randomUUID(), shownSent: true });
+              await R.sendRefund(line.id, new Date());
+              const [own] = await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, line.id));
+              if (own) await TB.takeBackPass(new Date(), { disputeIds: [], refundIds: [own.id] });
+              const [debt] = own ? await db.select().from(schema.hostDebts).where(eq(schema.hostDebts.refundId, own.id)) : [];
+              return { line, own, debt };
+            };
+            const first = await half();
+            check("the founder refunds half of the collected tip, $2.73 of $5.46: her share loses $2.50 of the $5.00 she got, and she owes $2.50", first.line.afterCollection && !first.line.connectsOwn && first.own?.status === "done" && first.own.amountCents === 273 && first.own.shareBeforeCents === 500 && first.own.shareAfterCents === 250 && first.own.hostOwesCents === 250 && first.debt?.amountCents === 250 && (await shareOf(paymentId)).refundedCents === 273, first);
+            const { own, debt } = await half();
+            const lowered = await shareOf(paymentId);
+            check("the other half: her share has lost the whole $5.00 and the payment fee is never hers to owe", own?.status === "done" && own.shareBeforeCents === 250 && own.shareAfterCents === 0 && own.hostOwesCents === 250 && own.afterCollectionNo === 2 && lowered.refundedCents === 546 && lowered.transferStatus === "sent" && (await PM(paymentId)).refundedCents === 546, own);
+            // This tip was alone in its collection, so 25 cents of it went to the collection charge: $4.75 was sent, and no more than that can be owed in all.
+            check("she owes no more in all than the $4.75 that was really sent to her: $2.25 for the second half; with no published Host Agreement accepted before the charge the app does not take it by itself", debt?.amountCents === 225 && debt.status === "waiting" && first.debt?.status === "waiting" && debt.hostId === host.id, debt);
+            const about = debt ? await TB.debtForPage(debt.id, "host", { timeZone: null }) : null;
+            check("its page says what it is about: a tip for that call", /^a tip for the call on /.test(about?.what ?? ""), about?.what);
+          }
         } finally {
           await give(host.id, seeded.id);
         }
