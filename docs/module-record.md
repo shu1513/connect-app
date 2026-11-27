@@ -19,7 +19,7 @@ when a module is merged. The full plan for each module is in `plans/`.
 | 2. Payments | Built and merged (Stripe test area only). |
 | 3. Accounts and profiles | Built and merged. |
 | 4. Calendar and booking | Built and merged. |
-| 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). |
+| 5. Safety | Built and merged. Needs a restricted Stripe key to read ages (founder must be logged in to Stripe). On 26 November the call's emergency button became "End call now", with "Report", "Block" and "Neither" after it (`plans/51-end-call-now.md`). |
 | 6. Notifications | Built and merged. Real sending needs the Resend account (founder). |
 | 7. "Available now" calls | Built and merged. Two-device test done by the founder on 13 November. |
 | 7b. Adding time during a call | Built and merged. The founder's two-device test on 14 November ended before time could be added; still to try. |
@@ -5934,3 +5934,62 @@ for report and block."
   it is": a hold recorded in the very instant of the press, and a card step cancelled at Stripe
   and not yet tidied away. Astra was not asked a fourth time: the points had become edge cases
   of edge cases, and the pull request's own reviewer reads the whole change next.
+
+CodeRabbit's part is added below once the pull request is open.
+
+**How it was checked.** Type check, lint, 1,162 automatic tests (new: the rule for "the rest of
+the booking" at its edges, the guard at 2 and 3 of 5 and with a sixth call, a report that does
+not count, every sentence in every case it is shown in, and the bank dispute's text), and the
+phone app's own lint, types and 102 tests. A new script, `scripts/end-now-check.ts`, with 103
+checks against the local database, the running app and Stripe's test area:
+
+- who pressed is what was written: a second press, the other person in the same moment, a press
+  after the room closed, before it opened, on a cancelled call, by a stranger, and during time
+  that was added a moment before;
+- the money with real holds and real charges at Stripe: the host ends (her 10 minutes, $13.33);
+  the customer ends (the whole $40.00); the host came 2 minutes late ($37.33); the host never
+  came (nothing, and the hold let go); an "available now" call ($12.00); under 50 cents (nothing);
+- the edges in our own record: the host had left 5 minutes before; her connection dropped 40
+  seconds before; a press before the start under both cancelling rules; time added, then ended,
+  by each of the two; a booking made under the earlier words;
+- the report: it lowers a real charge at Stripe to $13.33; one after the host's press, one by the
+  host, one from her page, one after the money was taken, one about a call that was never paid,
+  and a second one for the same call change nothing; a call ended with the old button keeps its
+  review and its ceiling;
+- the guard: 2 of 5; 3 of 5 with the founder told once, in the app and by email, with no detail
+  of a report; the next one not lowered and the customer told at once; normal paid calls pushing
+  old ones out; "available now" calls and calls that cost nothing not doing so; reports made
+  newest first; three reports in the same moment; another person's report counting only from a
+  call that was really paid for;
+- the screens, read from the real pages as the test host and the test customer: the three
+  choices with what each does, who ended the call, what it costs, that the host's pages never say
+  she was reported, the button's old address, and "nobody can come back in" only once the room
+  is written down as closed.
+
+The scripts of what this touches were changed to the new rules and run again, all passing:
+`safety-check`, `extend-check`, `member-calls-check` (a new journey: the member ends, the host
+ends, the member ends and reports, the member ends before the start), `conversation-check`
+(journey 9: a plain end closes nothing, a block does, the old button still cuts), `payments-check`
+and `refunds-check` on the shared test database; `app-room-check` and `app-calls-check` on a
+scratch database of their own.
+
+By hand in a browser, in two test calls between the test host and the test customer: the
+customer joined, pressed "End call now", read the question ("Your whole booked time is still
+charged, except time the host was not in the call"), confirmed, and landed on the page with the
+three choices; the report form opened from it said what a report does to the charge (it was not
+sent, because a report blocks, and the two test accounts must stay as they are); "Neither" led to
+the call's page, which said who ended the call and still offered "Book another call" and "Write
+to". The host did the same on the second call ("You are paid for your time up to now"), and her
+page of the first call said that the customer ended it. The browser has no camera, and each
+person was alone in the room.
+
+**What the checks cannot cover.** A real call between two people on two devices: that the room
+really empties for the other person at the press is the video service's work, checked here only
+through its answer. The phone app's new screen on a phone (the app is paused; its code is typed,
+linted and unit-tested). Whether "the host was in the call when he pressed" reads right on a bad
+connection. The helper taking the money a real day later (the scripts move the clock).
+
+**Before Connect opens to real people** (the founder's, not code): the four draft documents still
+describe the old button, and wait for the lawyer's words (`docs/legal/end-call-now-proposed-wording.md`,
+`docs/for-the-lawyer.md` section 24). The app and its helper must be put out together: an older
+helper would charge a call that a customer ended by the minutes.
