@@ -5718,3 +5718,49 @@ lawyer read the proposed wording, the procedure and section 8 of `docs/for-the-l
 a contact address for the police. And one change that was found on the way and is still open:
 "End call and report" blocks only when the form after it is sent, while the written rules say it
 blocks at the press (plan 49, "Found on the way").
+
+## A tip or a contribution refunded after collection is owed back by the host (plan 50, part 1, 26 November 2026)
+
+**What the founder decided.** "The host also pays, connect shouldn't pay for this." Until now a
+tip or a contribution that Connect refunded after its host had collected it was paid entirely
+from Connect's money, and she kept her share.
+
+**What was built.** The plans are `plans/50-giving-back-after-collecting.md` (the rulebook) and
+`plans/50-part-1-gifts-owed-back.md`.
+
+- The founder's refund of a collected tip or contribution no longer writes a line of
+  "Connect's own money". The line is marked "after collection". When Stripe confirms it, the
+  share shrinks (her share and our fee, in proportion), nothing is booked as Connect's cost,
+  and **the share gets a refund line of its own** in `refunds`, done at once, with her share
+  before and after and what it lost.
+- From that line the take-back that calls already have does the rest: the helper writes what
+  she owes (never more than was sent, never more than is left on the transfer), she is told on
+  her Messages page and by email, has 14 days from the notice's arrival and "I think this is
+  wrong", and then the app takes it out of her transfer at Stripe. Without a published Host
+  Agreement accepted before that payment it is written down and told, and waits for the
+  founder.
+- Where the take-back's code asks about "the payment", a share of a tip or a contribution
+  now answers through its contribution (the host, the charge, Stripe's total of refunds, the
+  words "a tip for the call on ..." and "a contribution to ..."). A lost bank dispute over a
+  contribution compares Stripe's total of refunds with the app's before it works anything
+  out, as a call's already did.
+- A refund Stripe confirms and later says failed is undone as a call's is: the share is whole
+  again, the take-back is called off, what went back is written back once under the
+  contribution's payment, and the contribution's line is over ("failed"). It is not sent
+  again by itself.
+- The founder's form for a share that was sent says what the host will owe at most and how
+  it is taken. A form drawn before she collected and pressed after it refunds nothing.
+- The host's pages say that a refund by Connect would make her owe her share back; her
+  project's page shows what was really sent beside her share as it now stands; the yearly
+  statement's explanation is put right.
+- Lines written the old way keep the old treatment to their end.
+
+**What was left out.** A button for the host herself to give money back after collecting
+(Astra's check of the first plan: "not ready"; the reasons are in the rulebook). A member's
+time given back after collection (part 2). The phone apps.
+
+**Known, and left as it is.** The contribution machine's own follow-up of an unanswered
+refund is weaker than a call's and could, on a part refund, pay a customer twice; it is so
+today for every contribution refund, and this part adds no new try (a fix of its own was
+proposed). What a host had already paid for a refund that then failed is not sent back by
+the app. A refund given before collection that fails late is still not noticed.

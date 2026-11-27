@@ -7,11 +7,13 @@
  *   - the TRIES to send it. Each is a money action of the contribution's payment, named
  *     "contributionrefund:<line>:<attempt>". The helper repeats them until one is done.
  *
- * Before the host's share is sent, a refund lowers the share: her share and our fee shrink in the
- * same proportion. After it, only the founder can refund, and it is Connect's own money: the
- * share's line is not touched, and the books record Connect's cost.
+ * A refund lowers the share: her share and our fee shrink in the same proportion. After the share
+ * was sent only the founder can refund. The contributor is then paid from Connect's money, the
+ * share gets a refund line of its own in `refunds`, and the host owes what her share lost
+ * (plans/50-part-1-gifts-owed-back.md). Lines written before that plan carry `connectsOwn`: for
+ * them the share is not touched, and the books record Connect's cost.
  */
-import { and, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 import { db, schema } from "@/db";
 import type { ContributionRefund } from "@/db/schema";
@@ -22,6 +24,9 @@ import { stripe } from "@/lib/payments/stripe";
 import { queueRefundEmail } from "./emails";
 import { lockForPayment, lockShare, paymentOwner, type LockedPayment } from "./locks";
 import { ContributionError } from "./rules";
+
+/** What a host is told about a tip or a contribution she has collected. */
+export const COLLECTED_FOR_HOST = "This contribution has already been collected, so only Connect can refund it now. If Connect does, you owe your share of it back.";
 
 const lines = schema.contributionRefunds;
 const pays = schema.contributionPayments;
@@ -36,11 +41,13 @@ const frozen = (payment: { dispute: string }) => payment.dispute === "open" || p
  * makes one press one refund. Checked with the payment and its share both locked, so a refund and
  * a collection of the same share never meet:
  *   - while a sending of the share is written down and not finished, nothing is refunded from it;
- *   - once the share was sent, only the founder can refund, from Connect's own money;
+ *   - once the share was sent, only the founder can refund, and the host then owes her share of it back;
  *   - what is already owed counts against what can still be refunded.
+ * `shownSent` is what the founder's form said when it was drawn: whether the share had been sent. If that has
+ * changed, nothing is refunded (the form explained another outcome than the one the press would have).
  * Returns the line. The helper sends it (sendRefund).
  */
-export async function refundContribution(input: { paymentId: string; amountCents: number; by: "host" | "founder"; deciderId: string; reason: string; requestKey: string; now?: Date }): Promise<ContributionRefund> {
+export async function refundContribution(input: { paymentId: string; amountCents: number; by: "host" | "founder"; deciderId: string; reason: string; requestKey: string; shownSent?: boolean; now?: Date }): Promise<ContributionRefund> {
   if (!Number.isInteger(input.amountCents) || input.amountCents < 1) throw new ContributionError("Please give an amount to refund.");
   return db.transaction(async (tx) => {
     const [existing] = await tx.select().from(lines).where(eq(lines.sourceKey, `refund:${input.requestKey}`));
@@ -60,16 +67,18 @@ export async function refundContribution(input: { paymentId: string; amountCents
       .where(and(eq(schema.moneyOperations.paymentId, share.id), eq(schema.moneyOperations.kind, "transfer"), eq(schema.moneyOperations.status, "started")));
     if (sending) throw new ContributionError("This share is being sent to the host right now. Please try again in a few minutes.");
     const sent = share.transferStatus === "sent";
-    if (sent && input.by !== "founder") throw new ContributionError("This contribution has already been collected, so only Connect can refund it now.");
+    if (sent && input.by !== "founder") throw new ContributionError(COLLECTED_FOR_HOST);
+    if (input.shownSent !== undefined && input.shownSent !== sent) throw new ContributionError(sent ? "The host has collected her share of this payment since this page was drawn. Nothing was refunded. Please look at the form again: a refund now makes her owe her share of it back." : "This page is out of date. Nothing was refunded. Please look at the form again.");
     const [{ owed }] = await tx
       .select({ owed: sql<number>`coalesce(sum(${lines.amountCents}), 0)::int` })
       .from(lines)
-      .where(and(eq(lines.contributionPaymentId, payment.id), ne(lines.status, "done")));
+      // (A line whose refund failed after Stripe had confirmed it is over: it owes nothing any more.)
+      .where(and(eq(lines.contributionPaymentId, payment.id), notInArray(lines.status, ["done", "failed"])));
     const left = (payment.takenCents ?? 0) - payment.refundedCents - owed;
     if (input.amountCents > left) throw new ContributionError(left > 0 ? `At most $${(left / 100).toFixed(2)} of this payment can still be refunded.` : "All of this payment has been refunded already.");
     const [line] = await tx
       .insert(lines)
-      .values({ contributionPaymentId: payment.id, sourceKey: `refund:${input.requestKey}`, amountCents: input.amountCents, decidedBy: input.by, deciderId: input.deciderId, reason: input.reason.replace(/\s+/g, " ").trim().slice(0, 500) || "Refunded.", connectsOwn: sent })
+      .values({ contributionPaymentId: payment.id, sourceKey: `refund:${input.requestKey}`, amountCents: input.amountCents, decidedBy: input.by, deciderId: input.deciderId, reason: input.reason.replace(/\s+/g, " ").trim().slice(0, 500) || "Refunded.", afterCollection: sent })
       .returning();
     return line;
   });
@@ -102,8 +111,12 @@ export function refundAtStripe(params: RefundParams, label: string): Promise<Str
  * the line's attempt is the outcome's and the line is not done.
  */
 export async function applyRefundOutcome(tx: Tx, locked: LockedPayment, outcome: RefundOutcome, now: Date): Promise<void> {
+  // The one order of locks wherever this machine and the take-backs meet: the contribution and its payment (held by
+  // the caller), the share, then the line.
+  const share = await lockShare(tx, locked.payment.id);
   const [line] = await tx.select().from(lines).where(eq(lines.id, outcome.refundId)).for("update");
-  if (!line || line.contributionPaymentId !== locked.payment.id || line.attempt !== outcome.attempt || line.status === "done") return;
+  // (A line that is done stays done; one that failed after it was confirmed stays failed.)
+  if (!line || line.contributionPaymentId !== locked.payment.id || line.attempt !== outcome.attempt || line.status === "done" || line.status === "failed") return;
   if (outcome.status === "on_its_way" && outcome.stripeRefundId) {
     await tx.update(lines).set({ status: "at_stripe", stripeRefundId: outcome.stripeRefundId }).where(eq(lines.id, line.id));
     return;
@@ -124,16 +137,48 @@ export async function applyRefundOutcome(tx: Tx, locked: LockedPayment, outcome:
     await addLedgerEntry(tx, { contributionPaymentId: locked.payment.id, kind: "connect_cost", amountCents: line.amountCents, stripeRef: outcome.stripeRefundId, note: "refunded after the host had collected" });
     return;
   }
-  const share = await lockShare(tx, locked.payment.id);
   // A payment that was taken although it was not to be has no share: all of it was owed back from the start.
   if (!share || share.chargedCents === null || share.originalHostShareCents === null) return;
   const before = currentSplit(share);
-  const refundedCents = Math.min(share.chargedCents, share.refundedCents + line.amountCents);
+  // What counts on the share: never more than is left of its charge.
+  const counted = Math.max(0, Math.min(share.chargedCents - share.refundedCents, line.amountCents));
+  const refundedCents = share.refundedCents + counted;
   const after = splitAfterRefunds({ chargeCents: share.chargedCents, refundedCents, originalHostShareCents: share.originalHostShareCents });
   const nothingOwedNow = after.hostShareCents === 0 && share.transferStatus !== "sent";
   await tx.update(schema.payments).set({ refundedCents, transferStatus: nothingOwedNow ? "not_owed" : share.transferStatus, updatedAt: now }).where(eq(schema.payments.id, share.id));
   await addLedgerEntry(tx, { paymentId: share.id, kind: "platform_fee", amountCents: after.feeCents - before.feeCents, stripeRef: outcome.stripeRefundId });
   await addLedgerEntry(tx, { paymentId: share.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: outcome.stripeRefundId });
+  // Given after the host had collected (plans/50-part-1-gifts-owed-back.md): the share gets a refund line of its
+  // own, done at once, with what her share was before and after. The helper writes her take-back from that line,
+  // exactly as for a call's refund (disputes/takeback.ts). Nothing of the customer's money is booked on the share:
+  // that stands once, under the contribution's payment, above.
+  if (!line.afterCollection || share.transferStatus !== "sent" || counted <= 0) return;
+  if (!line.deciderId) {
+    console.error(`[contributions] refund ${line.id} was given after collection and names nobody who decided it: no line was written for its share, so nothing is owed back for it. Look at it.`);
+    return;
+  }
+  const [last] = await tx.select({ no: sql<number>`coalesce(max(${schema.refunds.afterCollectionNo}), 0)::int` }).from(schema.refunds).where(eq(schema.refunds.paymentId, share.id));
+  await tx
+    .insert(schema.refunds)
+    .values({
+      paymentId: share.id,
+      amountCents: counted,
+      decidedBy: line.deciderId,
+      decidedAs: "admin",
+      reason: line.reason,
+      status: "done",
+      stripeRefundId: outcome.stripeRefundId,
+      finishedAt: now,
+      afterCollection: true,
+      shareBeforeCents: before.hostShareCents,
+      shareAfterCents: after.hostShareCents,
+      feeBeforeCents: before.feeCents,
+      feeAfterCents: after.feeCents,
+      hostOwesCents: Math.max(0, before.hostShareCents - after.hostShareCents),
+      afterCollectionNo: last.no + 1,
+      contributionRefundId: line.id,
+    })
+    .onConflictDoNothing();
 }
 
 /** One try to send a refund that is owed. Does nothing unless the line is owed and nothing is under way on its payment. */
@@ -147,6 +192,9 @@ export async function sendRefund(refundId: string, now: Date = new Date()): Prom
       kind: "refund",
       labelBase: `contributionrefund:${line.id}:${line.attempt}`,
       prepare: async ({ payment }, tx) => {
+        // The share is held while a try is written down: whoever works a take-back out on that share holds it too,
+        // and so sees either no try or this one (disputes/takeback.ts, refundUnderWay).
+        await lockShare(tx, payment.id);
         const [fresh] = await tx.select().from(lines).where(eq(lines.id, line.id)).for("update");
         if (!fresh || fresh.status !== "owed" || fresh.attempt !== line.attempt) throw new MoneyError("This refund is not waiting to be sent.");
         // Checked here, under the lock, so two helpers at once cannot send a second try right after the first failed.

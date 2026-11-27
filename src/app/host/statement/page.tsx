@@ -114,8 +114,8 @@ export default async function StatementPage(props: PageProps<"/host/statement">)
           <strong>Given back:</strong> refunds, in the month the refund was written into our books. A payment of December given back in January is in two different years.
         </li>
         <li>
-          <strong>Carried by Connect:</strong> what Connect paid itself after you had collected your share. Two things are in it: a refund of a contribution or a tip that Connect gave from its own money (your share
-          was not touched), and what Connect decided not to take back from you of a share you owed back (after a refund of a call, or after a bank dispute that was lost), in the month it decided so. If Connect later takes such a
+          <strong>Carried by Connect:</strong> what Connect paid itself after you had collected your share. Two things are in it: a refund of a contribution or a tip that Connect once gave from its own money without
+          touching your share (such a refund now lowers your share, and you owe that part back), and what Connect decided not to take back from you of a share you owed back (after a refund, or after a bank dispute that was lost), in the month it decided so. If Connect later takes such a
           decision off its books again (the bank decided for you after all, say), that shows as a minus.
         </li>
         <li>

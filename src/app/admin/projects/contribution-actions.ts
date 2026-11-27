@@ -64,7 +64,10 @@ export async function letGoAsFounderAction(formData: FormData) {
   back(notice);
 }
 
-/** A refund by the founder. After the host's share was sent it is Connect's own money: nothing is taken back from her. */
+/**
+ * A refund by the founder. After the host's share was sent the contributor is paid from Connect's money and the host
+ * owes her share of it back (plans/50-part-1-gifts-owed-back.md). The form says which of the two it showed.
+ */
 export async function refundAsFounderAction(formData: FormData) {
   const admin = await requireAdmin();
   let notice: string;
@@ -74,7 +77,7 @@ export async function refundAsFounderAction(formData: FormData) {
     const reason = noteOf(formData).replace(/\s+/g, " ").trim().slice(0, 300);
     if (!reason) throw new ContributionError("Please give a reason. It is kept.");
     const amountCents = readSum(String(formData.get("amount") ?? ""));
-    const refund = await refundContribution({ paymentId: paymentOf(formData), amountCents, by: "founder", deciderId: admin.id, reason, requestKey: request.toLowerCase() });
+    const refund = await refundContribution({ paymentId: paymentOf(formData), amountCents, by: "founder", deciderId: admin.id, reason, requestKey: request.toLowerCase(), shownSent: formData.get("sent") === "yes" ? true : formData.get("sent") === "no" ? false : undefined });
     notice = `The refund of ${formatMoney(refund.amountCents)} is on its way to the contributor's card.`;
   } catch (error) {
     notice = problem(error);

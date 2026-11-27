@@ -771,3 +771,32 @@ first membership with a host; after that month has ended, the founder settles a 
   was not checked by a lawyer. Does the member's button meet it (its name, where it is, the
   confirmation the member gets), and does the model withdrawal form have to be offered too?
 - The phone apps have no such button yet; a member there uses the website or writes to us.
+
+## 24. A tip or a contribution refunded by Connect after the host collected (new, plan 50 part 1, 26 November 2026)
+
+**What the app does now.** A tip and a contribution to a project are gifts to the host. Giving
+one back is her decision (draft Host Agreement, 8.4). After she has collected it she cannot
+refund it herself any more. Connect can, in the cases of section 8.3. Until now Connect then
+paid all of it and the host kept her share. Now it works as for a call (section 21 above): the
+contributor is paid back from Connect's money, the host's share of that payment becomes
+smaller, and she owes that part back (8.5 and 9): written notice, 14 days from its arrival,
+"I think this is wrong", then taken from her balance at Stripe, and only if she had accepted
+a published Host Agreement before that payment. For a tip the customer paid the card fee on
+top; she never owes that fee, only what she got.
+
+**Questions.**
+
+- A gift that was given and accepted cannot, as far as we could find, be demanded back by the
+  giver. In which of the cases of 8.3 may Connect nevertheless refund a tip or a contribution
+  against the host's will after she collected it, and take her share back? (Fraud and a
+  stolen card seem clear. "A mistake", "the call broke the rules" for a tip that followed a
+  call, and "the host cannot be reached" are less so.)
+- Does the 14-day right to cancel in the United Kingdom and Europe cover a tip or a
+  contribution at all? Nothing is given for it, and the customer is told so before paying.
+- What must a customer be told before paying a tip or a contribution about getting it back?
+  Today: that it supports the host or the project and buys nothing.
+- A refund that Stripe confirms and later reports as failed is undone in our books and is
+  not sent again by itself; a person at Connect decides whether to refund again. Is that
+  enough where the refund was owed by law?
+- Stripe keeps its own card fee when a payment is refunded. Connect carries that today, for
+  every refund. May it be put on the host where the refund was her own decision?

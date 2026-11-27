@@ -10,6 +10,8 @@ import { readNotice } from "@/lib/notice";
 import type { ProjectPicture } from "@/db/schema";
 import { ATTENTION, forFounder, projectPaymentsForFounder, stateOf, tipPaymentsForFounder, type FounderRow } from "@/lib/contributions/views";
 import { formatMoney } from "@/lib/payments/access";
+import { currentSplit } from "@/lib/payments/actions";
+import { splitAfterRefunds } from "@/lib/payments/pricing";
 import { holdBackAction, letGoAsFounderAction, refundAsFounderAction, releaseAction } from "./contribution-actions";
 import { mayBeFetched } from "@/lib/projects/child-safety";
 import { checkerStates, picturesForAdmin, picturesOfPostForAdmin, type AdminPicture } from "@/lib/projects/moderation";
@@ -562,6 +564,11 @@ function ContributionRow({ row }: { row: FounderRow }) {
   const { payment, contribution, share } = row;
   const state = stateOf(payment);
   const sent = share?.transferStatus === "sent";
+  // What her share would lose if everything that can still be refunded were: the most she can come to owe for it.
+  const owesAtMost =
+    share && share.chargedCents !== null && share.originalHostShareCents !== null
+      ? formatMoney(Math.max(0, currentSplit(share).hostShareCents - splitAfterRefunds({ chargeCents: share.chargedCents, refundedCents: Math.min(share.chargedCents, share.refundedCents + row.refundableCents), originalHostShareCents: share.originalHostShareCents }).hostShareCents))
+      : formatMoney(0);
   return (
     <li className="rounded border border-neutral-400 p-3" data-payment={state}>
       <p>
@@ -652,6 +659,8 @@ function ContributionRow({ row }: { row: FounderRow }) {
           <input type="hidden" name="payment" value={payment.id} />
           {/* Made when this page was drawn: the same press, sent twice, is one refund. */}
           <input type="hidden" name="request" value={randomUUID()} />
+          {/* What this form says below depends on it: if the share is sent (or not) by the time of the press, nothing is refunded. */}
+          <input type="hidden" name="sent" value={sent ? "yes" : "no"} />
           <label>
             Give back, in dollars
             <input name="amount" type="text" inputMode="decimal" maxLength={12} defaultValue={(row.refundableCents / 100).toFixed(2)} className={`${reasonBox} w-28`} />
@@ -665,7 +674,7 @@ function ContributionRow({ row }: { row: FounderRow }) {
           </button>
           <span className="basis-full opacity-70">
             {sent
-              ? "Her share of this payment has already been sent to her. This refund is Connect's own money: nothing is taken back from the host."
+              ? `Her share of this payment has already been sent to her. The contributor is paid back from Connect's money now, and the host then owes her share of it back: ${owesAtMost} for all of it, less for a part, and never more than was sent to her. She is told. The app takes it by itself only if she had accepted a published Host Agreement before this payment, 14 days after her notice arrived, and she can object; otherwise it waits for you.`
               : "Her share has not been sent yet: it gets smaller by the same proportion, and so does our fee."}
           </span>
         </form>

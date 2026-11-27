@@ -43,7 +43,8 @@ import { addLedgerEntry, failOwnedOperation, finishOperation, lockPayment, Money
 import { splitAfterRefunds } from "@/lib/payments/pricing";
 import { stripe } from "@/lib/payments/stripe";
 import { SUPPORT_EMAIL } from "@/lib/terms";
-import { aboutOwner, disputePath, ownerOf, peopleFor, type Only } from "./record";
+import { lockForPayment } from "@/lib/contributions/locks";
+import { aboutOwner, disputePath, ownerOf, peopleFor, type Only, type Owner } from "./record";
 import { outcomeOf } from "./status";
 import { againstBank, canAnswer, canCancel, canHold, canObject, canSettle, CONFIRM_WITHIN_MS, dueDay, dueToTake, leftAfterRefunds, OPEN, owedCents, paidBackCents, refundOwes, repaidOutsideStanding, RESERVED, roomOn, stateBeforeTaking, TAKEABLE, takebackLabel, tellFounderOfRefusals, toGiveBackCents } from "./takeback-rules";
 import {
@@ -122,6 +123,16 @@ async function causeOf(reader: Reader, debt: Pick<HostDebt, "disputeId" | "refun
   return null;
 }
 
+/**
+ * What a share belongs to. A call's share is the call's own payment. The share of a contribution or a tip is a row of
+ * its own, and its charge, its refunds and its people are the contribution payment's
+ * (plans/50-part-1-gifts-owed-back.md).
+ */
+export async function ownerOfShare(reader: Reader, paymentId: string): Promise<Owner> {
+  const [share] = await reader.select({ parentId: schema.payments.contributionPaymentId }).from(schema.payments).where(eq(schema.payments.id, paymentId));
+  return share?.parentId ? { kind: "contribution", id: share.parentId } : { kind: "payment", id: paymentId };
+}
+
 /** The page of a take-back that has no dispute's page to be shown on: for its host and for the founder. */
 export const debtPath = (debtId: string) => `/debts/${debtId}`;
 const pathOf = (debt: Pick<HostDebt, "id">, cause: Cause) => (isRefund(cause) ? debtPath(debt.id) : disputePath(cause.id));
@@ -135,7 +146,7 @@ const within = (only?: Only): SQL | undefined => (only ? or(inArray(debts.disput
 
 /** The people of a take-back and the words' facts for each reader. Null when the money or the people are gone. */
 async function tellingFor(tx: Tx, debt: Pick<HostDebt, "amountCents" | "dueAt" | "basis"> & { byHandCents?: number }, cause: Cause) {
-  const about = await aboutOwner(tx, isRefund(cause) ? { kind: "payment", id: cause.paymentId } : ownerOf(cause));
+  const about = await aboutOwner(tx, isRefund(cause) ? await ownerOfShare(tx, cause.paymentId) : ownerOf(cause));
   if (!about) return null;
   const people = await peopleFor(tx, about);
   if (!people) return null;
@@ -228,7 +239,7 @@ async function reductionsOn(reader: Reader, paymentId: string, before?: Refund):
  * that pair of totals.
  */
 async function tellOfRefundTotals(tx: Tx, paymentId: string, atStripeCents: number, inAppCents: number): Promise<void> {
-  const about = await aboutOwner(tx, { kind: "payment", id: paymentId });
+  const about = await aboutOwner(tx, await ownerOfShare(tx, paymentId));
   const people = about ? await peopleFor(tx, about) : null;
   if (!about || !people) return;
   const names = { host: people.hostName, customer: people.customer.name };
@@ -254,7 +265,17 @@ async function leftOnTransfer(tx: Tx, paymentId: string, transferAmountCents: nu
 /** Whether a refund of this payment is with Stripe and unanswered: nothing is worked out on a share while money is moving on it. */
 async function refundUnderWay(reader: Reader, paymentId: string): Promise<boolean> {
   const [moving] = await reader.select({ id: schema.refunds.id }).from(schema.refunds).where(and(eq(schema.refunds.paymentId, paymentId), eq(schema.refunds.status, "in_progress"))).limit(1);
-  return Boolean(moving);
+  if (moving) return true;
+  // The share of a contribution or a tip: its refunds are tries of the contribution's payment. Money is moving while
+  // one of them is with Stripe, or is written down and unanswered. (A try is written down with the share held, and
+  // whoever asks here holds the share: so the answer cannot be out of date. A line that is only owed and waits for
+  // its next try does not count: it cannot be tried while a dispute is lost, and would hold everything up for ever.)
+  const owner = await ownerOfShare(reader, paymentId);
+  if (owner.kind !== "contribution") return false;
+  const [withStripe] = await reader.select({ id: schema.contributionRefunds.id }).from(schema.contributionRefunds).where(and(eq(schema.contributionRefunds.contributionPaymentId, owner.id), eq(schema.contributionRefunds.status, "at_stripe"))).limit(1);
+  if (withStripe) return true;
+  const [unanswered] = await reader.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.contributionPaymentId, owner.id), eq(schema.moneyOperations.kind, "refund"), eq(schema.moneyOperations.status, "started"))).limit(1);
+  return Boolean(unanswered);
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +352,16 @@ async function writeDebt(dispute: Dispute, paymentId: string, now: Date): Promis
     if (dispute.paymentId === paymentId && charge.amount_refunded !== share.refundedCents) {
       await tellOfRefundTotals(tx, paymentId, charge.amount_refunded, share.refundedCents);
       return false;
+    }
+    // The same for the share of a contribution or a tip: the charge is the contribution payment's, and so is the
+    // total of its refunds (the share's own total leaves out refunds Connect once paid from its own money).
+    if (dispute.contributionPaymentId && share.contributionPaymentId === dispute.contributionPaymentId) {
+      const [parent] = await tx.select({ refundedCents: schema.contributionPayments.refundedCents }).from(schema.contributionPayments).where(eq(schema.contributionPayments.id, dispute.contributionPaymentId));
+      if (!parent) return false;
+      if (charge.amount_refunded !== parent.refundedCents) {
+        await tellOfRefundTotals(tx, paymentId, charge.amount_refunded, parent.refundedCents);
+        return false;
+      }
     }
     const settledOutside = repaidOutsideStanding(others);
     const reductions = await reductionsOn(tx, paymentId);
@@ -436,13 +467,26 @@ async function writeRefundDebt(refundId: string, now: Date): Promise<void> {
     const looked = () => tx.update(schema.refunds).set({ debtLookedAt: now }).where(eq(schema.refunds.id, refund.id));
     const others = await tx.select().from(debts).where(eq(debts.paymentId, share.id));
     // Nothing to take back: her share lost nothing, or nothing was really sent for it (the collection charge ate it).
-    if (others.some((other) => other.refundId === refund.id) || refund.hostOwesCents <= 0 || share.transferStatus !== "sent" || !share.stripeTransferId || (share.transferCents ?? 0) <= 0 || !share.callId) {
+    if (others.some((other) => other.refundId === refund.id) || refund.hostOwesCents <= 0 || share.transferStatus !== "sent" || !share.stripeTransferId || (share.transferCents ?? 0) <= 0 || (!share.callId && !share.contributionPaymentId)) {
       await looked();
       return;
     }
     if (others.some((other) => other.status === "taking") || (await refundUnderWay(tx, share.id))) return;
-    const [call] = await tx.select({ hostId: schema.calls.hostId }).from(schema.calls).where(eq(schema.calls.id, share.callId));
+    // Whose share it is, and where its charge lives: a call's own payment, or the payment of a contribution or a tip
+    // (the PaymentIntent and the total of refunds are there; the share only carries the charge's number).
+    const parentId = share.callId ? null : share.contributionPaymentId;
+    const [parent] = parentId
+      ? await tx
+          .select({ hostId: schema.contributions.hostId, intentId: schema.contributionPayments.stripePaymentIntentId, refundedCents: schema.contributionPayments.refundedCents })
+          .from(schema.contributionPayments)
+          .innerJoin(schema.contributions, eq(schema.contributions.id, schema.contributionPayments.contributionId))
+          .where(eq(schema.contributionPayments.id, parentId))
+      : [];
+    const [ofCall] = share.callId ? await tx.select({ hostId: schema.calls.hostId }).from(schema.calls).where(eq(schema.calls.id, share.callId)) : [];
+    const call = ofCall ?? (parent ? { hostId: parent.hostId } : null);
     if (!call) return;
+    const ownIntentId = parent ? parent.intentId : share.stripePaymentIntentId;
+    const ownRefundedCents = parent ? parent.refundedCents : share.refundedCents;
     // Both reads at once, one try each, under one limit of time: the share's payment is held meanwhile. A failure
     // here throws, and nothing is written.
     const [transfer, charge] = await inTime(
@@ -461,12 +505,12 @@ async function writeRefundDebt(refundId: string, now: Date): Promise<void> {
       ]),
     );
     const intentOf = charge ? (typeof charge.payment_intent === "string" ? charge.payment_intent : (charge.payment_intent?.id ?? null)) : null;
-    const fits = charge !== null && intentOf !== null && intentOf === share.stripePaymentIntentId;
+    const fits = charge !== null && intentOf !== null && intentOf === ownIntentId;
     // Stripe's total of refunds on the charge has to be the app's: if Stripe knows of a refund the app has not
     // confirmed (or the other way round), nothing is worked out from a history that is not whole. Not marked as
     // looked at: the next pass asks again.
-    if (fits && charge!.amount_refunded !== share.refundedCents) {
-      await tellOfRefundTotals(tx, share.id, charge!.amount_refunded, share.refundedCents);
+    if (fits && charge!.amount_refunded !== ownRefundedCents) {
+      await tellOfRefundTotals(tx, share.id, charge!.amount_refunded, ownRefundedCents);
       return;
     }
     const basis: RefundBasis = {
@@ -829,6 +873,11 @@ export function takePlan(debt: Pick<HostDebt, "id" | "paymentId">, now: Date = n
       const cause = await causeOf(tx, row);
       if (!cause) throw new MoneyError("What this take-back comes from is gone.");
       if (isRefund(cause) ? cause.status !== "done" : cause.outcome !== "lost") throw new MoneyError(isRefund(cause) ? "The refund of this take-back is not confirmed." : "The dispute of this take-back is not lost any more.");
+      // A refund Stripe has said failed after all, whose undoing waits for money to stop moving: nothing is taken for it.
+      if (isRefund(cause) && cause.undoPendingAt !== null) throw new MoneyError("The refund of this take-back failed at Stripe and is being undone.");
+      // The share of a contribution or a tip: its refunds are actions of the contribution's payment, which this
+      // action's own place on the share does not keep out. Nothing is taken while one of them is unanswered.
+      if (isRefund(cause) && cause.contributionRefundId !== null && (await refundUnderWay(tx, row.paymentId))) throw new MoneyError("A refund of this contribution is with Stripe and unanswered, so nothing is taken from its share now.");
       // And never for more than is left to take out of the transfer, as the app knows it at this moment.
       if (row.amountCents > (await roomToTake(tx, row))) throw new MoneyError("More is owed than can still be taken out of this transfer.");
       await tx.update(debts).set({ status: "taking", updatedAt: new Date() }).where(eq(debts.id, row.id));
@@ -947,7 +996,7 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
       // What it comes from once more, as the app has it now: a dispute may have been recorded as won while this
       // waited for the lock.
       const cause = await causeOf(tx, whole);
-      if (!cause || (isRefund(cause) ? cause.status !== "done" : cause.outcome !== "lost")) return false;
+      if (!cause || (isRefund(cause) ? cause.status !== "done" || cause.undoPendingAt !== null : cause.outcome !== "lost")) return false;
       // Nor for more than is left to take out of the transfer, as the app knows it NOW: the founder may have recorded
       // a payment outside the app, or a part of a reversal made by hand, since the taking was written down. (A
       // reversal Stripe already made for this attempt is still found and booked below.)
@@ -1170,9 +1219,14 @@ export async function refundFailedAtStripe(refundId: string, reason: string, now
  * always told, because the customer did not get the money.
  */
 export async function undoFailedRefund(refundId: string, reason: string, now: Date = new Date()): Promise<boolean> {
-  const [seen] = await db.select({ paymentId: schema.refunds.paymentId }).from(schema.refunds).where(eq(schema.refunds.id, refundId));
+  const [seen] = await db.select({ paymentId: schema.refunds.paymentId, sourceId: schema.refunds.contributionRefundId }).from(schema.refunds).where(eq(schema.refunds.id, refundId));
   if (!seen) return false;
+  // A share's line that stands for the refund of a contribution or a tip (plans/50-part-1-gifts-owed-back.md): the
+  // contribution's payment it belongs to. Its locks are taken first, in that machine's own order, and the share after.
+  const owner = seen.sourceId ? await ownerOfShare(db, seen.paymentId) : null;
+  const parentId = owner?.kind === "contribution" ? owner.id : null;
   return db.transaction(async (tx) => {
+    if (parentId) await lockForPayment(tx, parentId);
     const payment = await lockPayment(tx, seen.paymentId);
     const [refund] = await tx.select().from(schema.refunds).where(eq(schema.refunds.id, refundId)).for("update");
     if (!refund || refund.status !== "done" || payment.chargedCents === null || payment.originalHostShareCents === null) return false;
@@ -1181,7 +1235,9 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
     // that is found out first. The failure is kept on the refund's line, and the helper comes back to it on every
     // pass until it is undone: it is never lost because the moment was wrong.
     const [moving] = await tx.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.paymentId, payment.id), eq(schema.moneyOperations.status, "started"))).limit(1);
-    if (moving || rows.some((row) => row.status === "taking")) {
+    // (For a contribution's share also an action of the contribution's payment: another refund of it, above all.)
+    const [movingOnParent] = parentId ? await tx.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(and(eq(schema.moneyOperations.contributionPaymentId, parentId), eq(schema.moneyOperations.status, "started"))).limit(1) : [];
+    if (moving || movingOnParent || rows.some((row) => row.status === "taking")) {
       if (refund.undoPendingAt === null) await tx.update(schema.refunds).set({ undoPendingAt: now, failure: reason.slice(0, 500) }).where(eq(schema.refunds.id, refund.id));
       return false;
     }
@@ -1211,7 +1267,22 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
       .set({ refundedCents, transferStatus: payment.transferStatus === "not_owed" && after.hostShareCents > 0 ? "not_due" : payment.transferStatus, updatedAt: now })
       .where(eq(schema.payments.id, payment.id));
     const note = `The refund ${refund.id} failed at Stripe after it had been confirmed.`;
-    await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_refund", amountCents: refund.amountCents, stripeRef: refund.stripeRefundId, note });
+    if (parentId && refund.contributionRefundId) {
+      // What went back to the card stands once, under the contribution's payment: it is written back there, that
+      // payment counts as refunded by that much less, and the contribution's own line is over ("failed"). It is not
+      // tried again by itself: a new refund is a new decision, as for a call. Only for the very line, still done,
+      // that carries the very same refund of Stripe's.
+      const [source] = await tx.select().from(schema.contributionRefunds).where(eq(schema.contributionRefunds.id, refund.contributionRefundId)).for("update");
+      if (source && source.contributionPaymentId === parentId && source.status === "done" && source.stripeRefundId !== null && source.stripeRefundId === refund.stripeRefundId) {
+        await tx.update(schema.contributionRefunds).set({ status: "failed", failedAt: now }).where(eq(schema.contributionRefunds.id, source.id));
+        await tx.update(schema.contributionPayments).set({ refundedCents: sql`greatest(0, ${schema.contributionPayments.refundedCents} - ${source.amountCents})`, updatedAt: now }).where(eq(schema.contributionPayments.id, parentId));
+        await addLedgerEntry(tx, { contributionPaymentId: parentId, kind: "customer_refund", amountCents: source.amountCents, stripeRef: refund.stripeRefundId, note });
+      } else {
+        console.error(`[disputes] refund ${refund.id} of a contribution's share failed at Stripe after all, and its contribution's line ${refund.contributionRefundId} is not the one that was confirmed: the share was put right, the contribution's payment was not. Look at it.`);
+      }
+    } else {
+      await addLedgerEntry(tx, { paymentId: payment.id, kind: "customer_refund", amountCents: refund.amountCents, stripeRef: refund.stripeRefundId, note });
+    }
     await addLedgerEntry(tx, { paymentId: payment.id, kind: "platform_fee", amountCents: after.feeCents - before.feeCents, stripeRef: refund.stripeRefundId, note });
     await addLedgerEntry(tx, { paymentId: payment.id, kind: "host_share", amountCents: after.hostShareCents - before.hostShareCents, stripeRef: refund.stripeRefundId, note });
 
@@ -1235,7 +1306,7 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
     const excess = await reworkRefundsLeft(tx, payment, refundedCents, now);
     await freeSetAside(tx, payment.id);
 
-    const about = await aboutOwner(tx, { kind: "payment", id: payment.id });
+    const about = await aboutOwner(tx, await ownerOfShare(tx, payment.id));
     const people = about ? await peopleFor(tx, about) : null;
     if (about && people) {
       const names = { host: people.hostName, customer: people.customer.name };
@@ -1554,7 +1625,7 @@ export async function debtForPage(debtId: string, role: "host" | "founder", read
   if (!debt || debt.status === "nothing") return null;
   const cause = await causeOf(db, debt);
   if (!cause) return null;
-  const about = await aboutOwner(db, isRefund(cause) ? { kind: "payment", id: cause.paymentId } : ownerOf(cause));
+  const about = await aboutOwner(db, isRefund(cause) ? await ownerOfShare(db, cause.paymentId) : ownerOf(cause));
   if (!about) return null;
   const [host] = await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, about.hostId));
   const [customer] = await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, about.customerId));

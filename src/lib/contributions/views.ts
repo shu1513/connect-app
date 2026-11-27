@@ -130,7 +130,7 @@ export type PaymentRow = {
 
 function rowsFor(payments: ContributionPayment[], shares: Map<string, Payment>, refunds: Map<string, ContributionRefund[]>): PaymentRow[] {
   return payments.map((payment) => {
-    const underWay = (refunds.get(payment.id) ?? []).filter((line) => line.status !== "done").reduce((sum, line) => sum + line.amountCents, 0);
+    const underWay = (refunds.get(payment.id) ?? []).filter((line) => line.status !== "done" && line.status !== "failed").reduce((sum, line) => sum + line.amountCents, 0);
     return { payment, share: shares.get(payment.id) ?? null, refundUnderWayCents: underWay, refundableCents: payment.status === "taken" ? Math.max(0, (payment.takenCents ?? 0) - payment.refundedCents - underWay) : 0 };
   });
 }

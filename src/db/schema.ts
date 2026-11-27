@@ -1082,8 +1082,14 @@ export const refunds = pgTable(
     undoPendingAt: timestamp("undo_pending_at", { withTimezone: true }),
     /** This refund, given before the host collected, failed after all: the part of her share it had kept from being sent, which she and the founder were told is owed to her. */
     underpaidCents: integer("underpaid_cents").notNull().default(0),
+    /**
+     * Set on the line a contribution's or tip's SHARE gets when the founder's refund of it, given after the host had
+     * collected, is confirmed (plans/50-part-1-gifts-owed-back.md): the contribution's own refund line it stands for.
+     * That line is written as done at once, and the take-back for it is worked out from it as for a call's refund.
+     */
+    contributionRefundId: uuid("contribution_refund_id").references((): AnyPgColumn => contributionRefunds.id),
   },
-  (t) => [index("refunds_payment_idx").on(t.paymentId), index("refunds_debt_look_idx").on(t.finishedAt).where(sql`${t.afterCollection} and ${t.debtLookedAt} is null`)],
+  (t) => [uniqueIndex("refunds_contribution_refund_idx").on(t.contributionRefundId).where(sql`${t.contributionRefundId} is not null`), index("refunds_payment_idx").on(t.paymentId), index("refunds_debt_look_idx").on(t.finishedAt).where(sql`${t.afterCollection} and ${t.debtLookedAt} is null`)],
 );
 
 /**
@@ -2255,6 +2261,14 @@ export const contributionRefunds = pgTable(
     reason: text("reason").notNull(),
     /** True for a refund after the share was sent: it is Connect's own money, and the host's share is not lowered. */
     connectsOwn: boolean("connects_own").notNull().default(false),
+    /**
+     * Written by the founder after the host's share was sent (plans/50-part-1-gifts-owed-back.md): when Stripe confirms
+     * it, the share shrinks and gets a line of its own in `refunds`, and the host owes what her share lost. Never set
+     * together with `connectsOwn`, which is the way such a refund was treated before.
+     */
+    afterCollection: boolean("after_collection").notNull().default(false),
+    /** Stripe confirmed this refund and said later that it failed: when. Only for a line that is "failed". */
+    failedAt: timestamp("failed_at", { withTimezone: true }),
     /** owed, at_stripe or done. */
     status: text("status").notNull().default("owed"),
     attempt: integer("attempt").notNull().default(1),
@@ -2266,7 +2280,9 @@ export const contributionRefunds = pgTable(
   (t) => [
     index("contribution_refunds_status_idx").on(t.status),
     index("contribution_refunds_payment_idx").on(t.contributionPaymentId),
-    check("contribution_refunds_status", sql`${t.status} in ('owed', 'at_stripe', 'done')`),
+    check("contribution_refunds_status", sql`${t.status} in ('owed', 'at_stripe', 'done', 'failed')`),
+    check("contribution_refunds_one_way", sql`not (${t.connectsOwn} and ${t.afterCollection})`),
+    check("contribution_refunds_failed_shape", sql`(${t.status} = 'failed') = (${t.failedAt} is not null)`),
     check("contribution_refunds_amount", sql`${t.amountCents} > 0`),
     check("contribution_refunds_decided_by", sql`${t.decidedBy} in ('host', 'founder', 'app')`),
   ],
