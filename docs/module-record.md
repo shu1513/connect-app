@@ -6064,3 +6064,42 @@ connection. The helper taking the money a real day later (the scripts move the c
 describe the old button, and wait for the lawyer's words (`docs/legal/end-call-now-proposed-wording.md`,
 `docs/for-the-lawyer.md` section 25). The app and its helper must be put out together: an older
 helper would charge a call that a customer ended by the minutes.
+
+## A tip's or a contribution's refund can no longer be paid twice after a lost answer (plan 50, part 1, follow-up, 27 November 2026)
+
+**What it is about.** Not a new feature and no decision of the founder's: a weakness Astra
+found on 26 November while reading plan 50, part 1, left there and fixed here. When Stripe's
+answer to a refund of a tip or a contribution was lost, the app's follow-up could wrongly
+conclude "it was not made" and send the refund again an hour later. On a part refund the
+contributor could then get the money twice.
+
+**What was built.** The follow-up now works as a call's refund already did
+(`plans/50-part-1-gifts-owed-back.md`, "The refund's follow-up, hardened"):
+
+- whoever sends a refund first has 30 seconds to do so, as one request; after that it is
+  left to the helper, so the helper never has to guess whether a first request is still on
+  its way;
+- when the helper repeats the request, it no longer believes the answer as it comes back
+  (Stripe returns the first answer, which can be out of date): it asks about the refund by
+  its own number and books what it is now;
+- when Stripe says "no" to the repeat, the helper first searches Stripe's complete list of
+  that charge's refunds. A refund that is there is booked once. Only if it is not there is
+  the refund owed again;
+- after 23 hours, when nothing can be repeated, "not on Stripe's list" only counts after 24
+  hours. Until then the refund stays open and is looked at again.
+
+Nothing else behaves differently. No change to the database.
+
+**How it was checked.** Type check, lint, 1,162 automatic tests. A new journey in
+`scripts/contribution-check.ts` (12 checks, real refunds in Stripe's test area, with the
+script answering in Stripe's place only where the test area cannot be made to refuse). The
+main case was first run against the old code, where it failed as feared: the contributor got
+5.00 twice. With the new code the contributor gets it once. The whole script with `--payouts`, and the
+call's own `owed-check` and `refunds-check`, were run again and pass.
+
+**What the checks cannot cover.** A real lost answer from Stripe and a real refusal of a
+repeat: both are made up by the script, in the place where Stripe's answer comes in.
+
+**Left for later.** A membership's pay-back has the same weakness in its follow-up
+(`src/lib/membership/recover.ts`). It was not asked for here and is proposed as its own fix.
+

@@ -34,13 +34,13 @@ import {
 } from "./actions";
 import { settleCancelledCall } from "./cancel";
 import { settleEmptyShare } from "./collect";
-import { failOperation, failOwnedOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, RECONCILE_AFTER_MS, refusedRecently } from "./operations";
+import { failOperation, failOwnedOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, RECONCILE_AFTER_MS, refusedRecently, SEARCH_WITHIN_MS, SETTLED_AFTER_MS } from "./operations";
 import { owedFor } from "./owed";
 import { countedSeconds } from "./pricing";
 import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
 import { settleOrdinaryCharges } from "./take";
-import { isDefiniteRefusal, stripe, stripeErrorMessage } from "./stripe";
+import { isDefiniteRefusal, lookUp, stripe, stripeErrorMessage } from "./stripe";
 import { handleStripeEvent } from "./stripe-events";
 
 /**
@@ -49,10 +49,6 @@ import { handleStripeEvent } from "./stripe-events";
  * result, or does it now if it never arrived.
  */
 const LABEL_SAFE_MS = 23 * 3_600_000;
-/** How long one search through a list at Stripe may take before it is given up as unfinished. */
-const SEARCH_WITHIN_MS = 20_000;
-/** From when "Stripe's list does not show it" is final for a request that can no longer be repeated: an hour after the last repeat could have been sent. */
-const SETTLED_AFTER_MS = 24 * 3_600_000;
 /**
  * A charge attempt we wrote off as refused can still have gone through at
  * Stripe. Before anything else is decided about a held payment with such an
@@ -73,19 +69,6 @@ async function afterCheckingRefusedCharge(payment: Payment, now: Date): Promise<
     )
     .limit(1);
   return refused ? syncHold(payment.id, now) : payment;
-}
-
-/**
- * Asking Stripe what it has is not the action itself. If the asking fails, even with a clear "no"
- * (no permission, say), that proves nothing about the action: it stays unanswered and is looked
- * at again, instead of being recorded as refused.
- */
-async function lookUp<T>(read: () => Promise<T>): Promise<T> {
-  try {
-    return await read();
-  } catch (error) {
-    throw new Error(`Could not look this up at Stripe: ${stripeErrorMessage(error)}`);
-  }
 }
 
 function log(message: string, error?: unknown) {

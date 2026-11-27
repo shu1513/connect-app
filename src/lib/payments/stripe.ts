@@ -48,3 +48,16 @@ export function isDefiniteRefusal(error: unknown): boolean {
 export function stripeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * Asking Stripe what it has is not the action itself. If the asking fails, even with a clear "no"
+ * (no permission, say), that proves nothing about the action: it stays unanswered and is looked
+ * at again, instead of being recorded as refused.
+ */
+export async function lookUp<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    throw new Error(`Could not look this up at Stripe: ${stripeErrorMessage(error)}`);
+  }
+}

@@ -136,7 +136,8 @@ still cannot refund after collecting.
   a refusal of a repeat moves on to the next try without a look whether the first went
   through, and "not on Stripe's list" is taken as final at once. On a part refund that could
   pay a customer twice. It is so today, for every contribution refund, and this part adds no
-  new try. It is a fix of its own, proposed right after this part.
+  new try. It is a fix of its own, proposed right after this part. **Fixed on 27 November
+  2026: see "The refund's follow-up, hardened" at the end.**
 - What a host had already paid for a refund that then failed is not sent back by the app,
   and a replacement refund's take-back may find no room left on a transfer that was already
   reversed. Both are so for a call today.
@@ -253,3 +254,52 @@ Three points on the pull request, all taken.
    call's refund too,** where the same gap was: the notice was always meant for both. A
    reversal Stripe already made is still found and booked. The check now has that case: a
    take-back told before the totals came apart is not taken when its day comes.
+
+## The refund's follow-up, hardened (27 November 2026)
+
+The weak recovery named under "Known, and left as it is" is closed. A tip's or a
+contribution's refund whose answer from Stripe never arrived is now followed up exactly as a
+call's refund is (`reconcileOperations` in `src/lib/payments/jobs.ts`). Why it matters: a
+refund that is called "not made" is sent again as a new try an hour later, and on a part
+refund enough of the charge is left for that new try to pay the contributor a second time.
+
+What changed, in `src/lib/contributions/refund.ts` and `recover.ts`:
+
+1. **The first request has a last moment.** Whoever writes a try down sends it at once: no
+   later than 30 seconds after it was written down (by the database's clock, read last of
+   all), as one request that is given up after 10 seconds. That is shorter than the minute
+   the helper waits before it looks. So when the helper looks, the first request has either
+   reached Stripe or will never be sent. A writer that is too late sends nothing and leaves
+   the try to the helper, which sends it under the same label.
+2. **A repeat is not believed as it comes back.** Under the same label Stripe returns its
+   first answer, as it was then. The refund is now asked about by its own number, and booked
+   as it stands now: paid, still on its way, or failed since.
+3. **A "no" to a repeat is not the end.** Stripe's complete list of the charge's refunds is
+   searched for this line and this attempt first. A refund that is there is booked, once.
+   Only when it is not there did the try not happen: owed again, a new try in an hour, as
+   before.
+4. **"Not on Stripe's list" has to wait.** Once a try is too old to repeat (23 hours), a
+   search that finds nothing is final only if it began 24 hours after the try was written
+   down, the same wait a call uses. Until then the try stays open and is looked at again.
+   A search that takes longer than 20 seconds counts as not made.
+
+The two waiting times and "a look is not the action" are now one definition for calls and
+contributions (`SEARCH_WITHIN_MS`, `SETTLED_AFTER_MS`, `lookUp`), so they cannot drift apart.
+
+**Not changed:** a line that is "done" or "failed" stays so; a line "at Stripe" is asked
+about by its own number; nothing new is sent while the charge is disputed; the share's own
+refund line for a refund given after collection is written in the step that confirms it,
+also when that step is this follow-up.
+
+**How it was tried.** `scripts/contribution-check.ts` has a new journey (19) against
+Stripe's test mode, answering in Stripe's place only where test mode cannot be made to
+refuse or fail a refund: a part refund that went through unheard and whose repeat is refused
+is booked once and not sent again (on the old code the same case paid the contributor
+twice: 5.00 and 5.00); a refused repeat with nothing on the list is owed again and sent once
+after its hour; a repeat that returns an old "succeeded" for a refund that has failed since
+is not booked as paid; after 23 hours a missing refund stays open, and after 24 it is final;
+after 23 hours a refund on the list is booked, with the share's own line for a refund given
+after collection; a writer that is too late sends nothing, and the helper sends it once.
+
+**Known, and left.** A membership's pay-back (`src/lib/membership/recover.ts`) has the same
+three gaps and is not touched here: it is a fix of its own.

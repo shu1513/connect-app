@@ -418,8 +418,8 @@ export async function refundPayment(input: RefundInput): Promise<void> {
  * refunds showing nothing, then really means that it did not happen. (A writer that is too late leaves the action to
  * the helper, which sends it under the same label.)
  */
-const REFUND_SEND_WITHIN_MS = RECONCILE_AFTER_MS / 2;
-const REFUND_SEND_TIMEOUT_MS = RECONCILE_AFTER_MS / 6;
+export const REFUND_SEND_WITHIN_MS = RECONCILE_AFTER_MS / 2;
+export const REFUND_SEND_TIMEOUT_MS = RECONCILE_AFTER_MS / 6;
 export function refundPlan(input: RefundInput, refundId: string): OperationPlan<RefundParams, RefundResult> {
   return {
     paymentId: input.paymentId,
