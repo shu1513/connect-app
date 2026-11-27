@@ -45,7 +45,6 @@ async function main() {
   const { MoneyError } = await import("../src/lib/payments/operations");
   const { paymentToRefund } = await import("../src/lib/payments/access");
   const { ownPaymentOf, paymentsOfCall } = await import("../src/lib/payments/own");
-  const { reviewChargeLimitCents } = await import("../src/lib/payments/pricing");
   const { paymentBlocksJoin } = await import("../src/lib/payments/rules");
   const { refreshPayoutsReady } = await import("../src/lib/payments/hosts");
   const { loadAttendance } = await import("../src/lib/attendance/load");
