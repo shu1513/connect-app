@@ -1792,7 +1792,17 @@ async function main() {
             check("and the first take-back, already taken, stands as it was", (await debtOf(own.id)).status === "taken" && (await debtOf(own.id)).amountCents === 1878 - shareAfter);
 
             // Stripe really paid that second refund (only this script said it failed). So Stripe's total of refunds is now
-            // larger than the app's: nothing more is worked out for this payment until the two agree, and the founder is told.
+            // larger than the app's. A take-back that was written and told BEFORE that (the third refund's) is not taken
+            // while they are apart, also once its day has come.
+            const waiting3 = await debtOf(own3.id);
+            await db.update(schema.emailOutbox).set({ status: "sent", sentAt: waiting3.toldAt, deliveredAt: waiting3.toldAt }).where(eq(schema.emailOutbox.id, waiting3.noticeEmailId!));
+            await TB.takeBackPass(new Date(0), { disputeIds: [], refundIds: [own3.id] });
+            const due3 = await debtOf(own3.id);
+            await TB.takeBackPass(new Date(due3.dueAt!.getTime() + 1000), { disputeIds: [], refundIds: [own3.id] });
+            const held3 = await debtOf(own3.id);
+            const reversedSoFar = (await stripe().transfers.retrieve(lowered.stripeTransferId!)).amount_reversed;
+            check("an older take-back, told before the totals came apart, is not taken while they are apart, although its day has come; the founder is told", due3.dueAt !== null && held3.status === "told" && held3.refusedAt === null && reversedSoFar === (await debtOf(own.id)).amountCents && (await db.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-totals:${lowered.id}:%`))).length > 0, { status: held3.status, reversedSoFar });
+            // Nothing more is worked out for this payment either until the two agree, and the founder is told.
             const fourth = await R.refundContribution({ paymentId: m.paymentId, amountCents: 100, by: "founder", deciderId: boss.id, reason: "A fourth one", requestKey: randomUUID(), shownSent: true });
             await R.sendRefund(fourth.id, new Date());
             const [own4] = await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, fourth.id));

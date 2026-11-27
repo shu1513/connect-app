@@ -255,6 +255,9 @@ export async function runRefunds(now: Date): Promise<void> {
         eq(pays.status, "taken"),
         // A payment with an action under way cannot start a refund now, so its lines never fill the batch.
         sql`not exists (select 1 from ${schema.moneyOperations} where ${schema.moneyOperations.contributionPaymentId} = ${pays.id} and ${schema.moneyOperations.status} = 'started')`,
+        // Nor can one whose share is being taken back at this moment (sendRefund refuses it under the lock): its
+        // lines never fill the batch either, so a refund of another payment is never kept waiting behind them.
+        sql`not exists (select 1 from ${schema.hostDebts} inner join ${schema.payments} on ${schema.payments.id} = ${schema.hostDebts.paymentId} where ${schema.payments.contributionPaymentId} = ${pays.id} and ${schema.hostDebts.status} = 'taking')`,
       ),
     )
     .orderBy(lines.createdAt)

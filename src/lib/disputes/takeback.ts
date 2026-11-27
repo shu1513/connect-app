@@ -254,6 +254,32 @@ async function tellOfRefundTotals(tx: Tx, paymentId: string, atStripeCents: numb
 }
 
 /**
+ * Stripe's total of refunds on the charge behind a share, beside the total the app has confirmed for it (for the share
+ * of a contribution or a tip: its contribution payment's). Null when the two agree, or when there is nothing to
+ * compare (no charge of its own, as for a member's call, or a charge that is gone or does not fit the payment). While
+ * they differ nothing is worked out for that payment, and nothing is taken for a refund of it either: the history the
+ * amounts rest on is not whole. Asks Stripe, with nothing held; throws when Stripe cannot be asked.
+ */
+async function refundTotalsApart(paymentId: string): Promise<{ atStripeCents: number; inAppCents: number } | null> {
+  const [share] = await db
+    .select({ chargeId: schema.payments.stripeChargeId, intentId: schema.payments.stripePaymentIntentId, refundedCents: schema.payments.refundedCents, callId: schema.payments.callId, parentId: schema.payments.contributionPaymentId })
+    .from(schema.payments)
+    .where(eq(schema.payments.id, paymentId));
+  if (!share?.chargeId) return null;
+  const [parent] = !share.callId && share.parentId ? await db.select({ intentId: schema.contributionPayments.stripePaymentIntentId, refundedCents: schema.contributionPayments.refundedCents }).from(schema.contributionPayments).where(eq(schema.contributionPayments.id, share.parentId)) : [];
+  const own = parent ?? share;
+  const charge = await stripe()
+    .charges.retrieve(share.chargeId, {}, { maxNetworkRetries: 0 })
+    .catch((error: { code?: string }) => {
+      if (error?.code === "resource_missing") return null;
+      throw error;
+    });
+  const intentOf = charge ? (typeof charge.payment_intent === "string" ? charge.payment_intent : (charge.payment_intent?.id ?? null)) : null;
+  if (!charge || intentOf === null || intentOf !== own.intentId) return null;
+  return charge.amount_refunded === own.refundedCents ? null : { atStripeCents: charge.amount_refunded, inAppCents: own.refundedCents };
+}
+
+/**
  * What is left on a share's transfer, as the app knows it: what was sent, less what the app itself took back for this
  * share's take-backs, less every part of a reversal made by hand that the founder has accounted for. A reversal made
  * by hand that nobody has accounted for yet is NOT taken off here. Until the founder has said what it was for the app
@@ -909,6 +935,16 @@ async function takeOne(debt: HostDebt, now: Date): Promise<void> {
   // A take-back that comes from a refund: Stripe is asked once more whether that refund still stands. A refund Stripe
   // first confirmed can fail afterwards; then the customer got nothing, and nothing is owed.
   if (debt.refundId && !(await refundStands(debt.refundId, now))) return;
+  // Nor while Stripe's total of refunds on the charge is not the app's: then no new take-back is worked out for the
+  // payment (writeRefundDebt), and one that was written before is not taken either. The founder is told, once for
+  // that pair of totals.
+  if (debt.refundId) {
+    const apart = await refundTotalsApart(debt.paymentId);
+    if (apart) {
+      await db.transaction((tx) => tellOfRefundTotals(tx, debt.paymentId, apart.atStripeCents, apart.inAppCents));
+      return;
+    }
+  }
   // A reversal somebody made by hand on this transfer, that nobody has accounted for: it may already have paid
   // this very take-back. Nothing more is taken from the transfer until the founder has said what it was for.
   const byHand = await handReversalsOpen(debt);
@@ -985,6 +1021,9 @@ export async function recoverTakeback(operation: { id: string; paymentId: string
   // The same two looks the first request had: the refund still stands at Stripe, and no reversal made by hand on the
   // transfer is unaccounted for. If either cannot be asked, nothing is sent again (the search below still runs).
   if (resend && row?.refundId) resend = await refundStands(row.refundId).catch(() => false);
+  // And Stripe's total of refunds on the charge is still the app's (takeOne). A reversal Stripe already made is found
+  // and booked below whatever this says.
+  if (resend && row?.refundId) resend = await refundTotalsApart(operation.paymentId).then((apart) => apart === null, () => false);
   if (resend) resend = await handReversalsOpen({ paymentId: operation.paymentId, stripeTransferId: params.transferId }).then((open) => open.length === 0, () => false);
   // The last look, after everything that takes time and with the share's payment held: the same lock a report from the
   // sending service is written under, and the one the first request was authorised under. A bounce that was recorded

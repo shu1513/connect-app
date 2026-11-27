@@ -5828,4 +5828,7 @@ not fit was half undone; a refund with no line on its share that failed late was
 noticed and would have held up later take-backs; the form could be sent without saying what
 it showed, and showed 5.00 where 4.75 was sent; two sentences and two email links; the
 checks). One is written in the plan and left: it needs a line written the old way, which
-exists only in test data.
+exists only in test data. CodeRabbit then found three more, all taken: the form promised a
+smaller take-back for every part refund; refunds held up by a take-back could fill the
+helper's batch of 50; and a take-back that was already written was still taken while
+Stripe's total of refunds was not the app's (now it is not, for a call's refund too).

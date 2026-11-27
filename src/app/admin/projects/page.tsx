@@ -676,7 +676,7 @@ function ContributionRow({ row }: { row: FounderRow }) {
           </button>
           <span className="basis-full opacity-70">
             {sent
-              ? `Her share of this payment has already been sent to her. The contributor is paid back from Connect's money now, and the host then owes her share of it back: at most ${owesAtMost} if all of it is refunded, less for a part, and never more than is left of the ${formatMoney(wasSent)} that was sent to her. She is told. The app takes it by itself only if she had accepted a published Host Agreement before this payment, 14 days after her notice arrived, and she can object; otherwise it waits for you.`
+              ? `Her share of this payment has already been sent to her. The contributor is paid back from Connect's money now, and the host then owes her share of it back: at most ${owesAtMost} if all of it is refunded (a part refund may come to less), and never more than is left of the ${formatMoney(wasSent)} that was sent to her. She is told. The app takes it by itself only if she had accepted a published Host Agreement before this payment, 14 days after her notice arrived, and she can object; otherwise it waits for you.`
               : "Her share has not been sent yet: it gets smaller by the same proportion, and so does our fee."}
           </span>
         </form>

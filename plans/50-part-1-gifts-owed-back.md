@@ -233,3 +233,23 @@ Astra also confirmed: no way for the two machines to wait on each other was foun
 ordinary path the customer's money is booked once under the contribution's payment and the
 share's changes once on the share; calls behave as before, except that a refund waiting to
 be undone now also stops its take-back from being taken.
+
+## What CodeRabbit found (27 November 2026)
+
+Three points on the pull request, all taken.
+
+1. *The form promised a smaller take-back for every part refund.* A part can reach the same
+   limit as the whole (5.45 of a 5.46 tip also comes to the 4.75 that was sent). The sentence
+   now says a part refund "may come to less".
+2. *Refunds held up by a take-back could fill the helper's batch.* The helper tries the 50
+   oldest refunds that are owed; one whose share is being taken back is refused under the
+   lock and stays where it was, so fifty of those would keep a newer refund of another
+   payment waiting. Such lines are now left out before the 50 are picked.
+3. *A take-back that was already written was still taken while Stripe's total of refunds was
+   not the app's,* although the founder's notice says the app "takes nothing" then. Before a
+   taking, and before a repeat of one, Stripe's total on the charge is now compared with the
+   app's (for a tip or a contribution: with its contribution payment's). While they differ
+   nothing is taken and the founder is told once for that pair of totals. **This holds for a
+   call's refund too,** where the same gap was: the notice was always meant for both. A
+   reversal Stripe already made is still found and booked. The check now has that case: a
+   take-back told before the totals came apart is not taken when its day comes.
