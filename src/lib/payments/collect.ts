@@ -12,7 +12,7 @@
  * reaches more than 23 hours later is not repeated. If Stripe never made it,
  * that share is ready again for the host's next collection.
  */
-import { and, asc, desc, eq, exists, gt, inArray, isNotNull, isNull, like, lte, min, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, inArray, isNotNull, isNull, like, lte, min, ne, notInArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
 import type { Call, Collection, MembershipMonth, Payment } from "@/db/schema";
@@ -76,7 +76,7 @@ async function heldBackNow(reader: Reader, payments: Payment[], now: Date, waiti
   const cpIds = [...new Set(payments.flatMap((p) => (p.contributionPaymentId ? [p.contributionPaymentId] : [])))];
   const cps = cpIds.length > 0 ? await reader.select({ id: schema.contributionPayments.id, dispute: schema.contributionPayments.dispute, founderHold: schema.contributionPayments.founderHold }).from(schema.contributionPayments).where(inArray(schema.contributionPayments.id, cpIds)) : [];
   const cpBusy = cpIds.length > 0 ? await reader.select({ id: schema.moneyOperations.contributionPaymentId }).from(schema.moneyOperations).where(and(inArray(schema.moneyOperations.contributionPaymentId, cpIds), eq(schema.moneyOperations.status, "started"))) : [];
-  const cpOwing = cpIds.length > 0 ? await reader.select({ id: schema.contributionRefunds.contributionPaymentId }).from(schema.contributionRefunds).where(and(inArray(schema.contributionRefunds.contributionPaymentId, cpIds), ne(schema.contributionRefunds.status, "done"))) : [];
+  const cpOwing = cpIds.length > 0 ? await reader.select({ id: schema.contributionRefunds.contributionPaymentId }).from(schema.contributionRefunds).where(and(inArray(schema.contributionRefunds.contributionPaymentId, cpIds), notInArray(schema.contributionRefunds.status, ["done", "failed"]))) : [];
   const cpDisputed = new Set(cps.filter(isFrozen).map((cp) => cp.id));
   const cpHeld = new Set(cps.filter((cp) => cp.founderHold === "held").map((cp) => cp.id));
   const cpUnderWay = new Set(cpBusy.map((row) => row.id));

@@ -322,13 +322,20 @@ async function ContributionsPart({ hostId, project, earlierId, canChange }: { ho
                       {state === "taken" && payment.takenAt && (
                         <>
                           {formatMoney(payment.takenCents ?? payment.amountCents)} was taken on <LocalTime iso={payment.takenAt.toISOString()} />.
-                          {share && <> Your share: {formatMoney(currentSplit(share).hostShareCents)}{sent ? ", sent to you" : ""}.</>}
+                          {share && (
+                            <>
+                              {" "}
+                              Your share: {formatMoney(currentSplit(share).hostShareCents)}.
+                              {/* What was really sent is said by itself: a refund after the sending makes the share smaller than that. */}
+                              {sent && <> {formatMoney(share.transferCents ?? 0)} was sent to you{(share.payoutFeeCents ?? 0) > 0 ? `, after ${formatMoney(share.payoutFeeCents ?? 0)} of the collection charge` : ""}.</>}
+                            </>
+                          )}
                           {payment.refundedCents > 0 && <> {formatMoney(payment.refundedCents)} was paid back.</>}
                           {row.refundUnderWayCents > 0 && <> {formatMoney(row.refundUnderWayCents)} is on its way back.</>}
                           {payment.dispute === "open" || payment.dispute === "lost" ? (
                             <> The contributor&apos;s bank has disputed this charge, so nothing can be collected or refunded from it now.</>
                           ) : sent ? (
-                            <> Your share has been sent to you, so only Connect can refund this now.</>
+                            <> Your share has been sent to you, so only Connect can refund this now. If Connect does, you owe your share of it back: you are told, and it is listed under your earnings.</>
                           ) : (
                             row.refundableCents > 0 && (
                               <form action={refundAsHostAction} className="mt-1 flex flex-wrap items-end gap-2">

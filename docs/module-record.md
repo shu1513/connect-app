@@ -5773,3 +5773,62 @@ no longer moves the clock for anybody else's data in the shared test database.
 **What was not built.** A cancellation after the first month has ended (still the founder, by hand, also when a
 request in time is on record). The phone apps' button (plan 45, part 13c), which will use the
 same piece of the server.
+
+## A tip or a contribution refunded after collection is owed back by the host (plan 50, part 1, 26 November 2026)
+
+**What the founder decided.** "The host also pays, connect shouldn't pay for this." Until now a
+tip or a contribution that Connect refunded after its host had collected it was paid entirely
+from Connect's money, and she kept her share.
+
+**What was built.** The plans are `plans/50-giving-back-after-collecting.md` (the rulebook) and
+`plans/50-part-1-gifts-owed-back.md`.
+
+- The founder's refund of a collected tip or contribution no longer writes a line of
+  "Connect's own money". The line is marked "after collection". When Stripe confirms it, the
+  share shrinks (her share and our fee, in proportion), nothing is booked as Connect's cost,
+  and **the share gets a refund line of its own** in `refunds`, done at once, with her share
+  before and after and what it lost.
+- From that line the take-back that calls already have does the rest: the helper writes what
+  she owes (never more than was sent, never more than is left on the transfer), she is told on
+  her Messages page and by email, has 14 days from the notice's arrival and "I think this is
+  wrong", and then the app takes it out of her transfer at Stripe. Without a published Host
+  Agreement accepted before that payment it is written down and told, and waits for the
+  founder.
+- Where the take-back's code asks about "the payment", a share of a tip or a contribution
+  now answers through its contribution (the host, the charge, Stripe's total of refunds, the
+  words "a tip for the call on ..." and "a contribution to ..."). A lost bank dispute over a
+  contribution compares Stripe's total of refunds with the app's before it works anything
+  out, as a call's already did.
+- A refund Stripe confirms and later says failed is undone as a call's is: the share is whole
+  again, the take-back is called off, what went back is written back once under the
+  contribution's payment, and the contribution's line is over ("failed"). It is not sent
+  again by itself.
+- The founder's form for a share that was sent says what the host will owe at most and how
+  it is taken. A form drawn before she collected and pressed after it refunds nothing.
+- The host's pages say that a refund by Connect would make her owe her share back; her
+  project's page shows what was really sent beside her share as it now stands; the yearly
+  statement's explanation is put right.
+- Lines written the old way keep the old treatment to their end.
+
+**What was left out.** A button for the host herself to give money back after collecting
+(Astra's check of the first plan: "not ready"; the reasons are in the rulebook). A member's
+time given back after collection (part 2). The phone apps.
+
+**Known, and left as it is.** The contribution machine's own follow-up of an unanswered
+refund is weaker than a call's and could, on a part refund, pay a customer twice; it is so
+today for every contribution refund, and this part adds no new try (a fix of its own was
+proposed). What a host had already paid for a refund that then failed is not sent back by
+the app.
+
+**What the reviewer found.** Astra checked the rulebook ("not ready": the host's own give-back
+was taken out), then this part's plan ("not ready", the idea sound: reworked), then the code:
+"merge after fixes", seven points. Six were taken (a take-back and another refund of the same
+gift could each start while the other was unanswered; a failed refund whose two records did
+not fit was half undone; a refund with no line on its share that failed late was never
+noticed and would have held up later take-backs; the form could be sent without saying what
+it showed, and showed 5.00 where 4.75 was sent; two sentences and two email links; the
+checks). One is written in the plan and left: it needs a line written the old way, which
+exists only in test data. CodeRabbit then found three more, all taken: the form promised a
+smaller take-back for every part refund; refunds held up by a take-back could fill the
+helper's batch of 50; and a take-back that was already written was still taken while
+Stripe's total of refunds was not the app's (now it is not, for a call's refund too).
