@@ -20,6 +20,12 @@ export const HOST_THERE_LEEWAY_SECONDS = 60;
 export type EndedNow = {
   /** Who pressed, as written on the call. */
   by: "host" | "customer";
+  /**
+   * For a customer's press: the rule "you pay for your whole booked time" holds for him. His booking was made
+   * under words that say it, and the page he pressed on asked him with that sentence (the call carries
+   * "customer", not "customer_untold").
+   */
+  wholeSaid: boolean;
   /** The customer reported the host after his own press, and that lowered the charge to the minutes. */
   loweredByReport: boolean;
   /** The press came before the booked start (the room opens a little early). */
@@ -32,8 +38,8 @@ export type EndedNow = {
 
 /**
  * Whether "the rest of the booking" (the booked time after the press) is charged on top of the
- * time that counted before it. Only ever when the customer pressed, on a call that charges the
- * host's time, and no report of his lowered it. Then:
+ * time that counted before it. Only ever when the customer pressed, having been told that it costs
+ * his whole booked time, on a call that charges the host's time, and no report of his lowered it. Then:
  *   - pressed during the call: only if the host was in the call at that moment (a customer who
  *     waited for a host who never came does not pay for time she would not have given either);
  *   - pressed before the booked start: as his cancelling at that moment would be charged, so the
@@ -43,8 +49,18 @@ export type EndedNow = {
  */
 export function restIsCharged(billing: string, ended: EndedNow | null): boolean {
   if (!ended || billing !== "host") return false;
-  if (ended.by !== "customer" || ended.loweredByReport) return false;
+  if (ended.by !== "customer" || !ended.wholeSaid || ended.loweredByReport) return false;
   return ended.beforeStart ? ended.lateToCancel : ended.hostThere;
+}
+
+/**
+ * A customer ended the call before its booked start, at a moment when cancelling was still free:
+ * nothing is owed, and that is his own choice, not the host's doing. (For a call paid from a
+ * membership this decides how the time that comes back is counted: as it was booked, like a
+ * cancellation in time, and not as time returned because of the host.)
+ */
+export function customerLeftFree(ended: EndedNow | null): boolean {
+  return ended !== null && ended.by === "customer" && ended.beforeStart && !ended.lateToCancel;
 }
 
 /**

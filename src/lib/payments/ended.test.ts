@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { chargedSeconds, hostThereAt, HOST_THERE_LEEWAY_SECONDS, restIsCharged, type EndedNow } from "./ended";
+import { chargedSeconds, customerLeftFree, hostThereAt, HOST_THERE_LEEWAY_SECONDS, restIsCharged, type EndedNow } from "./ended";
 import { attendanceChargeCents } from "./pricing";
 
-const pressed = (over: Partial<EndedNow>): EndedNow => ({ by: "customer", loweredByReport: false, beforeStart: false, lateToCancel: false, hostThere: true, ...over });
+const pressed = (over: Partial<EndedNow>): EndedNow => ({ by: "customer", wholeSaid: true, loweredByReport: false, beforeStart: false, lateToCancel: false, hostThere: true, ...over });
 
 describe("whether the rest of the booking is charged", () => {
   it("the customer pressed with the host in the call: yes", () => {
@@ -16,6 +16,10 @@ describe("whether the rest of the booking is charged", () => {
     expect(restIsCharged("host", pressed({ loweredByReport: true }))).toBe(false);
     expect(restIsCharged("host", pressed({ loweredByReport: true, beforeStart: true, lateToCancel: true }))).toBe(false);
   });
+  it("he was never told that it costs his whole booked time (an earlier booking's words, or a page from before the button changed): no", () => {
+    expect(restIsCharged("host", pressed({ wholeSaid: false }))).toBe(false);
+    expect(restIsCharged("host", pressed({ wholeSaid: false, beforeStart: true, lateToCancel: true }))).toBe(false);
+  });
   it("the host was not in the call when he pressed: no", () => {
     expect(restIsCharged("host", pressed({ hostThere: false }))).toBe(false);
   });
@@ -28,6 +32,17 @@ describe("whether the rest of the booking is charged", () => {
   });
   it("a call that was not ended with the button, or with the old one: never", () => {
     expect(restIsCharged("host", null)).toBe(false);
+  });
+});
+
+describe("a customer who ended the call before its start while cancelling was free", () => {
+  it("only that case: it is his own choice, not the host's doing", () => {
+    expect(customerLeftFree(pressed({ beforeStart: true, lateToCancel: false }))).toBe(true);
+    expect(customerLeftFree(pressed({ beforeStart: true, lateToCancel: false, wholeSaid: false }))).toBe(true);
+    expect(customerLeftFree(pressed({ beforeStart: true, lateToCancel: true }))).toBe(false);
+    expect(customerLeftFree(pressed({ beforeStart: false }))).toBe(false);
+    expect(customerLeftFree(pressed({ by: "host", beforeStart: true }))).toBe(false);
+    expect(customerLeftFree(null)).toBe(false);
   });
 });
 

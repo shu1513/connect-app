@@ -30,6 +30,8 @@ type Props = {
   pricePer15Cents: number;
   /** What the call charges: the host's time ("host", a booked call) or the time both were in ("together", an "available now" call). */
   billing: string;
+  /** This call's booking was made under words that say "End call now" costs a customer his whole booked time. The button's question follows it, and so does the charge. */
+  wholeBookingSaid: boolean;
   /**
    * Shown only while this person waits to join: before the room opens, and in the camera check.
    * For a host it is their private note about the customer (plans/32). It is never drawn next to
@@ -386,13 +388,18 @@ export function CallRoom(props: Props) {
       setTakenOver(true);
     } else if (reason !== DisconnectReason.CLIENT_INITIATED) {
       setNotice(ROOM_WORDS.disconnected);
+      // The other person may have ended the call for both ("End call now"), or it may have been cancelled: the
+      // server is asked at once, so this screen says that the call has ended instead of offering to join again.
+      void refresh();
     }
   }
 
   if (now === null) return <p className="mt-10 opacity-70">Loading…</p>;
 
+  // After "End call now" (by either person) the way on is the screen that says who ended it and offers "Report",
+  // "Block" and "Neither"; after a call that simply ran out or was cancelled, its results.
   const resultsLink = (
-    <Link href={`/calls/${props.callId}/results`} className="underline underline-offset-2">
+    <Link href={live?.safetyEnded && !live.cancelled ? `/calls/${props.callId}/ended` : `/calls/${props.callId}/results`} className="underline underline-offset-2">
       {ROOM_WORDS.results}
     </Link>
   );
@@ -539,7 +546,7 @@ export function CallRoom(props: Props) {
     <section className="mt-4 flex flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {clockLine}
-        <EndNow sure={END_WORDS.sure(endCostFor({ role: props.role, billing: props.billing, pricePer15Cents: props.pricePer15Cents }))} onEnd={endNow} />
+        <EndNow sure={END_WORDS.sure(endCostFor({ role: props.role, billing: props.billing, pricePer15Cents: props.pricePer15Cents, wholeBookingSaid: props.wholeBookingSaid }))} onEnd={endNow} />
       </div>
       {addTimePanel}
       <div className="mt-3 h-[72vh] min-h-[320px] overflow-hidden rounded" data-lk-theme="default">

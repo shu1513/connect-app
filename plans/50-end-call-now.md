@@ -1,10 +1,12 @@
 # Plan 50: "End call now"
 
-**Status:** a plan, not built yet. Written 26 November 2026 by the builder alone (no helper
-agents), from the code as it is on `main` after pull request 106. Astra's checks and what they
-changed are listed at the end.
+**Status:** built (26 November 2026; the record is in `docs/module-record.md`). Written
+26 November 2026 by the builder alone (no helper agents), from the code as it is on `main` after
+pull request 106. Astra (gpt-6.2-astra, high effort) checked the first draft against the code:
+"not ready", twelve must-fix points. An automatic security check of the first build made three
+more. All are answered below; the lists are at the end.
 
-**Its size, said plainly:** one change, one pull request. Four new columns on a call, one new page,
+**Its size, said plainly:** one change, one pull request. Three new columns on a call, one new page,
 the charging rule in one new place that every money step asks, and the phone app's call screen
 changed in the same pull request. Nothing new is installed.
 
@@ -103,19 +105,26 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
    again. The question before it says what it costs the person who presses (decision 18).
 2. **What is written. (builder)** The two columns that exist keep their names and their meaning
    for every reader: `safetyEndedAt` (when) and `safetyEndedBy` (who). One new column says it was
-   the new button and in which role: `calls.endedNowBy`, "host" or "customer". A call that
-   carries the mark without it was ended with the old button, and keeps the old rules
-   (decision 21). No payment is marked for review.
-3. **Who pressed comes from what was really written. (builder)** The press is one update that
-   only succeeds while the call is neither ended nor cancelled and its room is open, with the
-   room's times read from the row itself (so time added a moment ago counts). If it changed
-   nothing, the call is read again and the answer says what is true:
+   the new button and in which role: `calls.endedNowBy`, "host", "customer" or "customer_untold"
+   (decision 8a). A call that carries the mark without it was ended with the old button, and
+   keeps the old rules (decision 21). No payment is marked for review.
+3. **Who pressed comes from what was really written. (builder, changed after Astra's check)**
+   The press takes the call's row first, the same row that adding time, cancelling and closing
+   the room hold. So what it reads is true: time added a moment ago counts, a call cancelled a
+   moment ago is not ended on top, and of two presses in the same moment one is written. Then the
+   answer says what is true:
    - pressed again by the same person: "ended by you", as the first time;
    - the other person was a moment earlier: "ended by the other person", and the money follows
      the one who is written down;
-   - the room had already closed: nothing is written, the call is charged as any finished call,
-     and the three choices are still shown;
+   - the room had already closed, or the call was cancelled: nothing is written, the call is
+     charged as any finished call, and the three choices are still shown for a finished call;
    - the room is not open yet: refused, as today (such a call is cancelled, not ended).
+3a. **"Ended for both" is only said with proof. (builder, after Astra's check)** After the press
+   the room is closed by the helper's own step, which writes down that it is closed once the
+   video service has confirmed that both are out. Until then the screens say "it is being closed
+   for both of you", never "nobody can come back in", and the helper keeps trying. The other
+   person's screen asks the server at once when its connection drops, and says that the call has
+   ended instead of offering to join again.
 
 ### The money
 
@@ -127,20 +136,42 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
    already counts it.
 8. **The customer pressed: his whole booked time. (founder; the reading is the builder's)** He
    pays for the time the host was really in the call before the press, plus the rest of the
-   booking from the press on. He does not pay for minutes he waited for her. Two cases need a
-   rule of their own:
+   booking from the press on. He does not pay for minutes he waited for her. (This reading was
+   put to the founder as the fair one before this plan was written. Astra's check points out
+   that it is less than "his entire booking time" when she came late; that is so, on purpose.)
+   Two cases need a rule of their own, and both are the builder's:
    - **The host was not in the call when he pressed.** Then the rest is not charged, only her
      time before. A customer who waits ten minutes for a host who never comes and then presses
      the red button must not pay for the twenty minutes she also would not have given. She
      counts as "in the call" when her connection reached the press or ended at most 60 seconds
-     before it (a dropped connection, or the two clocks differing by a second).
+     before it (a dropped connection, or the two clocks differing by a second). This is read
+     from the record of the whole call, not from one payment's part of it.
    - **He pressed before the booked start** (the room opens 5 minutes early). No call time
-     exists yet, so it is charged as his cancelling at that moment would be: nothing where the
-     host's rule makes cancelling free then, the whole booking where it would be a late
-     cancellation. Otherwise the button would be a free way round her cancelling rule.
-9. **Each stretch of added time follows the same rule with its own payment. (builder)** A
-   stretch that lies wholly after the press is charged in full when the customer pressed (he
-   asked for that time and then ended the call), and not at all when the host pressed.
+     exists yet, so it is charged as his cancelling at that moment would be, by the cancelling
+     rule saved on the call: nothing where cancelling is free then, the whole booking where it
+     would be a late cancellation. Otherwise the button would be a free way round her rule.
+     Where it costs nothing, a member's time comes back as it was booked, like a cancellation in
+     time, and not as time returned "because of the host".
+8a. **Only a customer who was told. (builder, after Astra's check)** Until today a customer
+   agreed, when he booked, to pay for the host's time in the call and read that time she is not
+   there is free. Charging him the whole booking needs him to have agreed to that. So:
+   - **The words he agrees to when he books now say it** (a new version of them, "2026-11-d"):
+     "If you end the call yourself with 'End call now', you pay for your whole booked time: the
+     time the host was in the call, and the rest of your booking." The same sentence is on the
+     confirm-and-pay step and on a member's booking page, and added time is "charged in the same
+     way", as before.
+   - **A booking made under the earlier words is never charged that way.** At the press the
+     server looks at the version of the words on the call's booking. Only with the new version is
+     the press written as "customer". Otherwise it is written as "customer_untold", the button's
+     question says "You pay for the time the host was in the call up to now", and the call is
+     charged by her time, as he was told.
+   - **A page that was open when the app was updated** still has the old button with the old
+     question. Its address still ends the call, and writes "customer_untold" too.
+9. **Each stretch of added time follows the same rule with its own payment. (builder)** Whether
+   "the rest of the booking" is charged is decided once for the call (decisions 6 to 8a), and
+   then holds for every payment of it. So a stretch that lies wholly after the press is charged
+   in full when the customer pressed and the rest is charged, and not at all in every other
+   case (the host pressed, she was not there, an "available now" call, a report lowered it).
 10. **A call paid from a membership. (founder)** The same amounts, used from the month and never
     more than was set aside; what is not used comes back to the month as it does today.
 11. **Nothing under 50 cents. (as today)**
@@ -157,17 +188,27 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 
 14. **Which report lowers the charge. (founder; the edges are the builder's)** A report made
     from that call (the form reached from the call), by its customer, about its host, when it
-    was the customer who pressed "End call now", the call is a booked or member call, he pressed
-    before the booked end, and at least one payment of the call is still waiting (held, not under
-    review, no money step started). The first such report decides; a later one for the same call
-    changes nothing. It is decided in the report's own database step, holding the call's row, so
-    it comes either before the money step or after it, never in the middle.
+    was the customer who pressed "End call now" (written as "customer"), the call is a booked or
+    member call, he pressed before the booked end, and at least one payment of the call can
+    still change. The first such report decides; a later one for the same call changes nothing.
+    It is decided in the report's own database step, holding the call's row and then its
+    payments, so it comes either before the money step or after it, never in the middle.
+    - **"Can still change"** is asked of each payment under its own lock: it is on hold, or its
+      card step is still open (a hold the bank approved before the press may yet be recorded);
+      it is not under review; and no charge or release of it is written down. A hold that is
+      only recorded after the press counts only if Stripe dates the bank's approval before the
+      press; one without a date does not count, since nobody looks at it any more.
     - The effect: every payment of the call not yet settled is charged by the minutes
-      (decision 7), exactly as if the host had pressed.
-    - **After the money was taken a report changes nothing by itself.** The refund paths that
-      exist remain: the host's refund, and the founder's.
+      (decision 7), exactly as if the host had pressed. An answer to a refund request that was
+      already saved stays the most he pays.
+    - **A part already taken stays as it is.** When some of the call's money was taken before
+      the report (time added by card on a member's call can be), the thank-you says so, and
+      says that a refund can be asked for.
+    - **After all the money was taken a report changes nothing by itself.** The refund paths
+      that exist remain: the host's refund, and the founder's.
     - **When the host had pressed**, a customer's report changes nothing: it is the minutes
-      either way.
+      either way. The same for a press before the start while cancelling was free: nothing is
+      charged, so nothing is lowered and nothing is counted.
     - **A report by the host changes nothing about the money.**
     - **No path can raise a charge.** The only thing a report writes is "by the minutes" in
       place of "the whole booking"; the money step adds "the rest of the booking" only when the
@@ -178,11 +219,18 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 ### The guard (the builder's choice, on the founder's word "do what you think is the best")
 
 16. **Three of the last five. (builder)**
-    - **His last 5 calls** are this call and the 4 before it: calls he was the customer of, with
-      any host, booked or from a membership, paid, not cancelled, over, and in which both he and
-      the host joined. "Available now" calls and free calls are left out: a report never lowers
-      their charge, and they cost little or nothing, so counting them would only let him push
-      the others out for free.
+    - **His last 5 calls** are this call and the 4 others nearest to now, whichever of them he
+      reports first: calls he was the customer of, with any host, booked or from a membership,
+      not cancelled, that were really charged or that carry a report of this kind. A call that
+      cost nothing (nobody came, a few seconds, a free one) is not one of them, and neither is
+      an "available now" call: a report never lowers their charge, and they cost little or
+      nothing, so counting them would let him push the others out for nothing. This is read
+      from the calls and their payments alone, so it does not depend on messages of the video
+      service that may still arrive, or on the order in which he reports.
+    - **It counts the switch, not the dollars.** A report counts when it changed the call from
+      "the whole booking" to "the minutes". How much that saved is only known a day later, and
+      it can be nothing (the host was not there). The sentences to the founder and to the
+      customer say what happened, and claim no amount.
     - **What is counted** is written on the call when the report is taken: "lowered, and
       counts", "lowered, does not count" or "not lowered". It is never worked out again later.
     - **The rule:** if 3 or more of the 4 calls before this one carry "lowered, and counts", this
@@ -209,7 +257,8 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 17. **Who is told. (builder)**
     - **The founder, once, when the line is crossed** (the report that makes it 3 of 5): a
       message in the app with its email, "[name] has ended a call and then reported the host 3
-      times among their last 5 calls. Each time the report lowered what they paid. A further
+      times among their last 5 calls. Each time, the report meant that the call was charged by
+      its minutes instead of the whole booking. A further
       report will not lower their charge while this stays so. Their reports and blocks still go
       through, and nothing else was changed. You can look at the account and pause it if you
       think that is right." It names no detail of any report. Later reports that are not
@@ -219,17 +268,20 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
       calls look the same.
     - **The customer, when his report does not lower the charge:** at once, in the thank-you
       after the report and as a message with its email, long before the money is taken: "Your
-      report was saved and [name] is blocked. This call is still charged for the whole booked
-      time: reports made after ending a call have lowered your charge several times lately, so
-      this one does not. If you think the charge is wrong, ask for a refund on the call's page
-      or write to us." The screen before the report says the same, so he is not promised
-      something he will not get.
+      report about [name] was saved, and we will look at it. The call you ended is still charged
+      for the whole booked time. Reports made after ending a call have already changed your
+      charge from the whole booking to the minutes several times lately, so this one does not.
+      If you think the charge is wrong, you can ask for a refund on the call's page, or write to
+      us." It says nothing about the block: the block follows the report and can fail by itself,
+      and the thank-you says what became of it. The screen before the report says the same
+      about the charge, so he is not promised something he will not get.
 
 ### The screens
 
 18. **The question before the press. (builder)** One sentence that says what it costs:
     - a customer on a booked or member call: "End this call for both of you? Nobody can come
-      back in. Your whole booked time is still charged."
+      back in. Your whole booked time is still charged." (For a booking made under the earlier
+      words: "You pay for the time the host was in the call up to now.", decision 8a.)
     - a host: "End this call for both of you? Nobody can come back in. You are paid for your
       time up to now."
     - an "available now" call: "End this call for both of you? Nobody can come back in. The
@@ -244,10 +296,12 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
       really treated badly believing they must pay for the whole booking.)
     - **Block [name]**: "[name] can no longer ask you for calls or write to you. Your other calls
       with [name] that are still to come are cancelled at no charge, and any membership or
-      monthly contribution between you ends. [name] is not told."
+      monthly contribution between you ends. [name] is told that those have ended, never that
+      you blocked them."
     - **Neither**: "Nothing else happens. You can still report or block [name] later from this
       call's page."
-    The other person sees "This call has ended" and the results page, which says who ended it
+    The other person sees "This call has ended" and is led to the same page, which says who
+    ended it and offers the same three choices. The call's results page says who ended it too,
     and has "Report" and "Block" as before.
 20. **After a plain end the two are not strangers. (builder, from decision 6)** "Book another
     call" and "Write to" stay on the results page unless there is a block. Ratings, the automatic
@@ -274,10 +328,12 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 
 23. **Its screen changes in the same pull request. (builder)** The button and its question use
     the new words, by role. After the press the app shows the same three choices: "Report" opens
-    its report form, "Block" asks once and blocks, "Neither" goes to the call's page. The server
-    gets one new reading (the screen after ending) and one new step (block the other person of
-    this call). The old step's address keeps working under both names, so nothing can press a
-    button that leads nowhere. The app is not in any store, so no older copy exists.
+    its report form, "Block" asks once and blocks, "Neither" goes to the call's page. A call
+    that is over shows "Report or block [name]" on its page in the app, so the choices can be
+    reached later and by the other person. The server gets one new reading (the screen after
+    ending) and one new step (block the other person of this call, which names only the call).
+    The app's step has a new name and the old one is gone: the app is not in any store, so no
+    copy with the old name exists. (The website's old address is kept, decision 8a.)
 
 ### The written rules
 
@@ -316,16 +372,18 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 ## What gets built
 
 - **Database** (`drizzle/0065_end_call_now.sql`): on `calls`, `ended_now_by` (text), and for the
-  report after it `end_report_id` (uuid), `end_report_at` (time) and `end_report_effect` (text:
-  `minutes`, `minutes_uncounted`, `whole`), with checks on the allowed values.
+  report after it `end_report_at` (time) and `end_report_effect` (text: `minutes`,
+  `minutes_uncounted`, `whole`), with checks on the allowed values.
+- **The words a customer agrees to when booking**: a new version, "2026-11-d", with the sentence
+  about "End call now"; a member's booking now carries the version of the words its page showed.
 - **The rules, plain functions with tests**: `src/lib/payments/ended.ts` (does "the rest of the
   booking" count, and the seconds charged) and `src/lib/safety/end-guard.ts` (the guard, and the
   sentences).
 - **The amount in one place**: `src/lib/payments/owed.ts`, asked by `jobs.ts`, `take.ts`,
   `membership/calls.ts` and the results page.
-- **The press**: `src/lib/safety/calls.ts` rewritten (`endCallNow`, `endCallNowConfirmed`); the
-  website's address `/api/calls/[id]/end-now` with the old one kept as a second name; the app's
-  step `end-now` with `end-and-report` kept as a second name.
+- **The press**: `src/lib/safety/calls.ts` rewritten (`endCallNow`); the website's address
+  `/api/calls/[id]/end-now`, with the old one kept for pages that were open (decision 8a); the
+  app's step `end-now`.
 - **The report**: `src/lib/safety/end-report.ts`, called inside `createReport`'s own step.
 - **The screens**: the call room's button and question, `/calls/[id]/ended`, the results page's
   lines, the report form's sentence, the founder's report list.
@@ -347,6 +405,20 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
   `conversation-check`, and `payments-check` and `refunds-check` to see nothing else moved.
 - By hand in a browser as the test host and the test customer.
 - Lint, types, build, all automatic tests, and the phone app's own tests and types.
+
+## What stays as it is, on purpose (after Astra's check)
+
+- **A call under the founder's review** (its record of who was in the room does not add up) can
+  be charged at most for the time before the press, for every payment of it, also where the rule
+  would have charged the rest of the booking. Nothing after the press is charged on a record
+  nobody can trust.
+- **A record that changes after the money was taken** is flagged as before, for both kinds of
+  charge. It is noticed by a change in the counted seconds; a change that moves a connection and
+  keeps its length would not be noticed.
+- **Old code and new code on one database.** The helper that takes the money must run the same
+  version as the app: an older helper would charge a call ended by a customer by the minutes,
+  and would let the hold of added time go as "nothing owed". The app and its helper are put out
+  together. On the shared test database the check scripts take turns for the same reason.
 
 ## What the checks cannot cover
 
@@ -370,3 +442,47 @@ Charging a customer his whole booking when he ends a call; lowering a host's pay
 report that nobody examines; treating a customer differently after several reports, and what he
 must be told; whether telling customers that a report lowers the charge invites false reports in
 a way that matters legally; what the four documents must say about all of it.
+
+## Astra's check of the first draft (26 November 2026): "not ready"
+
+Twelve must-fix points, each read against the code. The call's row as the place to decide who
+ended the call was found right. All twelve are answered:
+
+1. *The reading of "his whole booked time" is less than the founder's words, and the customer
+   never agreed to it when booking.* The reading stays (it was put to the founder first), and is
+   now said to be the builder's in every case. The agreement was the real gap: decision 8a.
+2. *A press just after the old end, while added time is being saved, could be told "too late".*
+   The press now takes the call's row first (decision 3).
+3. *"The press was saved" is not "both are out".* Decision 3a.
+4. *The amount must take the full booking and the real attendance apart, and read "was she
+   there" from the whole call.* It does (`src/lib/payments/owed.ts`), also at the helper's first
+   look, which can let a hold go.
+5. *A hold that lands after the press, and a report made before it lands.* Decision 14: a card
+   step still open counts as "can still change"; a hold without a date from Stripe no longer
+   counts after an "End call now". A member's free press before the start gives the time back
+   as it was booked (decision 8).
+6. *Decide per payment, under its lock; a written-down charge has its amount; say what was
+   affected.* Decision 14.
+7. *The founder's ceiling, and late changes of the record.* Kept, and said under "What stays as
+   it is".
+8. *Reports made newest first could all qualify; a report that saved nothing would count.* The
+   history is the 4 other calls nearest to now, whichever is reported first, read from calls and
+   payments alone; the guard counts the switch, and the sentences claim no amount (decision 16).
+9. *Calls that cost nothing could push reports out; a report from a call that never took place
+   could switch the guard off; the screen could give another customer's report away.* Decision
+   16, and "past the line nothing lowers the charge".
+10. *The customer's message said "[name] is blocked" before the block existed; "[name] is not
+    told" was not quite true.* Both sentences changed (decisions 17 and 19).
+11. *The phone app had no way to the choices later.* Decision 23.
+12. *Old code beside new code; the old page's question.* Decision 8a for the old page, and "What
+    stays as it is" for the helper.
+
+Smaller points taken: the results page gives the booked length, not the length up to the press;
+the report form and the founder's report list tell the old button from the new one.
+
+## The automatic security check of the first build (26 November 2026)
+
+Three points, all taken: another person's report only counts from a call with that host that
+really took place; calls that cost nothing are not among "his last 5"; and what a customer sees
+never depends on other people's reports (first written as "also lowers past the line", which
+would have told a customer past the line that somebody else had reported that host).

@@ -18,6 +18,10 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
 
 - In a call each person has one button, "End call now". It ends the call for both at once, and
   nobody can come back in. Before it does, the app asks once and says what it costs that person.
+- A customer is also told when he books, in the words he ticks (version "2026-11-d"), and on the
+  confirm-and-pay step: "If you end the call yourself with 'End call now', you pay for your whole
+  booked time: the time the host was in the call, and the rest of your booking." A booking made
+  under the earlier words is charged by the host's time, whoever ends the call.
 - Right after, one screen offers "Report", "Block" and "Neither". Reporting blocks. Blocking also
   cancels the two people's other calls that are still to come, at no charge, and ends any
   membership or monthly contribution between them.
@@ -33,8 +37,8 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
   - ended by the customer, who then reports the host from that call before the money is taken:
     only the time the call lasted, as if the host had ended it.
 - A report by a host changes nothing about the money. No report can raise a charge.
-- A customer whose reports after ending a call have lowered his charge 3 times among his last 5
-  booked calls: a further report no longer lowers his charge. His report and the block still go
+- A customer whose reports after ending a call have changed a call from "the whole booking" to
+  "the minutes" 3 times among his last 5 booked calls: a further report no longer lowers his charge. His report and the block still go
   through. He is told at once. The founder is told once.
 - Nothing is charged under 50 cents. The refund request to the host, the host's refund and
   Connect's refund all remain.
@@ -61,7 +65,7 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
 > neither. What is charged for a call ended this way is set out in the Payment Terms, section 8.
 > Reporting a person blocks them for you. Blocking a person also cancels your other calls with
 > them that are still to come, at no charge, and ends any membership or monthly contribution
-> between the two of you.
+> between the two of you. They are told that those have ended, never that you blocked them.
 
 ## 3. Payment Terms
 
@@ -75,8 +79,8 @@ The open questions behind this wording are in `docs/for-the-lawyer.md`, section 
 >
 > - **If the host ends it,** you pay for the time the host was in the call up to that moment.
 > - **If you end it,** you pay for your whole booked time: the time the host was in the call
->   before that moment, and the rest of the time you booked. The app tells you this and asks you
->   to confirm before the call is ended. You do not pay for time you waited for the host, and if
+>   before that moment, and the rest of the time you booked. You are told this when you book, and
+>   the app says it again and asks you to confirm before the call is ended. You do not pay for time you waited for the host, and if
 >   the host was not in the call when you ended it you do not pay for the rest of the booking.
 >   If you end it before its booked start, it is charged as a cancellation at that moment would
 >   be (section 6).

@@ -1,5 +1,5 @@
 {
-  "id": "99d72d98-d36a-4adb-8653-1a24940e0093",
+  "id": "20a8d5b9-8f68-4167-8c7c-b17849cf7ba8",
   "prevId": "92a44226-fb9c-454b-a602-f7070f5b2290",
   "version": "7",
   "dialect": "postgresql",
@@ -1510,7 +1510,7 @@
       "checkConstraints": {
         "calls_ended_now_by": {
           "name": "calls_ended_now_by",
-          "value": "\"calls\".\"ended_now_by\" is null or (\"calls\".\"ended_now_by\" in ('host', 'customer') and \"calls\".\"safety_ended_at\" is not null and \"calls\".\"safety_ended_by\" is not null)"
+          "value": "\"calls\".\"ended_now_by\" is null or (\"calls\".\"ended_now_by\" in ('host', 'customer', 'customer_untold') and \"calls\".\"safety_ended_at\" is not null and \"calls\".\"safety_ended_by\" is not null)"
         },
         "calls_end_report": {
           "name": "calls_end_report",

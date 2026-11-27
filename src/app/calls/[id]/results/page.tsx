@@ -81,7 +81,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       : [],
     db.select().from(schema.callExtensions).where(eq(schema.callExtensions.callId, call.id)).orderBy(asc(schema.callExtensions.createdAt)),
   ]);
-  const { result, events, bookedSeconds } = attendance;
+  const { result, events } = attendance;
   // For a call paid from a membership: money of it that is owed back to the member's card (what came back after the
   // member could no longer book from that month). Everything else that came back is membership time again.
   const memberPayments = payments.filter((p) => p.kind === "member_call").map((p) => p.id);
@@ -156,7 +156,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
   // rule the charge follows; a host is never told here that she was reported. A call ended with the earlier
   // button, "End call and report", keeps its own line: its charge is the founder's to decide.
   const oldStop = call.safetyEndedAt !== null && call.endedNowBy === null;
-  const endedBy = call.safetyEndedAt && call.endedNowBy ? (call.safetyEndedBy === user.id && role !== "admin" ? "You" : (nameOf.get(call.safetyEndedBy ?? "") ?? `The ${call.endedNowBy}`)) : null;
+  const endedBy = call.safetyEndedAt && call.endedNowBy ? (call.safetyEndedBy === user.id && role !== "admin" ? "You" : (nameOf.get(call.safetyEndedBy ?? "") ?? (call.endedNowBy === "host" ? "The host" : "The customer"))) : null;
   const endMoney = call.endedNowBy ? END_WORDS.money(role, endMoneyFor(call), { host: nameOf.get(call.hostId) ?? "the host", customer: nameOf.get(call.customerId) ?? "the customer" }) : null;
   const who = (identity: string | null) =>
     identity === call.hostId
@@ -193,7 +193,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       <h1 className="mt-4 text-2xl font-semibold">Call results</h1>
       <p className="mt-1 text-sm opacity-70">
         {who(call.hostId)} and {who(call.customerId)}. Booked <LocalTime iso={call.startsAt.toISOString()} seconds /> to{" "}
-        <LocalTime iso={call.endsAt.toISOString()} seconds /> ({formatDuration(bookedSeconds)}).
+        <LocalTime iso={call.endsAt.toISOString()} seconds /> ({formatDuration(Math.round((call.endsAt.getTime() - call.startsAt.getTime()) / 1000))}).
         {addedMinutes > 0 ? ` That includes ${addedMinutes} minutes added during the call.` : ""}
       </p>
 
@@ -295,7 +295,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
       {tips.tip && <TipLine view={tips.tip} role={role} otherName={otherName} />}
 
       {call.safetyEndedAt && endedBy && (
-        <p className="mt-4 rounded border border-red-600 p-3 text-sm" data-ended-now={call.endedNowBy}>
+        <p className="mt-4 rounded border border-red-600 p-3 text-sm" data-ended-now={call.endedNowBy === "host" ? "host" : "customer"}>
           {endedBy} ended this call for both people on <LocalTime iso={call.safetyEndedAt.toISOString()} />, with &quot;End call now&quot;. Time after that is not counted.
           {endMoney ? ` ${endMoney}` : ""}
         </p>

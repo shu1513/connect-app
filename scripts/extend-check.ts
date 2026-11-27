@@ -311,7 +311,7 @@ async function main() {
 
       const stoppedAt = await beforeEnd(callId, 50);
       await endCallNow({ call: await callOf(callId), by: cust.id, now: stoppedAt });
-      check("the call is ended with \"End call now\" while the request waits", (await callOf(callId)).safetyEndedAt !== null && (await callOf(callId)).endedNowBy === "customer");
+      check("the call is ended with \"End call now\" while the request waits", (await callOf(callId)).safetyEndedAt !== null && ((await callOf(callId)).endedNowBy ?? "").startsWith("customer"));
       check("the request can no longer be accepted", await refusedWith(answer(asked.extensionId, callId, fred, true, 40), "ended"));
       await X.closeFinishedExtensions(stoppedAt);
       check("and it is closed by the helper", (await extensionOf(asked.extensionId)).status === "ran_out");

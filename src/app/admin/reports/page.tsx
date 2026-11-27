@@ -210,7 +210,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                     {!snapshot.call.safetyEndedAt
                       ? ""
                       : snapshot.call.endedNowBy
-                        ? `. The ${snapshot.call.endedNowBy} ended it with "End call now"; its money settles by itself.`
+                        ? `. The ${snapshot.call.endedNowBy === "host" ? "host" : "customer"} ended it with "End call now"; its money settles by itself.`
                         : ". It was ended with \"End call and report\"; its charge is on your review list."}
                   </p>
                 )}

@@ -4,7 +4,7 @@
  *
  * Needs: the app running (npm run dev), the test accounts (npm run seed), and
  * the test admin's second step set up (npx tsx scripts/secure-test-admin.ts).
- * Usage: npx tsx scripts/safety-check.ts
+ * Usage: npx tsx scripts/safety-check.ts [--app=http://localhost:3000]
  */
 import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
@@ -16,7 +16,7 @@ import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 import { totpCode } from "./totp";
 
-const BASE = "http://localhost:3000";
+const BASE = process.argv.find((arg) => arg.startsWith("--app="))?.slice("--app=".length).replace(/\/$/, "") ?? "http://localhost:3000";
 const RUN = randomUUID().slice(0, 8);
 const HOUR = 3_600_000;
 

@@ -655,7 +655,10 @@ export const calls = pgTable(
     safetyEndedAt: timestamp("safety_ended_at", { withTimezone: true }),
     safetyEndedBy: text("safety_ended_by"),
     /**
-     * "host" or "customer": the role of the person who pressed "End call now" (plans/50-end-call-now.md).
+     * The role of the person who pressed "End call now" (plans/50-end-call-now.md): "host", "customer", or
+     * "customer_untold" (the customer pressed, and the rule "you pay for your whole booked time" does not hold
+     * for him: his booking was made under words that did not say it, or he pressed on a page from before the
+     * button changed. Such a call is charged by the host's time, as he was told).
      * Empty on a call that carries the mark above without it: that one was ended with the earlier button,
      * "End call and report", and keeps that button's rules (its money waits for the founder's review).
      */
@@ -691,7 +694,7 @@ export const calls = pgTable(
     index("calls_customer_idx").on(t.customerId),
     // The few calls whose room is closed and whose follow has not been decided yet: what the helper asks for each round.
     index("calls_follow_due_idx").on(t.endsAt).where(sql`${t.followCheckedAt} is null and ${t.closedAt} is not null`),
-    check("calls_ended_now_by", sql`${t.endedNowBy} is null or (${t.endedNowBy} in ('host', 'customer') and ${t.safetyEndedAt} is not null and ${t.safetyEndedBy} is not null)`),
+    check("calls_ended_now_by", sql`${t.endedNowBy} is null or (${t.endedNowBy} in ('host', 'customer', 'customer_untold') and ${t.safetyEndedAt} is not null and ${t.safetyEndedBy} is not null)`),
     check(
       "calls_end_report",
       sql`(${t.endReportEffect} is null and ${t.endReportAt} is null)

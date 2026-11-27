@@ -7,6 +7,7 @@
  * writes a moment in the browser's time zone, the phone in its own.
  */
 import type { Part } from "@/lib/booking/book-words";
+import { END_NOW_RULE } from "@/lib/booking/rules";
 
 /** The host's cancelling rule for this call, as the customer reads it before paying. */
 export function cancelRuleSentence(freeCancelMinutes: number, bookedPrice: string): string {
@@ -23,7 +24,7 @@ export function paidHowWords(input: { kind: string | null; role: "host" | "custo
 }
 
 /** The points of the confirm-and-pay step: what it costs, that it is only held, what is paid for, and the cancelling rule. */
-export function payPoints(input: { pricePer15: string; bookedPrice: string; billing: string; cancelRule: string }): Part[][] {
+export function payPoints(input: { pricePer15: string; bookedPrice: string; billing: string; cancelRule: string; /** This booking was made under words that say what "End call now" costs (plans/50). */ wholeBookingSaid?: boolean }): Part[][] {
   const { bookedPrice } = input;
   return [
     [`This call costs ${input.pricePer15} per 15 minutes, up to `, { bold: bookedPrice }, " in total."],
@@ -33,6 +34,7 @@ export function payPoints(input: { pricePer15: string; bookedPrice: string; bill
       : [
           ["You pay for the time the host is in the call during the booked time. ", { bold: "That includes time the host spends waiting if you are late or do not join." }] as Part[],
           ["If the host is late, leaves early or does not show up, you do not pay for that time."] as Part[],
+          ...(input.wholeBookingSaid ? [[END_NOW_RULE] as Part[]] : []),
         ]),
     [input.cancelRule],
   ];

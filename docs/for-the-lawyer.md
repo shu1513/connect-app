@@ -787,11 +787,14 @@ guard against repeated reports is the builder's choice, which the founder asked 
   corrected first?
 - **Charging the whole booking when the customer ends the call.** He is charged for time that did
   not take place (the rest of the booking), because he ended a call the host had set time aside
-  for. The app says so in the question before the press ("Your whole booked time is still
-  charged") and he confirms. Is that enough for the charge to stand: under US consumer law, under
-  the card networks' rules for a dispute ("service not received"), and for a customer in the UK
-  or EU (where an unfair term, or a charge that is not a real estimate of the host's loss, can
-  fail)? Must the rule also be shown when he books?
+  for. He is told three times: when he books ("If you end the call yourself with 'End call now',
+  you pay for your whole booked time: the time the host was in the call, and the rest of your
+  booking", part of the words he ticks, version "2026-11-d"), on the confirm-and-pay step, and in
+  the question before the press ("Your whole booked time is still charged"), which he confirms.
+  A booking made under the earlier words is never charged this way. Is that enough for the
+  charge to stand: under US consumer law, under the card networks' rules for a dispute ("service
+  not received"), and for a customer in the UK or EU (where an unfair term, or a charge that is
+  not a real estimate of the host's loss, can fail)?
 - **The same rule before the booked start.** A press in the five minutes before the start is
   charged as his cancelling at that moment would be (free, or the whole booking, by the host's
   cancelling rule). Is that the right reading, and do the documents need to say it?
@@ -808,15 +811,16 @@ guard against repeated reports is the builder's choice, which the founder asked 
   a person who was really treated badly does not believe they must pay for the whole booking. It
   also tells a dishonest customer how to pay less. Does saying it create any liability toward
   hosts, and is "a report must be true" in the Community Rules enough of an answer?
-- **Treating a customer differently after several reports.** After 3 lowered charges among his
-  last 5 booked calls, a further report does not lower the charge. His report is still read and
-  the block still stands. He is told at once, by a message and an email, in words that accuse
-  nobody. Is this a fair term? Must the Payment Terms state the numbers (the proposed wording
-  does)? Is it "automated decision-making" with a legal or similarly significant effect for a
-  customer in the UK or EU, so that he must be able to ask for a person to look at it? Could it
-  be said to punish reporting, which the law protects in some places (for example a report about
-  a child, or about harassment)? A report about "someone under 18" is treated like any other for
-  the money: should it be?
+- **Treating a customer differently after several reports.** After 3 reports among his last 5
+  booked calls that each changed a call from "the whole booking" to "the minutes", a further
+  report does not lower the charge. His report is still read and the block still stands. He is
+  told at once, by a message and an email, in words that accuse nobody. Is this a fair term?
+  Must the Payment Terms state the numbers (the proposed wording does)? Is it "automated
+  decision-making" with a legal or similarly significant effect for a customer in the UK or EU,
+  so that he must be able to ask for a person to look at it? Could it be said to punish
+  reporting, which the law protects in some places (for example a report about a child, or about
+  harassment)? A report about "someone under 18" is treated like any other for the money: should
+  it be?
 - **A report that does not count.** A report about a host whom another person has also reported,
   from a call with her that took place, is not counted against the customer. That uses other
   people's reports about her, unexamined, to decide how he is treated later. It never changes

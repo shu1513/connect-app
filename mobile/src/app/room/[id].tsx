@@ -399,7 +399,8 @@ function OneRoom({ id }: { id: string }) {
     return (
       <Page>
         <Words>{words.ended}</Words>
-        <Button label={words.results} onPress={toCall} />
+        {/* Ended by one of the two with "End call now": on to who ended it and "Report", "Block", "Neither". Otherwise the call's page. */}
+        <Button label={words.results} onPress={live?.safetyEnded && !live.cancelled ? () => router.replace({ pathname: "/ended", params: { call: id } }) : toCall} />
       </Page>
     );
   }

@@ -77,19 +77,32 @@ export const LIMITS = {
  * with the request when that box is sent. Other pages must not restate it in a way that only
  * holds for one version.
  */
-export const CARD_CONSENT_VERSION = "2026-11-c";
+export const CARD_CONSENT_VERSION = "2026-11-d";
 /**
  * The wording versions that say the card is kept until the call is over, so it
  * can also pay for more time the customer asks for during the call. A booking
  * made under an earlier wording ("for this booking only", removed as soon as
  * the money is held) is still treated as its customer was told.
  */
-export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b", "2026-11-c"];
+export const CARD_KEPT_FOR_THE_CALL: readonly string[] = ["2026-11-b", "2026-11-c", "2026-11-d"];
+/**
+ * The wording versions that say what "End call now" costs a customer (plans/50-end-call-now.md): "If you end
+ * the call yourself with End call now, you pay for your whole booked time." Only a booking made under such a
+ * wording is ever charged that way. A booking made under an earlier wording was told that time the host is
+ * not in the call is free, and is charged as it was told: by the host's time, whoever ends the call.
+ * (A member's booking has no card step of its own; it carries the version of the words its page showed.)
+ */
+export const WHOLE_BOOKING_SAID: readonly string[] = ["2026-11-d"];
+export const wholeBookingSaid = (version: string | null | undefined): boolean => version != null && WHOLE_BOOKING_SAID.includes(version);
 /*
  * "2026-11-c" (20 November 2026, the legal agreements, docs/legal/payment-terms.md, section 12) adds one sentence
  * to the tick box and changes nothing about the card: where a 14-day right to cancel applies to the customer (the
  * United Kingdom and Europe), they ask for the call to take place as booked and understand that the right ends
  * once the call has taken place. It is said to everyone, so the app does not have to ask where a person lives.
+ */
+/*
+ * "2026-11-d" (26 November 2026, plans/50-end-call-now.md) adds one point above the tick box, and changes nothing
+ * about the card: a customer who ends the call himself with "End call now" pays for his whole booked time.
  */
 /** Under those wordings the card is removed this long after the call's end, when nothing more can be asked of it. */
 export const CARD_REMOVED_AFTER_END_MS = 2 * 60_000;
@@ -254,3 +267,10 @@ export function lengthWords(minutes: number): string {
   const m = rest === 0 ? "" : rest === 1 ? "1 minute" : `${rest} minutes`;
   return [h, m].filter(Boolean).join(" ") || "0 minutes";
 }
+
+/**
+ * What ending a call himself costs a customer, said where he books and where he pays (plans/50-end-call-now.md).
+ * Part of the wording CARD_CONSENT_VERSION names: only a booking made under it is charged this way.
+ */
+export const END_NOW_RULE = 'If you end the call yourself with "End call now", you pay for your whole booked time: the time the host was in the call, and the rest of your booking.';
+export const MEMBER_END_NOW_RULE = 'If you end the call yourself with "End call now", all the time you booked is used: the time the host was in the call, and the rest of your booking.';

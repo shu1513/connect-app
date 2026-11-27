@@ -18,7 +18,7 @@ import { db, schema } from "@/db";
 import type { Booking, Membership, MembershipMonth } from "@/db/schema";
 import { BookingError, busyOf, endRequestsInTheWay, isOverlap, lockCalendars, offerOf, slotInput, takenAsHost, TAKEN_THEN, type Offer } from "@/lib/booking/bookings";
 import { queueBookingEmails } from "@/lib/booking/emails";
-import { firstLength, PASSED_OVER, takenUntil } from "@/lib/booking/rules";
+import { CARD_CONSENT_VERSION, firstLength, PASSED_OVER, takenUntil } from "@/lib/booking/rules";
 import { isOpenStart, openStarts } from "@/lib/booking/slots";
 import type { Tx } from "@/lib/payments/operations";
 import { MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
@@ -250,6 +250,8 @@ async function saveAsPaying(asked: Input, found: { membership: Membership; month
         freeCancelMinutes: offer.freeCancelMinutes,
         stage: "paying",
         source: "member",
+        // The version of the words this booking's page showed about the call's charge (booking/rules.ts, WHOLE_BOOKING_SAID).
+        cardConsentVersion: CARD_CONSENT_VERSION,
         requestedAt: input.now,
         requestKey: input.requestKey,
         monthId: month.id,
@@ -308,6 +310,8 @@ async function bookInOneStep(asked: Input, found: { membership: Membership; mont
       freeCancelMinutes: offer.freeCancelMinutes,
       stage: "accepted",
       source: "member",
+      // The version of the words this booking's page showed about the call's charge (booking/rules.ts, WHOLE_BOOKING_SAID).
+      cardConsentVersion: CARD_CONSENT_VERSION,
       monthId: month.id,
       callId: call.id,
       // A member's booking records the moment it was made: the host's notes and the booking's page rely on it.

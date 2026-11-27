@@ -191,6 +191,11 @@ export type AppCallPage = {
    * can no longer be cancelled.
    */
   cancel: { words: string; button: string; shown: "free" | "late_charge"; yes: string; no: string } | null;
+  /**
+   * For a call that is over (run to its end, or ended with "End call now"): the way to the screen with "Report",
+   * "Block" and "Neither" (plans/50-end-call-now.md). Null for a call that is not over, and for a cancelled one.
+   */
+  afterEnd: { label: string } | null;
   /** While the page can change by itself: how often the app asks again. */
   refreshSeconds: number | null;
   /** What was just done, in the answer to a step; null otherwise. */

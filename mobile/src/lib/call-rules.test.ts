@@ -17,6 +17,7 @@ const page = {
   room: { opensAt: "2026-11-21T16:55:00.000Z", open: false, enter: "Go to the call" },
   about: null,
   cancel: { words: "Cancelling now is free. Nothing is charged.", button: "Cancel this call", shown: "free", yes: "Cancel the call", no: "Keep it" },
+  afterEnd: null,
   refreshSeconds: 30,
   notice: null,
 };
@@ -29,6 +30,13 @@ describe("a call's page", () => {
     expect(isCallPage({ ...page, state: "too_early", room: null, words: ["You can confirm and pay for this call from ", { time: "2026-11-19T17:00:00.000Z" }, "."], small: "That is 2 days before it starts." })).toBe(true);
     expect(isCallPage({ ...page, state: "cancelled", room: null, cancel: null, refreshSeconds: null, words: ["This call was cancelled."], notice: "The call was cancelled. Nothing is charged." })).toBe(true);
     expect(isCallPage({ ...page, role: "host", about: { title: "About Cory", text: "Likes mornings." } })).toBe(true);
+    // A call that is over carries the way to "Report", "Block" and "Neither"; no other state does.
+    const over = { ...page, state: "ended", room: null, cancel: null, refreshSeconds: null, words: ["This call has ended."] };
+    expect(isCallPage({ ...over, afterEnd: { label: "Report or block Maya" } })).toBe(true);
+    expect(isCallPage({ ...over, afterEnd: null })).toBe(true);
+    expect(isCallPage({ ...over, afterEnd: { label: "" } })).toBe(false);
+    expect(isCallPage({ ...page, afterEnd: { label: "Report or block Maya" } })).toBe(false);
+    expect(isCallPage({ ...over, afterEnd: undefined })).toBe(false);
   });
   it("refuses a page with a part missing, of the wrong kind, or that does not go with its state", () => {
     expect(isCallPage(null)).toBe(false);

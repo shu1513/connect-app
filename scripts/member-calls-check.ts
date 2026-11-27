@@ -937,7 +937,18 @@ async function main() {
     await settle(byHost);
     const partly = await pay(b.call);
     check("the host ended it: only her 10 minutes are used, $5.00, and $10.00 comes back to his month because of the host", partly.status === "charged" && partly.chargedCents === 500 && partly.chargeReason === "attendance" && (await places(m.monthId)) === "2500/1500/2000/0/0/0" && (await M(m.monthId)).hostCausedCents === 1000, `${partly.chargedCents} ${await places(m.monthId)} ${(await M(m.monthId)).hostCausedCents}`);
-    // The member ends the third and then reports the host: only the minutes, as if she had ended it.
+    // The member ends another before its start, while cancelling is still free: nothing is used, and the time
+    // comes back as it was booked (like a cancellation in time), not as time returned because of the host.
+    const d = await booked(m, { nth: 3 });
+    const soon = await moveCall(d.call, new Date(Date.now() + 3 * MIN));
+    const beforeEarly = await M(m.monthId);
+    await endCallNow({ call: soon, by: m.member.id, now: new Date() }).catch((error: unknown) => console.log(`   (the room could not be closed from a script: ${error instanceof Error ? error.message.split("\n")[0] : error})`));
+    await db.update(schema.calls).set({ closedAt: new Date() }).where(eq(schema.calls.id, soon.id));
+    await settleFinishedCalls(new Date(soon.endsAt.getTime() + 10 * MIN));
+    const afterEarly = await M(m.monthId);
+    check("the member ended it before its start, while cancelling was free: nothing is used, and the time comes back as it was booked", (await pay(soon)).status === "closed_uncharged" && afterEarly.freeCents === beforeEarly.freeCents + 1500 && afterEarly.hostCausedCents === beforeEarly.hostCausedCents, `${(await pay(soon)).status} ${afterEarly.freeCents - beforeEarly.freeCents} ${afterEarly.hostCausedCents - beforeEarly.hostCausedCents}`);
+    // Last, because a report blocks, and a block ends the membership: the member ends the third and then reports the
+    // host. Only the minutes, as if she had ended it.
     const reportedCall = await end(c.call, m.member.id);
     const { createReport } = await import("../src/lib/safety/reports");
     const sent = await createReport({ reporterId: m.member.id, context: "call", contextId: c.call.id, reason: "other", text: "Check.", now: new Date() });

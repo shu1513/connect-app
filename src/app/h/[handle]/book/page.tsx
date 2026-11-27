@@ -6,6 +6,7 @@ import { LocalTime } from "@/components/local-time";
 import { isHostToo } from "@/lib/booking/bookings";
 import { gatherBookPage } from "@/lib/booking/book-page";
 import { BOOK_WORDS, bookPoints, cardTermsWords, type Part } from "@/lib/booking/book-words";
+import { MEMBER_END_NOW_RULE } from "@/lib/booking/rules";
 import { whenFor } from "@/lib/booking/emails";
 import { CARD_CONSENT_VERSION, LIMITS } from "@/lib/booking/rules";
 import { readNotice } from "@/lib/notice";
@@ -238,6 +239,7 @@ async function MemberBook(props: { profile: { userId: string; handle: string; di
             {minutes} minutes. <strong>That includes time they spend waiting if you are late or do not join.</strong> If they are late, leave early or
             do not show up, that time comes back to you.
           </li>
+          <li>{MEMBER_END_NOW_RULE}</li>
           <li>{MEMBER_CANCEL_RULE[offer.freeCancelMinutes]}</li>
           <li>The call must end before your month ends, on <LocalTime iso={view.monthEndsAt.toISOString()} />.</li>
           {hostToo && (

@@ -8,7 +8,7 @@ import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { startPaymentFor, syncPaymentFor, type StepRefused } from "@/lib/payments/steps";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
 import { block } from "@/lib/safety/blocks";
-import { endCallNowConfirmed } from "@/lib/safety/calls";
+import { endCallNow } from "@/lib/safety/calls";
 import { enterCall } from "@/lib/video/enter";
 
 /**
@@ -43,8 +43,7 @@ function refusalOf(step: StepRefused): Response {
  *   POST /api/app/calls/[id]/enter           the entry pass to the call's room, by the one join check the website
  *                                            uses: only for a person of this call, only while the room is open and,
  *                                            for a paid call, the money is held
- *   POST /api/app/calls/[id]/end-now         "End call now": the call is ended for both, at once. (The step's
- *                                            earlier name, `end-and-report`, is answered the same way.)
+ *   POST /api/app/calls/[id]/end-now         "End call now": the call is ended for both, at once
  *   POST /api/app/calls/[id]/block           "Block", from the screen after "End call now": blocks the other
  *                                            person of this call. Only the call is named; who that person is, is
  *                                            worked out here
@@ -54,9 +53,7 @@ function refusalOf(step: StepRefused): Response {
  * sheet is never believed, and nothing here takes money: a hold is a hold.
  */
 export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[id]/[step]">) {
-  const { id, step: named } = await ctx.params;
-  // "End call now" under both its names (plans/50-end-call-now.md, decision 23).
-  const step = named === "end-and-report" ? "end-now" : named;
+  const { id, step } = await ctx.params;
   if (step !== "pay" && step !== "pay-check" && step !== "cancel" && step !== "enter" && step !== "end-now" && step !== "block") {
     const anyone = await appRequest(request, "anyone");
     return anyone instanceof Response ? anyone : refuse("not_found");
@@ -103,7 +100,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
     const access = await callForParticipant(id, me.id);
     if (!access) return refuse("not_found");
     try {
-      const { outcome, closed } = await endCallNowConfirmed({ call: access.call, by: me.id, now: new Date() });
+      const outcome = await endCallNow({ call: access.call, by: me.id, now: new Date() });
       // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already over
       // needs no ending: the person goes on to the three choices as usual.
       if (outcome.state === "not_open_yet") return refuse("not_valid", "This call has not started yet.");
@@ -111,7 +108,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
       // is out: the video service has not confirmed that the room is closed. "Ended for both" is not said until it
       // has: the app says so and offers to try again, and trying again asks the video service again (also after
       // the call's booked end: the clock is no proof).
-      if (!closed) return notKnown();
+      if (!outcome.closed) return notKnown();
     } catch (error) {
       // Whether it was ended for both cannot be told: the app says so and offers to try again.
       console.error("[safety] could not end a call for the app", error);

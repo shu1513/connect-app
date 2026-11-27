@@ -987,6 +987,8 @@ export async function createTestCall(input: {
           freeCancelMinutes: input.freeCancelMinutes,
           stage: "accepted",
           source: "admin",
+          // As a paid booking made today would carry it: the words that say what "End call now" costs (rules.ts, WHOLE_BOOKING_SAID).
+          cardConsentVersion: input.pricePer15Cents > 0 ? CARD_CONSENT_VERSION : null,
           requestKey: randomUUID(),
           callId: call.id,
           decidedAt: new Date(),

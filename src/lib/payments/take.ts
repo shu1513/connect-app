@@ -205,7 +205,8 @@ export async function settleOrdinaryCharges(callId: string, now: Date): Promise<
           call,
           payment,
           amountCents < MIN_CHARGE_CENTS
-            ? { usedCents: 0, note: nothingNote, lowered, what: "settled", hostCaused: "all" }
+            ? // (A member who ended the call before its start, while cancelling was free: the time comes back as it was booked, like a cancellation in time.)
+              { usedCents: 0, note: nothingNote, lowered, what: "settled", hostCaused: owed.customerLeftFree && !lowered ? "as_booked" : "all" }
             : { usedCents: amountCents, reason: owed.reason, frozen: totals, pricedThroughEventId: owed.pricedThroughEventId, lowered, what: "settled", hostCaused: "all" },
           now,
         );

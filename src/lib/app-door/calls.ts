@@ -10,6 +10,7 @@
 import "server-only";
 import { gatherCallPage, type CallPage } from "@/lib/call-page/gather";
 import { APP_ROOM_WORDS } from "@/lib/call-page/room-words";
+import { END_WORDS } from "@/lib/call-page/end-words";
 import { CALL_WORDS, cancelRuleSentence, cancelWords, paidHowWords, payPoints } from "@/lib/call-page/words";
 import { roomOpensAt, roomState } from "@/lib/calls";
 import { comingCallRows, listCalls, pastCallRows } from "@/lib/home/list-calls";
@@ -59,7 +60,7 @@ export async function callPageFor(person: { id: string }, callId: string, now: D
       state === "pay" && page.bookedPrice && page.pricePer15
         ? {
             title: CALL_WORDS.payTitle,
-            points: payPoints({ pricePer15: page.pricePer15, bookedPrice: page.bookedPrice, billing: call.billing, cancelRule: cancelRuleSentence(call.freeCancelMinutes, page.bookedPrice) }),
+            points: payPoints({ pricePer15: page.pricePer15, bookedPrice: page.bookedPrice, billing: call.billing, cancelRule: cancelRuleSentence(call.freeCancelMinutes, page.bookedPrice), wholeBookingSaid: page.wholeBookingSaid }),
             button: CALL_WORDS.payButton(page.bookedPrice),
             givenUp: CALL_WORDS.payGivenUp,
             notHeld: CALL_WORDS.payNotHeld,
@@ -74,6 +75,8 @@ export async function callPageFor(person: { id: string }, callId: string, now: D
       !over && page.cancel !== "not_allowed"
         ? { words: cancelWords({ member: payment?.kind === "member_call", outcome: page.cancel, bookedPrice: page.bookedPrice, frozen: page.memberFrozen }), button: CALL_WORDS.cancelButton, shown: page.cancel, yes: CALL_WORDS.cancelYes, no: CALL_WORDS.cancelNo }
         : null,
+    // Once the call is over, the two can still report or block each other: the screen that follows "End call now" does it.
+    afterEnd: state === "ended" ? { label: END_WORDS.reportOrBlock(page.otherName ?? (role === "host" ? "the customer" : "the host")) } : null,
     refreshSeconds: over ? null : page.follows ? FOLLOW_SECONDS : WATCH_SECONDS,
     notice,
   };

@@ -13,7 +13,7 @@ import type { Call, Payment } from "@/db/schema";
 import { countedWindow } from "@/lib/attendance/calc";
 import { loadAttendance } from "@/lib/attendance/load";
 import { lowers } from "@/lib/safety/end-guard";
-import { chargedSeconds, hostThereAt, restIsCharged, type EndedNow } from "./ended";
+import { chargedSeconds, customerLeftFree, hostThereAt, restIsCharged, type EndedNow } from "./ended";
 import { attendanceChargeCents, countedSeconds } from "./pricing";
 import { cancellationOutcome } from "./rules";
 
@@ -34,6 +34,11 @@ export type Owed =
       totals: { hostSeconds: number; customerSeconds: number; togetherSeconds: number };
       /** The last message of the video service the amount was worked out from. */
       pricedThroughEventId: number;
+      /**
+       * Nothing is owed because the customer ended the call before its start while cancelling was still free:
+       * his own choice, not the host's doing. A member's time then comes back as it was booked.
+       */
+      customerLeftFree: boolean;
     };
 
 /**
@@ -41,16 +46,18 @@ export type Owed =
  * way (also one ended with the earlier button, which the founder decides).
  */
 export async function endedNowOf(call: Call, now: Date, reader: Reader = db): Promise<EndedNow | null> {
-  if ((call.endedNowBy !== "host" && call.endedNowBy !== "customer") || !call.safetyEndedAt) return null;
+  if (!call.endedNowBy || !call.safetyEndedAt) return null;
   const pressedAt = call.safetyEndedAt;
-  const facts: EndedNow = { by: call.endedNowBy, loweredByReport: lowers(call.endReportEffect), beforeStart: pressedAt < call.startsAt, lateToCancel: false, hostThere: false };
-  // Nothing more is needed when the rest of the booking cannot be charged anyway.
-  if (facts.by !== "customer" || facts.loweredByReport || call.billing !== "host") return facts;
+  const by = call.endedNowBy === "host" ? "host" : "customer";
+  const facts: EndedNow = { by, wholeSaid: call.endedNowBy === "customer", loweredByReport: lowers(call.endReportEffect), beforeStart: pressedAt < call.startsAt, lateToCancel: false, hostThere: false };
+  if (facts.by !== "customer" || call.billing !== "host") return facts;
   if (facts.beforeStart) {
-    // As his cancelling at that moment would have been charged (the money was held: this is asked for a payment on hold).
+    // As his cancelling at that moment would have been charged, by the cancelling rule saved on the call (the money was held: this is asked for a payment on hold).
     facts.lateToCancel = cancellationOutcome({ by: "customer", now: pressedAt, startsAt: call.startsAt, freeCancelMinutes: call.freeCancelMinutes, held: true }) === "late_charge";
     return facts;
   }
+  // Nothing more is needed when the rest of the booking cannot be charged anyway.
+  if (!facts.wholeSaid || facts.loweredByReport) return facts;
   // The host's connected periods over the whole call, which end at the press.
   const whole = await loadAttendance(call, now, undefined, reader);
   facts.hostThere = hostThereAt(whole.result.hostIntervals, Math.floor(pressedAt.getTime() / 1000));
@@ -66,7 +73,8 @@ export async function owedFor(call: Call, payment: Pick<Payment, "coversFrom" | 
   if (attendance.result.status !== "complete" || !totals) return { is: "review", reason: attendance.result.reasons.join(" ") || "The call's record is incomplete." };
 
   const counted = countedSeconds(call, totals);
-  const restCharged = restIsCharged(call.billing, await endedNowOf(call, now, reader));
+  const ended = await endedNowOf(call, now, reader);
+  const restCharged = restIsCharged(call.billing, ended);
   // The stretch as it was booked, without the cut at the press.
   const full = countedWindow({ startsAt: call.startsAt, endsAt: call.endsAt, safetyEndedAt: null }, stretch);
   const { seconds, outOf } = chargedSeconds({ countedSeconds: counted, countedLength: attendance.bookedSeconds, fullLength: full.end - full.start, restCharged });
@@ -76,5 +84,6 @@ export async function owedFor(call: Call, payment: Pick<Payment, "coversFrom" | 
     reason: seconds > counted ? "customer_ended" : "attendance",
     totals,
     pricedThroughEventId: attendance.events.reduce((max, event) => Math.max(max, event.id), 0),
+    customerLeftFree: customerLeftFree(ended),
   };
 }

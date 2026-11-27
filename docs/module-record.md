@@ -5767,7 +5767,15 @@ for report and block."
   in the call when he pressed (her connection ended more than 60 seconds before), the rest is
   not charged either: a customer who waits for a host who never comes and then presses the red
   button pays nothing. Pressed before the booked start, it is charged as his cancelling at that
-  moment would be.
+  moment would be. Astra's check points out that this is less than "his entire booking time"
+  when she came late. That is so, on purpose; the founder can ask for the stricter reading.
+- **Only a customer who was told.** The words a customer ticks when he books now say the rule
+  (a new version of them, "2026-11-d"), and so do the confirm-and-pay step and a member's booking
+  page. A booking made under the earlier words is charged by the host's time, whoever ends the
+  call: its customer agreed to nothing else. The same for a press on a page that was open when
+  the app was updated and still showed the old button.
+- **The guard counts the switch, not the dollars.** A report counts when it changed a call from
+  "the whole booking" to "the minutes", whatever that saved in the end.
 - **Saying openly that a report lowers the charge.** The screen after the press tells a customer
   who ended the call: "If you report [name], this call is charged only for the time it lasted."
   Hiding it would leave someone who was really treated badly believing they must pay for the
@@ -5782,11 +5790,13 @@ for report and block."
 
 **What was built.**
 
-- **The press** (`src/lib/safety/calls.ts`). One update that only goes through while the call is
-  neither ended nor cancelled and its room is open, with the room's times read from the call
-  itself. It writes when, who, and in which role (`calls.endedNowBy`, new). If it changed
-  nothing, the call is read again and the answer says what is true: ended by you, ended by the
-  other person a moment earlier, already over, or not open yet. No payment is marked for review.
+- **The press** (`src/lib/safety/calls.ts`). It takes the call's row first, the row that adding
+  time, cancelling and closing the room also hold, and then writes when, who, and in which role
+  (`calls.endedNowBy`, new: "host", "customer", or "customer_untold" for a customer who was
+  never told that it costs the whole booking). If a press is already written, the answer says
+  whose it was: ended by you, ended by the other person a moment earlier, already over, or not
+  open yet. No payment is marked for review. The room is then closed by the helper's own step,
+  and no screen says "nobody can come back in" before the video service has confirmed it.
 - **The amount in one place** (`src/lib/payments/owed.ts`, with the rules in
   `src/lib/payments/ended.ts`). The helper's first look, the taking of the money, the member's
   call and the call's own page all ask it. A charge that includes "the rest of the booking" is
@@ -5797,6 +5807,12 @@ for report and block."
   The money step holds the same row, so a report comes before it or after it, never in the
   middle. After the money was taken a report changes nothing by itself.
 - **The guard** (`src/lib/safety/end-guard.ts`), a plain function with tests at its edges.
+- **The booking words.** A new version ("2026-11-d") with one more point: "If you end the call
+  yourself with 'End call now', you pay for your whole booked time: the time the host was in the
+  call, and the rest of your booking." A member's booking now records which words its page showed.
+- **A hold that is recorded after the press** only counts when Stripe dates the bank's approval
+  before the press. One without a date used to be kept for the founder's review; with nobody
+  reviewing, it no longer counts, and is let go.
 - **The screens.** The call room's button and its question, which says what the press costs the
   person who presses. A new page, `/calls/[id]/ended`, with who ended the call, what that means
   for the money, and the three choices, each with what it does. The call's page says who ended

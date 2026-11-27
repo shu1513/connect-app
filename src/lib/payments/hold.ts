@@ -210,19 +210,24 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
   // The call itself (not for time added to a call, which has its own rule in `tooLateToHold`).
   const [call] =
     !payment.extensionId && payment.callId
-      ? await tx.select({ cancelledAt: schema.calls.cancelledAt, safetyEndedAt: schema.calls.safetyEndedAt, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId))
+      ? await tx.select({ cancelledAt: schema.calls.cancelledAt, safetyEndedAt: schema.calls.safetyEndedAt, endedNowBy: schema.calls.endedNowBy, endsAt: schema.calls.endsAt }).from(schema.calls).where(eq(schema.calls.id, payment.callId))
       : [];
   if (!payment.extensionId && payment.callId) {
     // A card authorised for a call that was cancelled does not count: the payment stays unpaid, and the
     // cancellation (or the helper) lets that hold go.
     if (!call || call.cancelledAt) return;
   }
-  if (call?.safetyEndedAt) {
-    // A call that was ended with its red button. A card the bank approved before that moment still counts: the
-    // payment is held, and settles by the button's own rule ("End call now": by itself, payments/owed.ts; the earlier
-    // "End call and report": after the founder's review). So does one whose time Stripe does not give (it is not
-    // thrown away on a guess). Only one that Stripe itself dates at or after the stop, or after the booking's
-    // cut-off or the call's end, does not count.
+  if (call?.safetyEndedAt && call.endedNowBy !== null) {
+    // A call ended with "End call now": its money settles by itself, with nobody looking at it first. So only a card
+    // that is known to have been approved before the press counts. One that Stripe dates at or after it does not,
+    // and neither does one whose time Stripe does not give: for that one the moment this is written down stands in,
+    // which is after the press. The payment then stays unpaid, and the helper closes it and lets the approval go.
+    if (authorisedAt >= call.safetyEndedAt || authorisedAt >= call.endsAt || (await tooLateToHold(tx, payment, authorisedAt))) return;
+  } else if (call?.safetyEndedAt) {
+    // A call that was ended with the earlier button, "End call and report": the stop put this payment up for the
+    // founder's review. A card the bank approved before the stop is kept for that review; so is one whose time
+    // Stripe does not give (it is not thrown away on a guess, because a person decides). Only one that Stripe
+    // itself dates at or after the stop, or after the booking's cut-off or the call's end, does not count.
     if (dated && (authorisedAt >= call.safetyEndedAt || authorisedAt >= call.endsAt || (await tooLateToHold(tx, payment, authorisedAt)))) return;
   } else {
     if (await tooLateToHold(tx, payment, authorisedAt)) return;

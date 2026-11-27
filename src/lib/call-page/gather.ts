@@ -7,6 +7,7 @@ import "server-only";
 import { monthIsFrozen } from "@/lib/membership/calls";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { wholeBookingSaid } from "@/lib/booking/rules";
 import type { Call, Payment } from "@/db/schema";
 import { hostNoteAbout } from "@/lib/people/contacts";
 import { callForParticipant, formatMoney } from "@/lib/payments/access";
@@ -49,6 +50,11 @@ export type CallPage = {
   /** A member's call whose month is frozen (its payment disputed at the bank): cancelling moves none of its time. */
   memberFrozen: boolean;
   state: CallPageState;
+  /**
+   * This call's booking was made under words that say what "End call now" costs a customer: his whole booked
+   * time (plans/50-end-call-now.md). Only then is it charged that way, and only then does the button's question say so.
+   */
+  wholeBookingSaid: boolean;
   /** The hold may land any second (an instant call's saved card, a booked call about to start). */
   follows: boolean;
 };
@@ -78,7 +84,7 @@ export async function gatherCallPage(userId: string, callId: string, now: Date, 
   const bookedPrice = payment ? formatMoney(payment.bookedCents) : null;
   // The booking's total grows when time is added during the call; the call's own payment (the figure above, used
   // for paying and cancelling before the call) does not.
-  const [booking] = payment ? await db.select({ totalCents: schema.bookings.totalCents }).from(schema.bookings).where(eq(schema.bookings.callId, call.id)) : [];
+  const [booking] = payment ? await db.select({ totalCents: schema.bookings.totalCents, cardConsentVersion: schema.bookings.cardConsentVersion }).from(schema.bookings).where(eq(schema.bookings.callId, call.id)) : [];
 
   const cancel = cancellationOutcome({ by: role, now, startsAt: call.startsAt, freeCancelMinutes: call.freeCancelMinutes, held: payment?.status === "held" });
   // The call's own hold against its own stretch (see the join check): the call's end moves when time is added.
@@ -108,6 +114,7 @@ export async function gatherCallPage(userId: string, callId: string, now: Date, 
     pricePer15: payment ? formatMoney(payment.pricePer15Cents) : null,
     upTo: payment ? formatMoney(booking?.totalCents ?? payment.bookedCents) : null,
     cancel,
+    wholeBookingSaid: wholeBookingSaid(booking?.cardConsentVersion),
     memberFrozen: payment?.kind === "member_call" && payment.monthId !== null && (await monthIsFrozen(payment.monthId)),
     state,
     follows: unpaid && (call.billing === "together" || call.startsAt.getTime() - now.getTime() < FOLLOW_WITHIN_MS),

@@ -20,7 +20,7 @@ import { hasBlocked } from "@/lib/follows/follows";
 import { recordAdminAction } from "./audit";
 import { block } from "./blocks";
 import type { EndReportEffect } from "./end-guard";
-import { decideEndReport } from "./end-report";
+import { decideEndReport, type EndReportDecision } from "./end-report";
 import { keepMessages, type KeptSummary, keptSummaries, MessageGoneError, reportableMessage } from "./kept-messages";
 import { type ReportBlock, REPORT_TEXT_MAX } from "./report-words";
 
@@ -113,6 +113,8 @@ export type ReportOutcome = {
   callsNotCancelled: number;
   /** For a customer's report after his own "End call now": what it did to that call's charge (plans/50). Null for every other report. */
   endEffect: EndReportEffect | null;
+  /** With `endEffect`: a part of that call's money was already taken when the report came, and stays as it is. */
+  endPartly: boolean;
 };
 
 /**
@@ -135,7 +137,7 @@ export async function createReport(input: { reporterId: string; context: string;
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, reportedId));
   const full = { ...snapshot, profile: profile ? { displayName: profile.displayName, handle: profile.handle, about: profile.about } : null };
 
-  let endEffect: EndReportEffect | null = null;
+  let ended: EndReportDecision | null = null;
   const report = await db.transaction(async (tx) => {
     // One reporter at a time, so many reports sent at the same moment cannot slip past the daily limit together.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`reports:${input.reporterId}`}))`);
@@ -161,7 +163,7 @@ export async function createReport(input: { reporterId: string; context: string;
       });
     }
     // Last of what this step locks: the call's row, which the money step holds too (see end-report.ts).
-    if (input.context === "call") endEffect = await decideEndReport(tx, { callId: input.contextId, reporterId: input.reporterId, now: input.now });
+    if (input.context === "call") ended = await decideEndReport(tx, { callId: input.contextId, reporterId: input.reporterId, now: input.now });
     if (reason.urgent) {
       for (const admin of await adminsIn(tx)) {
         await queueEmail(tx, {
@@ -174,19 +176,20 @@ export async function createReport(input: { reporterId: string; context: string;
     }
     return row;
   });
-  if (input.context === "post") return { reference: report.reference, reportedId, block: "none", callsNotCancelled: 0, endEffect };
+  const money = { endEffect: (ended as EndReportDecision | null)?.effect ?? null, endPartly: (ended as EndReportDecision | null)?.partly ?? false };
+  if (input.context === "post") return { reference: report.reference, reportedId, block: "none", callsNotCancelled: 0, ...money };
   // The report is saved. The block that follows can stumble by itself, and the reporter is then told what is
   // true, with the report's number, in place of "something went wrong" (which made people report twice).
   // Blocking saves the block first and cleans up afterwards, so after an error the block may well be there.
   try {
     const { callsNotCancelled } = await block({ blockerId: input.reporterId, blockedId: reportedId, now: input.now });
-    return { reference: report.reference, reportedId, block: "done", callsNotCancelled, endEffect };
+    return { reference: report.reference, reportedId, block: "done", callsNotCancelled, ...money };
   } catch (error) {
     console.error(`[safety] the block after report R-${report.reference} ran into an error (${errorSummary(error)})`);
     const stands = await hasBlocked(input.reporterId, reportedId).catch(() => null);
     // A block that stands after an error was saved before the step got to the calls still to come: whether those
     // were cancelled is not known, and is not called done.
-    return { reference: report.reference, reportedId, block: stands === null ? "unknown" : stands ? "done_unsure" : "not_done", callsNotCancelled: 0, endEffect };
+    return { reference: report.reference, reportedId, block: stands === null ? "unknown" : stands ? "done_unsure" : "not_done", callsNotCancelled: 0, ...money };
   }
 }
 
