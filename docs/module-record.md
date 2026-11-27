@@ -5818,4 +5818,14 @@ time given back after collection (part 2). The phone apps.
 refund is weaker than a call's and could, on a part refund, pay a customer twice; it is so
 today for every contribution refund, and this part adds no new try (a fix of its own was
 proposed). What a host had already paid for a refund that then failed is not sent back by
-the app. A refund given before collection that fails late is still not noticed.
+the app.
+
+**What the reviewer found.** Astra checked the rulebook ("not ready": the host's own give-back
+was taken out), then this part's plan ("not ready", the idea sound: reworked), then the code:
+"merge after fixes", seven points. Six were taken (a take-back and another refund of the same
+gift could each start while the other was unanswered; a failed refund whose two records did
+not fit was half undone; a refund with no line on its share that failed late was never
+noticed and would have held up later take-backs; the form could be sent without saying what
+it showed, and showed 5.00 where 4.75 was sent; two sentences and two email links; the
+checks). One is written in the plan and left: it needs a line written the old way, which
+exists only in test data.

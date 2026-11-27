@@ -194,7 +194,12 @@ export async function sendRefund(refundId: string, now: Date = new Date()): Prom
       prepare: async ({ payment }, tx) => {
         // The share is held while a try is written down: whoever works a take-back out on that share holds it too,
         // and so sees either no try or this one (disputes/takeback.ts, refundUnderWay).
-        await lockShare(tx, payment.id);
+        const share = await lockShare(tx, payment.id);
+        // Nor while her share of it is being taken back at this very moment (that request to Stripe is written down
+        // and unanswered): a take-back and a refund of the same share are worked out one after the other, never both
+        // at once. Nothing is written here, so the next pass simply tries again.
+        const [taking] = share ? await tx.select({ id: schema.hostDebts.id }).from(schema.hostDebts).where(and(eq(schema.hostDebts.paymentId, share.id), eq(schema.hostDebts.status, "taking"))).limit(1) : [];
+        if (taking) throw new MoneyError("The host's share of this payment is being taken back right now. The refund is sent once that is answered.");
         const [fresh] = await tx.select().from(lines).where(eq(lines.id, line.id)).for("update");
         if (!fresh || fresh.status !== "owed" || fresh.attempt !== line.attempt) throw new MoneyError("This refund is not waiting to be sent.");
         // Checked here, under the lock, so two helpers at once cannot send a second try right after the first failed.

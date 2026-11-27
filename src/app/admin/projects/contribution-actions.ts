@@ -77,8 +77,17 @@ export async function refundAsFounderAction(formData: FormData) {
     const reason = noteOf(formData).replace(/\s+/g, " ").trim().slice(0, 300);
     if (!reason) throw new ContributionError("Please give a reason. It is kept.");
     const amountCents = readSum(String(formData.get("amount") ?? ""));
-    const refund = await refundContribution({ paymentId: paymentOf(formData), amountCents, by: "founder", deciderId: admin.id, reason, requestKey: request.toLowerCase(), shownSent: formData.get("sent") === "yes" ? true : formData.get("sent") === "no" ? false : undefined });
-    notice = `The refund of ${formatMoney(refund.amountCents)} is on its way to the contributor's card.`;
+    // What the form said would happen. Without it nothing is refunded: a press must never have an outcome its form did not show.
+    const shown = formData.get("sent");
+    if (shown !== "yes" && shown !== "no") throw new ContributionError("Please open the page again. Nothing was refunded.");
+    const refund = await refundContribution({ paymentId: paymentOf(formData), amountCents, by: "founder", deciderId: admin.id, reason, requestKey: request.toLowerCase(), shownSent: shown === "yes" });
+    // (The same press again gets the line its first sending made, whatever has become of it.)
+    notice =
+      refund.status === "failed"
+        ? `That refund of ${formatMoney(refund.amountCents)} failed at Stripe after it had been confirmed. Nothing is on its way. A new refund needs a new press: reload the page first.`
+        : refund.status === "done"
+          ? `The refund of ${formatMoney(refund.amountCents)} was paid back to the contributor's card.`
+          : `The refund of ${formatMoney(refund.amountCents)} is on its way to the contributor's card.`;
   } catch (error) {
     notice = problem(error);
   }

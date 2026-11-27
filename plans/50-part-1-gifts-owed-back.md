@@ -140,7 +140,8 @@ still cannot refund after collecting.
 - What a host had already paid for a refund that then failed is not sent back by the app,
   and a replacement refund's take-back may find no room left on a transfer that was already
   reversed. Both are so for a call today.
-- A contribution's refund given **before** collection that fails late is still not noticed.
+- (A contribution's refund given before collection that fails late was first left out; it
+  is built after all, see "As built" at the end.)
 - No periodic look finds a late failure whose message from Stripe was missed, once its
   take-back is waiting, ended or nothing (so for a call today).
 
@@ -186,3 +187,49 @@ still cannot refund after collecting.
    statement's sentence, the project page's "sent to you", the form's amount and a form
    drawn before collection; the check must send a real transfer; going live together.
    Decisions 1, 7, 8, 10 and "How it is tried".
+
+## As built, and what Astra found in the code (26 November 2026)
+
+Built as decided above, with migration 0066. Astra read the code and said **"merge after
+fixes"**, with seven points. Six were taken; one was written down and left.
+
+1. *A lost dispute's take-back can be a few dollars too high after a refund failed late.*
+   **Left, and named here.** It needs four things at once: a refund written the old way
+   ("Connect's own money"), a new refund after collection, a bank dispute lost on a part of
+   what is left, and then the new refund failing late. Lines written the old way exist only
+   in test databases: the app is not live, and the new code writes none. Without such a line
+   the two sums come out the same, to the cent or one cent apart. A call has the same today.
+2. *A refund with no line on its share that fails late was never noticed, and would then hold
+   up every later take-back on that payment,* because Stripe's total and the app's no longer
+   agree. **Built:** `undoFailedContributionRefund`. Stripe's message about a refund that is
+   in neither `refunds` nor a share's line is looked up among the contributions' lines. The
+   line is over ("failed"), the payment counts as refunded by that much less, what went back
+   is written back, the share is whole again (or, for a line written the old way, Connect's
+   cost is taken off the books), and the founder is told, with what the host was sent too
+   little if she had collected the smaller share. While money is moving it throws, and Stripe
+   delivers its message again. This replaces "still not noticed" under "Known" above.
+3. *A take-back and another refund of the same gift could each start while the other was
+   unanswered.* A refund is no longer started while the share is being taken back; a repeat
+   of a taking is not sent while a refund of that contribution is unanswered; and a failed
+   refund is not undone while another refund of it is still with Stripe.
+4. *If the two records of a failed refund did not fit, one side was undone and the other
+   left.* The contribution's line is now locked and judged first, before the share's line,
+   and nothing is changed unless it fits.
+5. *The founder's form could be sent without saying what it had shown, and its answer always
+   said "on its way".* It must say "sent" or "not sent" now, and the answer is read from the
+   line (failed, paid back, or on its way).
+6. *Amounts and places:* the form's "at most" now stops at what was sent (4.75 for a tip
+   alone in its collection); the statement's "Your share" sentence is put right; the
+   founder's emails about a contribution lead to the projects page, not the page for calls.
+7. *The checks:* only the script's own line is tried "hours later" (a pass over every refund
+   could have sent another run's refunds), and that no second request is written down is
+   now looked at; added: half a tip and then the other half (2.50, then 2.25), a new refund
+   after a line written the old way with its take-back, a refund with no line on its share
+   failing late (the old way, and one given before collection). **Not added:** a bank dispute
+   together with such a refund. The sum is `writeDebt`'s, which `dispute-takeback-check`
+   covers; only the comparison of totals is new there.
+
+Astra also confirmed: no way for the two machines to wait on each other was found; on the
+ordinary path the customer's money is booked once under the contribution's payment and the
+share's changes once on the share; calls behave as before, except that a refund waiting to
+be undone now also stops its take-back from being taken.

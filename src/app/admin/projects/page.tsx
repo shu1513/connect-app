@@ -564,10 +564,12 @@ function ContributionRow({ row }: { row: FounderRow }) {
   const { payment, contribution, share } = row;
   const state = stateOf(payment);
   const sent = share?.transferStatus === "sent";
-  // What her share would lose if everything that can still be refunded were: the most she can come to owe for it.
+  // What her share would lose if everything that can still be refunded were, and never more than was sent to her
+  // (the collection charge came off it): the most she can come to owe for it.
+  const wasSent = share?.transferCents ?? 0;
   const owesAtMost =
     share && share.chargedCents !== null && share.originalHostShareCents !== null
-      ? formatMoney(Math.max(0, currentSplit(share).hostShareCents - splitAfterRefunds({ chargeCents: share.chargedCents, refundedCents: Math.min(share.chargedCents, share.refundedCents + row.refundableCents), originalHostShareCents: share.originalHostShareCents }).hostShareCents))
+      ? formatMoney(Math.min(wasSent, Math.max(0, currentSplit(share).hostShareCents - splitAfterRefunds({ chargeCents: share.chargedCents, refundedCents: Math.min(share.chargedCents, share.refundedCents + row.refundableCents), originalHostShareCents: share.originalHostShareCents }).hostShareCents)))
       : formatMoney(0);
   return (
     <li className="rounded border border-neutral-400 p-3" data-payment={state}>
@@ -674,7 +676,7 @@ function ContributionRow({ row }: { row: FounderRow }) {
           </button>
           <span className="basis-full opacity-70">
             {sent
-              ? `Her share of this payment has already been sent to her. The contributor is paid back from Connect's money now, and the host then owes her share of it back: ${owesAtMost} for all of it, less for a part, and never more than was sent to her. She is told. The app takes it by itself only if she had accepted a published Host Agreement before this payment, 14 days after her notice arrived, and she can object; otherwise it waits for you.`
+              ? `Her share of this payment has already been sent to her. The contributor is paid back from Connect's money now, and the host then owes her share of it back: at most ${owesAtMost} if all of it is refunded, less for a part, and never more than is left of the ${formatMoney(wasSent)} that was sent to her. She is told. The app takes it by itself only if she had accepted a published Host Agreement before this payment, 14 days after her notice arrived, and she can object; otherwise it waits for you.`
               : "Her share has not been sent yet: it gets smaller by the same proportion, and so does our fee."}
           </span>
         </form>

@@ -581,15 +581,22 @@ async function main() {
           if (!boss) console.log("   (No admin in this database: the founder's refund of a collected tip was not tried.)");
           else {
             const TB = await import("../src/lib/disputes/takeback");
-            const line = await R.refundContribution({ paymentId, amountCents: 546, by: "founder", deciderId: boss.id, reason: "A mistake of ours", requestKey: randomUUID(), shownSent: true });
-            await R.runRefunds(new Date());
-            const [own] = await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, line.id));
-            if (own) await TB.takeBackPass(new Date(), { disputeIds: [], refundIds: [own.id] });
-            const [debt] = own ? await db.select().from(schema.hostDebts).where(eq(schema.hostDebts.refundId, own.id)) : [];
+            // In two halves of $2.73: each takes $2.50 off her share, and the payment fee is never hers to owe.
+            const half = async () => {
+              const line = await R.refundContribution({ paymentId, amountCents: 273, by: "founder", deciderId: boss.id, reason: "A mistake of ours", requestKey: randomUUID(), shownSent: true });
+              await R.sendRefund(line.id, new Date());
+              const [own] = await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, line.id));
+              if (own) await TB.takeBackPass(new Date(), { disputeIds: [], refundIds: [own.id] });
+              const [debt] = own ? await db.select().from(schema.hostDebts).where(eq(schema.hostDebts.refundId, own.id)) : [];
+              return { line, own, debt };
+            };
+            const first = await half();
+            check("the founder refunds half of the collected tip, $2.73 of $5.46: her share loses $2.50 of the $5.00 she got, and she owes $2.50", first.line.afterCollection && !first.line.connectsOwn && first.own?.status === "done" && first.own.amountCents === 273 && first.own.shareBeforeCents === 500 && first.own.shareAfterCents === 250 && first.own.hostOwesCents === 250 && first.debt?.amountCents === 250 && (await shareOf(paymentId)).refundedCents === 273, first);
+            const { own, debt } = await half();
             const lowered = await shareOf(paymentId);
-            check("the founder refunds the whole collected tip, $5.46: her share loses the $5.00 she got and the payment fee is never hers to owe", line.afterCollection && !line.connectsOwn && own?.status === "done" && own.amountCents === 546 && own.shareBeforeCents === 500 && own.shareAfterCents === 0 && own.hostOwesCents === 500 && lowered.refundedCents === 546 && lowered.transferStatus === "sent" && (await PM(paymentId)).refundedCents === 546, own);
-            // This tip was alone in its collection, so 25 cents of it went to the collection charge: $4.75 was sent, and no more than that can be owed.
-            check("she owes what was really sent to her for it, $4.75; with no published Host Agreement accepted before the charge the app does not take it by itself", debt?.amountCents === 475 && debt.status === "waiting" && debt.hostId === host.id, debt);
+            check("the other half: her share has lost the whole $5.00 and the payment fee is never hers to owe", own?.status === "done" && own.shareBeforeCents === 250 && own.shareAfterCents === 0 && own.hostOwesCents === 250 && own.afterCollectionNo === 2 && lowered.refundedCents === 546 && lowered.transferStatus === "sent" && (await PM(paymentId)).refundedCents === 546, own);
+            // This tip was alone in its collection, so 25 cents of it went to the collection charge: $4.75 was sent, and no more than that can be owed in all.
+            check("she owes no more in all than the $4.75 that was really sent to her: $2.25 for the second half; with no published Host Agreement accepted before the charge the app does not take it by itself", debt?.amountCents === 225 && debt.status === "waiting" && first.debt?.status === "waiting" && debt.hostId === host.id, debt);
             const about = debt ? await TB.debtForPage(debt.id, "host", { timeZone: null }) : null;
             check("its page says what it is about: a tip for that call", /^a tip for the call on /.test(about?.what ?? ""), about?.what);
           }

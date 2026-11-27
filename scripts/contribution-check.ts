@@ -197,6 +197,8 @@ async function main() {
       // shares' own refund lines (plans/50-part-1-gifts-owed-back.md) go before the shares.
       for (const debt of await db.select({ id: schema.hostDebts.id }).from(schema.hostDebts).where(inArray(schema.hostDebts.paymentId, shareIds))) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `takeback:${debt.id}:%`));
       await db.delete(schema.hostDebts).where(inArray(schema.hostDebts.paymentId, shareIds));
+      for (const id of shareIds) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-totals:${id}:%`));
+      for (const refund of await db.select({ id: schema.refunds.id }).from(schema.refunds).where(inArray(schema.refunds.paymentId, shareIds))) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-failed-late:${refund.id}:%`));
       await db.delete(schema.refunds).where(inArray(schema.refunds.paymentId, shareIds));
       await db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.paymentId, shareIds));
       await db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.paymentId, shareIds));
@@ -205,6 +207,7 @@ async function main() {
     if (cpIds.length) {
       await db.delete(schema.ledgerEntries).where(inArray(schema.ledgerEntries.contributionPaymentId, cpIds));
       await db.delete(schema.moneyOperations).where(inArray(schema.moneyOperations.contributionPaymentId, cpIds));
+      for (const line of await db.select({ id: schema.contributionRefunds.id }).from(schema.contributionRefunds).where(inArray(schema.contributionRefunds.contributionPaymentId, cpIds))) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `contribution-refund-failed-late:${line.id}:%`));
       await db.delete(schema.contributionRefunds).where(inArray(schema.contributionRefunds.contributionPaymentId, cpIds));
       await db.delete(pays).where(inArray(pays.id, cpIds));
     }
@@ -704,7 +707,25 @@ async function main() {
     await R.runRefunds(new Date());
     const afterOld = await shareOf(m.paymentId);
     check("a line that already says \"Connect's own money\" keeps that treatment: her share is not touched, Connect's cost is booked, and no line is written for the share", (await refundsOf(m.paymentId)).find((r) => r.id === old.id)?.status === "done" && afterOld.refundedCents === 3900 && (await ledger({ paymentId: afterOld.id }, "host_share")).total === hersNow && (await ledger({ contributionPaymentId: m.paymentId }, "connect_cost")).total === 500 && (await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, old.id))).length === 0 && (await PM(m.paymentId)).refundedCents === 4400);
-    check("never more than was taken", /At most \$56\.00/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 5601, by: "founder", deciderId: admin.id, reason: "", requestKey: randomUUID() }))) ?? ""));
+    {
+      const TB = await import("../src/lib/disputes/takeback");
+      const oldDone = (await refundsOf(m.paymentId)).find((r) => r.id === old.id)!;
+      const wrong = await TB.undoFailedContributionRefund(old.id, "re_not_this_one", "made up by the check script");
+      const undone = await TB.undoFailedContributionRefund(old.id, oldDone.stripeRefundId!, "made up by the check script");
+      const again = await TB.undoFailedContributionRefund(old.id, oldDone.stripeRefundId!, "made up by the check script");
+      check("a refund written the old way that Stripe says failed after all: only for the very refund of Stripe's, and once; the payment counts as refunded by that much less, Connect's cost is off the books, the line is over, and her share was never touched", !wrong && undone && !again && (await refundsOf(m.paymentId)).find((r) => r.id === old.id)?.status === "failed" && (await PM(m.paymentId)).refundedCents === 3900 && (await ledger({ contributionPaymentId: m.paymentId }, "connect_cost")).total === 0 && (await ledger({ contributionPaymentId: m.paymentId }, "customer_refund")).total === -3900 && (await shareOf(m.paymentId)).refundedCents === 3900 && (await ledger({ paymentId: afterOld.id }, "host_share")).total === hersNow, { wrong, undone, again });
+      // One given before the host collected: her share had shrunk, and is whole again.
+      const pre = await taken(host, { amountCents: 2500 });
+      const preShare = await shareOf(pre.paymentId);
+      const given = await R.refundContribution({ paymentId: pre.paymentId, amountCents: 2500, by: "host", deciderId: host.id, reason: "All of it", requestKey: randomUUID() });
+      await R.sendRefund(given.id, new Date());
+      const sentBack = (await refundsOf(pre.paymentId)).find((r) => r.id === given.id)!;
+      const emptied = await shareOf(pre.paymentId);
+      const restored = await TB.undoFailedContributionRefund(given.id, sentBack.stripeRefundId!, "made up by the check script");
+      const whole = await shareOf(pre.paymentId);
+      check("a refund in full given before she collected that fails after all: her share, which it had left with nothing, is whole again and waits for its day; the books are as before the refund", sentBack.status === "done" && emptied.transferStatus === "not_owed" && restored && whole.refundedCents === 0 && whole.transferStatus === "not_due" && (await ledger({ paymentId: whole.id }, "host_share")).total === preShare.originalHostShareCents && (await PM(pre.paymentId)).refundedCents === 0 && (await ledger({ contributionPaymentId: pre.paymentId }, "customer_refund")).total === 0 && (await refundsOf(pre.paymentId)).find((r) => r.id === given.id)?.status === "failed" && (await db.select().from(schema.refunds).where(eq(schema.refunds.paymentId, whole.id))).length === 0, { emptied: emptied.transferStatus, whole: whole.transferStatus });
+    }
+    check("never more than was taken", /At most \$61\.00/.test((await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 6101, by: "founder", deciderId: admin.id, reason: "", requestKey: randomUUID() }))) ?? ""));
 
     const full = await taken(host, { amountCents: 2500 });
     await R.refundContribution({ paymentId: full.paymentId, amountCents: 2500, by: "host", deciderId: host.id, reason: "All of it", requestKey: randomUUID() });
@@ -1739,23 +1760,47 @@ async function main() {
             const reversed = await stripe().transfers.retrieve(lowered.stripeTransferId!);
             check("after its day the app takes it back out of her transfer at Stripe, and the books say so", debt.status === "taken" && reversed.amount_reversed === debt.amountCents && (await ledger({ paymentId: lowered.id }, "host_takeback")).total === debt.amountCents, { status: debt.status, refusal: debt.refusal, reversed: reversed.amount_reversed });
 
+            // A line written the old way stands between: Stripe's total then holds it, the share's own total does not.
+            const [oldWay] = await db.insert(schema.contributionRefunds).values({ contributionPaymentId: m.paymentId, sourceKey: `refund:old-way-sent-${RUN}`, amountCents: 100, decidedBy: "founder", deciderId: boss.id, reason: "Written the old way", connectsOwn: true }).returning();
+            await R.sendRefund(oldWay.id, new Date());
+            const third = await R.refundContribution({ paymentId: m.paymentId, amountCents: 300, by: "founder", deciderId: boss.id, reason: "A third one", requestKey: randomUUID(), shownSent: true });
+            await R.sendRefund(third.id, new Date());
+            const [own3] = await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, third.id));
+            if (own3) await TB.takeBackPass(new Date(), { disputeIds: [], refundIds: [own3.id] });
+            const debt3 = own3 ? await debtOf(own3.id) : undefined;
+            const share3 = splitAfterRefunds({ chargeCents: 2500, refundedCents: 1800, originalHostShareCents: 2347 }).hostShareCents;
+            check("after a line written the old way, a new refund is worked out from the share's own total, and its take-back is written although Stripe's total is larger than the share's", (await lineOf(oldWay.id)).status === "done" && (await PM(m.paymentId)).refundedCents === 1900 && (await shareOf(m.paymentId)).refundedCents === 1800 && own3?.afterCollectionNo === 2 && own3.shareBeforeCents === shareAfter && own3.shareAfterCents === share3 && own3.hostOwesCents === shareAfter - share3 && debt3?.status === "told" && debt3.amountCents === shareAfter - share3, { own3, debt3 });
+
             // A second refund after collection, which Stripe then says failed after all.
             const second = await R.refundContribution({ paymentId: m.paymentId, amountCents: 200, by: "founder", deciderId: boss.id, reason: "A second one", requestKey: randomUUID(), shownSent: true });
             await R.runRefunds(new Date());
             const [own2] = await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, second.id));
             await TB.takeBackPass(new Date(), { disputeIds: [], refundIds: [own2.id] });
             const debt2 = await debtOf(own2.id);
-            check("a second refund gets its own line on the share, the next in their order, and its own take-back", own2?.afterCollectionNo === 2 && own2.shareBeforeCents === shareAfter && debt2?.status === "told" && debt2.amountCents === own2.hostOwesCents && (await PM(m.paymentId)).refundedCents === 1700, { own2, debt2 });
+            check("a second refund gets its own line on the share, the next in their order, and its own take-back", own2?.afterCollectionNo === 3 && own2.shareBeforeCents === share3 && debt2?.status === "told" && debt2.amountCents === own2.hostOwesCents && (await PM(m.paymentId)).refundedCents === 2100, { own2, debt2 });
             const undone = await TB.undoFailedRefund(own2.id, "made up by the check script");
             const back = await shareOf(m.paymentId);
             const over = await lineOf(second.id);
-            check("when Stripe says that refund failed after all: her share is as it was, its take-back is called off, the contribution's line is over, and what went back is written back once, under the contribution's payment", undone && back.refundedCents === 1500 && (await PM(m.paymentId)).refundedCents === 1500 && over.status === "failed" && over.failedAt !== null && (await debtOf(own2.id)).status === "cancelled" && (await db.select().from(schema.refunds).where(eq(schema.refunds.id, own2.id)))[0].status === "failed" && (await ledger({ contributionPaymentId: m.paymentId }, "customer_refund")).total === -1500 && (await ledger({ paymentId: back.id }, "customer_refund")).total === 0 && (await ledger({ paymentId: back.id }, "host_share")).total === shareAfter, { undone, back: back.refundedCents, over });
-            await R.runRefunds(new Date(Date.now() + 2 * HOUR));
+            check("when Stripe says that refund failed after all: her share is as it was, its take-back is called off, the contribution's line is over, and what went back is written back once, under the contribution's payment", undone && back.refundedCents === 1800 && (await PM(m.paymentId)).refundedCents === 1900 && over.status === "failed" && over.failedAt !== null && (await debtOf(own2.id)).status === "cancelled" && (await db.select().from(schema.refunds).where(eq(schema.refunds.id, own2.id)))[0].status === "failed" && (await ledger({ contributionPaymentId: m.paymentId }, "customer_refund")).total === -1900 && (await ledger({ paymentId: back.id }, "customer_refund")).total === 0 && (await ledger({ paymentId: back.id }, "host_share")).total === share3, { undone, back: back.refundedCents, over });
+            // (Only this very line is tried, hours later: a pass over every refund would also send other runs' refunds.)
+            await R.sendRefund(second.id, new Date(Date.now() + 2 * HOUR));
             await db.transaction(async (tx) => R.applyRefundOutcome(tx, await lockForPayment(tx, m.paymentId), { refundId: second.id, attempt: over.attempt, stripeRefundId: over.stripeRefundId, status: "done" }, new Date()));
-            check("it is not sent again by itself, and a late answer about the old refund changes nothing", (await lineOf(second.id)).status === "failed" && (await PM(m.paymentId)).refundedCents === 1500 && (await shareOf(m.paymentId)).refundedCents === 1500 && (await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, second.id))).length === 1);
-            const room = await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 1001, by: "founder", deciderId: boss.id, reason: "Too much", requestKey: randomUUID(), shownSent: true }));
-            check("what the failed refund had taken up can be refunded again by a new press: $10.00 is left", /At most \$10\.00/.test(room ?? ""), room);
+            const triesOfSecond = await db.select({ id: schema.moneyOperations.id }).from(schema.moneyOperations).where(like(schema.moneyOperations.label, `contributionrefund:${second.id}:%`));
+            check("it is not sent again by itself (no second request to Stripe is even written down), and a late answer about the old refund changes nothing", triesOfSecond.length === 1 && (await lineOf(second.id)).status === "failed" && (await PM(m.paymentId)).refundedCents === 1900 && (await shareOf(m.paymentId)).refundedCents === 1800 && (await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, second.id))).length === 1, triesOfSecond.length);
+            const room = await refusal(R.refundContribution({ paymentId: m.paymentId, amountCents: 601, by: "founder", deciderId: boss.id, reason: "Too much", requestKey: randomUUID(), shownSent: true }));
+            check("what the failed refund had taken up can be refunded again by a new press: $6.00 is left", /At most \$6\.00/.test(room ?? ""), room);
             check("and the first take-back, already taken, stands as it was", (await debtOf(own.id)).status === "taken" && (await debtOf(own.id)).amountCents === 1878 - shareAfter);
+
+            // Stripe really paid that second refund (only this script said it failed). So Stripe's total of refunds is now
+            // larger than the app's: nothing more is worked out for this payment until the two agree, and the founder is told.
+            const fourth = await R.refundContribution({ paymentId: m.paymentId, amountCents: 100, by: "founder", deciderId: boss.id, reason: "A fourth one", requestKey: randomUUID(), shownSent: true });
+            await R.sendRefund(fourth.id, new Date());
+            const [own4] = await db.select().from(schema.refunds).where(eq(schema.refunds.contributionRefundId, fourth.id));
+            const totalsTold = () => db.select({ id: schema.emailOutbox.id }).from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-totals:${lowered.id}:%`));
+            if (own4) await TB.takeBackPass(new Date(), { disputeIds: [], refundIds: [own4.id] });
+            const toldOnce = (await totalsTold()).length;
+            if (own4) await TB.takeBackPass(new Date(), { disputeIds: [], refundIds: [own4.id] });
+            check("while Stripe's total of refunds is not the app's, no take-back is worked out for that payment, and the founder is told once, however many passes go by", Boolean(own4) && (await debtOf(own4.id)) === undefined && (await db.select().from(schema.refunds).where(eq(schema.refunds.id, own4.id)))[0].debtLookedAt === null && toldOnce > 0 && (await totalsTold()).length === toldOnce, { own4: own4?.id, toldOnce });
           } finally {
             DOCUMENTS["host-agreement"].versions.splice(DOCUMENTS["host-agreement"].versions.indexOf(published), 1);
             await db.delete(schema.agreementAcceptances).where(eq(schema.agreementAcceptances.version, published.version));
