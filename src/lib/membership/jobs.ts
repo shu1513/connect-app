@@ -14,6 +14,7 @@ import { removeRetiredCards } from "./cards";
 import { abandonMonth, intentFor, letHoldGo, syncMonth, takeMonth, tryHold } from "./charge";
 import { runClosings } from "./close";
 import { runDisputeLooks, runEndings } from "./ending";
+import { runFourteenDayRequests } from "./fourteen-days";
 import { runInvitations } from "./join";
 import { runPayBacks } from "./payback";
 
@@ -133,6 +134,10 @@ export async function runMembershipJobs(now: Date = new Date()): Promise<void> {
 
   // Disputes that are still open are asked about once an hour, so a lost message never leaves a month frozen.
   await runDisputeLooks(now);
+
+  // A cancelling within 14 days that was asked in time and could not be finished then is finished here, by itself.
+  // Before the pay-backs and the clean-ups, which then carry it through in this same round.
+  await runFourteenDayRequests(now).catch((error) => log("could not look at the cancellings within 14 days that are not finished; will retry", error));
 
   // 9. Pay-backs. 10. Endings to clean up. 11. Retired cards nothing needs any more.
   await runPayBacks(now);

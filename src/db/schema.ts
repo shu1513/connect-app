@@ -1626,6 +1626,18 @@ export const memberships = pgTable(
     endedReason: text("ended_reason"),
     /** Set once the clean-up after an ending is finished: open payment cancelled, free money owed back, upcoming member calls cancelled. */
     cleanupDoneAt: timestamp("cleanup_done_at", { withTimezone: true }),
+    /**
+     * The first "Cancel within 14 days" for this membership that passed every rule (membership/fourteen-days.ts),
+     * written down before anything is cancelled: the moment it was asked, and the month it was for. A later press
+     * for the same month counts as made in time, so a press in time that could not be finished can always be
+     * finished later (by the member, by the founder, or by the helper). It is never cleared: on an ended
+     * membership it says when the member asked.
+     */
+    fourteenAskedAt: timestamp("fourteen_asked_at", { withTimezone: true }),
+    fourteenMonthId: uuid("fourteen_month_id"),
+    /** Only when the founder pressed, for a request in writing: who, and the day the request reached Connect. Both empty for the member's own press. */
+    fourteenAdminId: text("fourteen_admin_id"),
+    fourteenRequestDay: text("fourteen_request_day"),
     // The open invitation.
     inviteId: uuid("invite_id"),
     invitedAt: timestamp("invited_at", { withTimezone: true }),
@@ -1646,6 +1658,8 @@ export const memberships = pgTable(
     index("memberships_customer_idx").on(t.customerId),
     index("memberships_host_status_idx").on(t.hostId, t.status),
     check("memberships_status", sql`${t.status} in ('invited', 'joining', 'active', 'unpaid', 'paused', 'ended')`),
+    // The request on record is whole or not there: a moment with its month, and the founder's two fields together.
+    check("memberships_fourteen_request", sql`(${t.fourteenAskedAt} is null) = (${t.fourteenMonthId} is null) and (${t.fourteenAdminId} is null) = (${t.fourteenRequestDay} is null) and (${t.fourteenAdminId} is null or ${t.fourteenAskedAt} is not null)`),
   ],
 );
 
