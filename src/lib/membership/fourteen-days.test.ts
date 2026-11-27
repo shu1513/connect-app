@@ -9,7 +9,7 @@ vi.mock("./join", () => ({}));
 vi.mock("./locks", () => ({}));
 vi.mock("./state", () => ({}));
 
-import { BEING_TAKEN, callsForNote, CALLS_NOT_CANCELLED, MONTH_ENDED_UNFINISHED, STOPPED_MEANWHILE, dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, memberInTime, NOTHING_ON_RECORD, NotFinishedYet, requestDayRefusal, requestOnRecord, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays, type CallPayment } from "./fourteen-days";
+import { BEING_TAKEN, BLOCKED_FOR_MEMBER, callsForNote, CALLS_NOT_CANCELLED, MONTH_ENDED_UNFINISHED, STOPPED_MEANWHILE, dayOf, DAYS_OVER_FOR_MEMBER, fourteenDayNote, lastDayFor, memberInTime, NOTHING_ON_RECORD, NotFinishedYet, requestDayRefusal, requestOnRecord, WHY_FOR_FOUNDER, WHY_FOR_MEMBER, withinTheDays, type CallPayment } from "./fourteen-days";
 import { MembershipError } from "./rules";
 
 const at = (iso: string) => new Date(iso);
@@ -106,6 +106,14 @@ describe("a request that is on record", () => {
     expect(STOPPED_MEANWHILE).toContain("stays on record");
     expect(STOPPED_MEANWHILE).not.toContain("Nothing was changed");
     expect(MONTH_ENDED_UNFINISHED).toContain("settle this case by hand");
+  });
+
+  it("tells a member whose request a rule stops for now that it stays on record, and never to press or to settle anything", () => {
+    for (const sentence of Object.values(BLOCKED_FOR_MEMBER)) {
+      expect(sentence).toContain("stays on record");
+      expect(sentence).not.toContain("by hand");
+      expect(sentence).not.toContain("press");
+    }
   });
 });
 

@@ -11,7 +11,7 @@ import { formatMoney } from "@/lib/payments/access";
 import { switches } from "@/lib/safety/switches";
 import { readNotice } from "@/lib/notice";
 import { requireAdmin } from "@/lib/session";
-import { cancelWithin14DaysAction } from "./actions";
+import { cancelWithin14DaysAction, settledByHandAction } from "./actions";
 
 export const metadata: Metadata = { title: "Memberships" };
 
@@ -97,7 +97,7 @@ export default async function AdminMembershipsPage(props: PageProps<"/admin/memb
         <Link href="/admin/reports" className="underline underline-offset-2">
           Change it on &quot;Reports and safety&quot;
         </Link>
-        . This page shows. The one thing it changes: a new membership can be cancelled within 14 days here, when the member asked in writing (the form is on that membership, below).
+        . This page shows. The one thing it changes: a new membership can be cancelled within 14 days here, when the member asked in writing (the form is on that membership, below); and such a request that could not be finished in time can be noted as settled by hand.
       </p>
 
       <section className="mt-6 grid gap-3 text-sm sm:grid-cols-4">
@@ -121,6 +121,14 @@ export default async function AdminMembershipsPage(props: PageProps<"/admin/memb
                 {request.stoppedBy ? (
                   <>
                     <strong>It needs you.</strong> {request.stoppedBy}
+                    {request.byHand && (
+                      <form action={settledByHandAction} className="mt-1" data-fourteen-settled>
+                        <input type="hidden" name="membership" value={request.membershipId} />
+                        <button type="submit" className="rounded border border-neutral-500 px-3 py-1.5 font-medium">
+                          Settled by hand
+                        </button>
+                      </form>
+                    )}
                   </>
                 ) : (
                   "The helper is finishing it. If it is still here in a few minutes, use the form on that membership below: the day is already filled in."

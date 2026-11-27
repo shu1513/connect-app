@@ -116,7 +116,7 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
           </p>
         )}
 
-        {membership.status === "active" && started && <Running membership={membership} month={started} hostName={hostName} hostHandle={host?.handle ?? null} canBook={host?.canBook ?? false} open={open} offerOn={Boolean(hostOffer?.on)} frozen={frozen} nextCents={nextCents} fourteenUntil={fourteen?.lastDay ?? null} fourteenAsked={fourteen?.asked ?? null} now={now} />}
+        {membership.status === "active" && started && <Running membership={membership} month={started} hostName={hostName} hostHandle={host?.handle ?? null} canBook={host?.canBook ?? false} open={open} offerOn={Boolean(hostOffer?.on)} frozen={frozen} nextCents={nextCents} fourteenUntil={fourteen?.lastDay ?? null} fourteenAsked={fourteen?.asked ?? null} fourteenBlockedBy={fourteen?.blockedBy ?? null} now={now} />}
 
         {membership.status === "active" && !started && (
           <>
@@ -256,8 +256,8 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
 const lastFreeMoment = (month: MembershipMonth): Date | null => (month.authorisedAt && month.holdExpiresAt ? holdTiming({ authorisedAt: month.authorisedAt, holdExpiresAt: month.holdExpiresAt }).offeredUntil : month.takeAt);
 
 /** A membership with a month that has started: the time, the hold, whether and when it renews, and the buttons. */
-function Running(props: { membership: Membership; month: MembershipMonth; hostName: string; hostHandle: string | null; canBook: boolean; open: boolean; offerOn: boolean; frozen: boolean; nextCents: number; /** The last day (UTC) "Cancel within 14 days" is open for this new membership, or null when it is not. */ fourteenUntil: string | null; /** A request to cancel within 14 days that is on record and not finished: the button stays, also after the last day. */ fourteenAsked: { day: string; inWriting: boolean } | null; now: Date }) {
-  const { membership, month, hostName, now, fourteenUntil, fourteenAsked } = props;
+function Running(props: { membership: Membership; month: MembershipMonth; hostName: string; hostHandle: string | null; canBook: boolean; open: boolean; offerOn: boolean; frozen: boolean; nextCents: number; /** The last day (UTC) "Cancel within 14 days" is open for this new membership, or null when it is not. */ fourteenUntil: string | null; /** A request to cancel within 14 days that is on record and not finished: the button stays, also after the last day. */ fourteenAsked: { day: string; inWriting: boolean } | null; /** A rule that stops such a request for now: said on the page, with no button. */ fourteenBlockedBy: string | null; now: Date }) {
+  const { membership, month, hostName, now, fourteenUntil, fourteenAsked, fourteenBlockedBy } = props;
   // A month whose payment has a problem the founder must look at (Stripe took a part, or holds more than one payment): its time is not there to book.
   const troubled = Boolean(month.problem);
   const held = month.status === "held";
@@ -353,6 +353,13 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
                 )}
           </p>
         </form>
+      )}
+
+      {fourteenAsked && fourteenBlockedBy && (
+        <p className="mt-6 rounded border border-neutral-400 p-3" data-fourteen-on-record>
+          {fourteenAsked.inWriting ? `Your request to cancel within 14 days reached us on ${fourteenAsked.day} (UTC), in time, ` : `You pressed "Cancel within 14 days" on ${fourteenAsked.day} (UTC), in time, `}
+          and it could not be finished yet. It is on record, so the 14 days cannot run out on it. {fourteenBlockedBy}
+        </p>
       )}
 
       {(!membership.memberStoppedAt || canCancelNow || fourteenUntil) && (

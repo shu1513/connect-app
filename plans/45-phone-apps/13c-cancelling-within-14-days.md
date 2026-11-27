@@ -31,7 +31,9 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
   with no problem on the payment and no bank question, through the whole of the 14th day
   after the day of joining. Days are counted in UTC. Since 26 November 2026 it also stays
   open after the last day while a request made in time is on record and not finished; the
-  answer then carries the day that request counts from (`asked`).
+  answer then carries the day that request counts from (`asked`). If a rule stops such a
+  request for now, the answer has no last day (no button) but carries `asked` and the
+  sentence for what stops it (`blockedBy`): the screen shows that sentence.
 - **What pressing does.** `cancelWithin14Days({ membershipId, by: { as: "member", memberId },
   shownMonthId })`: a first look, which writes the request down if it passes every rule; then
   the calls booked from the membership that are still to come are cancelled; only then the

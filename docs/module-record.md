@@ -5750,20 +5750,26 @@ first month ended and the founder was needed; a later press could change who had
 which day; and the founder could still read "Nothing was changed" after calls had been
 cancelled.
 
-**How it was checked.** Type check, lint, the automatic tests (7 new: the request on record,
-its month, who asked, the sentences). `scripts/member-calls-check.ts`, journey 11 (72 checks,
-34 of them new), against Stripe's test mode, with a trigger of the script's own that makes the
+**How it was checked.** Type check, lint, the automatic tests (8 new: the request on record,
+its month, who asked, the sentences). `scripts/member-calls-check.ts`, journey 11 (77 checks,
+39 of them new), against Stripe's test mode, with a trigger of the script's own that makes the
 database refuse, or take two seconds, to cancel one call: a press on the last day finished on
 day 15; the helper finishing one by itself, behind an older one that a rule stops; the
 founder's form finishing a member's request and the other way round; two presses at the same
-moment; a month that ends first; a press during the taking of the money; a press that was too
-late. The whole of that script once (303 checks at the time). The real pages in
-`scripts/membership-journey-check.ts` (124 checks, 6 new).
+moment; a month that ends first, the membership ended later by the host, and "Settled by
+hand"; a press during the taking of the money; a press that was too late. The whole of that
+script once (303 checks at the time). The real pages in `scripts/membership-journey-check.ts`
+(125 checks, 7 new).
 
 **What the checks cannot cover.** A real database fault in the middle of a real press. The
 helper's own loop over many days (its job is called directly, with the clock moved).
 
-**What was not built.** A button for the founder to mark a line of that list as settled by
-hand. A cancellation after the first month has ended (still the founder, by hand, also when a
+CodeRabbit made seven points, all taken (also listed there). The ones that changed what the
+app does: a request that ran out of its month stays on the founder's list until the founder
+presses "Settled by hand" (new; it writes a line on the founder's record and moves no money);
+the member's page says that a request is on record also while a rule stops it; and the check
+no longer moves the clock for anybody else's data in the shared test database.
+
+**What was not built.** A cancellation after the first month has ended (still the founder, by hand, also when a
 request in time is on record). The phone apps' button (plan 45, part 13c), which will use the
 same piece of the server.

@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { cancelWithin14Days, NotFinishedYet } from "@/lib/membership/fourteen-days";
+import { cancelWithin14Days, NotFinishedYet, settleFourteenDayRequestByHand } from "@/lib/membership/fourteen-days";
 import { MembershipError } from "@/lib/membership/rules";
 import { withNotice } from "@/lib/notice";
 import { requireAdmin } from "@/lib/session";
@@ -33,6 +33,30 @@ export async function cancelWithin14DaysAction(formData: FormData) {
     else {
       console.error("[membership] cancelling within 14 days failed", error);
       notice = "We could not confirm what happened. Look at the membership below: if it says \"Ended\", it was cancelled and you do not need to press again.";
+    }
+  }
+  back(notice);
+}
+
+/**
+ * The founder says that a request to cancel within 14 days, which could not be finished before its first month
+ * ended, has been settled by hand. It goes on the founder's record and leaves the list. Nothing else changes: no
+ * money moves here.
+ */
+export async function settledByHandAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const back = (notice: string): never => redirect(withNotice("/admin/memberships", notice));
+  const membershipId = String(formData.get("membership") ?? "");
+  if (!UUID.test(membershipId)) back("That form is no longer valid. Reload the page and try again.");
+  let notice: string;
+  try {
+    await settleFourteenDayRequestByHand({ membershipId, adminId: admin.id });
+    notice = "Noted as settled by hand. It is on your record and off this list. No money was moved by this button.";
+  } catch (error) {
+    if (error instanceof MembershipError) notice = `${error.message} Nothing was changed.`;
+    else {
+      console.error("[membership] noting a 14-day request as settled by hand failed", error);
+      notice = "That could not be saved. Nothing was changed. Please try again.";
     }
   }
   back(notice);

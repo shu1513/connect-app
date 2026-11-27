@@ -1500,12 +1500,18 @@ calls and a membership that ran on. Nothing recorded the first press.
   again. (The founder's page no longer adds "Nothing was changed" to this: calls may have been
   cancelled already.)
 - **The member's page** keeps the button while such a request is not finished, also after the
-  last day, and says from which day it counts.
+  last day, and says from which day it counts. If a rule stops the request for now (a payment
+  with a problem, a bank's question), the page has no button but still says that the request
+  is on record and what stops it.
 - **The founder's Memberships page** has a list "Cancelled within 14 days, not finished". It
   is normally empty. It names who asked and when, and either "the helper is finishing it" or
-  the rule that stops it, which then needs the founder. A membership that has moved on to a
-  second month, or was paused when the first month ended, stays on the list: that is when the
-  founder is needed. Only a month that was given up with nothing taken is left off.
+  the rule that stops it, which then needs the founder. A request whose first month ended
+  before it could be finished stays on the list whatever becomes of the membership (a second
+  month, paused, ended by the host later): that is when the founder is needed. The founder
+  settles it by hand and then presses "Settled by hand", which writes it on the founder's
+  record and takes it off the list; that button moves no money. Left off are only the cases
+  where nothing is owed: a month given up with nothing taken, and a membership that ended
+  some other way before that month's end (every ending pays the unused money back).
 - **Only the first month's calls are cancelled** by this button. A call booked from a month
   that began while the cancelling was under way is never touched.
 - **Two presses of one request** (the member's second press and the helper, say) can meet. The
@@ -1520,8 +1526,8 @@ helper; the rest can be changed):
 3. A request on record stays refused after the first month has ended, like any other: the
    unused money may already have gone to the host. The founder's list says "settle this case by
    hand". The helper has the rest of the first month (two weeks or more) to finish it before.
-4. Such a line stays on the founder's list for as long as that membership runs. There is no
-   button to mark it as settled.
+4. A request that ran out of its month stays on the founder's list until the founder presses
+   "Settled by hand". The mark is a line on the founder's record, not a new column.
 5. The membership ends at the moment it is finished, not at the moment of the first press.
    Time used between the two is paid for like any time used before an ending.
 
@@ -1570,3 +1576,23 @@ points. All were taken.
    records and pay-backs after every press is done.
 8. **The page check skipped the founder's view when the page was broken.** It skips only when
    the test admin's login is not set up; with the login, the page must open.
+
+**What CodeRabbit found in this change, and what was done.** Seven points, all taken.
+
+1. **The check moved the clock for everybody.** Journey 11 ran the helper's job 20 days ahead
+   over the whole shared test database, so it could have finished somebody else's request.
+   The job takes a list of memberships now (only a check script passes one), and the journey
+   keeps it to its own.
+2. **The two-presses check relied on a wait of 700 milliseconds.** The helper's press now
+   starts when the form's request is on record, however long that took.
+3. **If even the list of coming calls could not be read,** the person was told "we could not
+   confirm what happened" although the request was on record. That is "not finished yet" now.
+4. **"Not cancelled yet" could be said after another press had ended the membership** while
+   this one was still at the calls. It looks once more before saying so.
+5. **The founder's record named only who entered a request in writing,** not another admin
+   who finished it. The line is now under whoever pressed, and names who entered it.
+6. **A request that ran out of its month vanished from the founder's list when the membership
+   later ended some other way,** although the first month was still not settled. It stays now,
+   until "Settled by hand" (new, see above).
+7. **The member's page said nothing when a rule stopped a request on record.** It now says
+   that the request is on record and what stops it, without the button.

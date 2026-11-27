@@ -441,6 +441,11 @@ async function main() {
       check("the founder's page lists it under \"Cancelled within 14 days, not finished\", and his membership's form has the day filled in", earlyPage.words.includes("Cancelled within 14 days, not finished") && earlyPage.words.includes(`${gus.person.name} with ${host.name}: the member pressed their own button on ${gusDay}`) && earlyPage.words.includes("The helper is finishing it.") && gusForm !== undefined && gusForm.fields.some(([name, value]) => name === "day" && value === gusDay), `${JSON.stringify(gusForm?.fields)} ${earlyPage.words.match(/Cancelled within 14 days, not finished.{0,500}/)?.[0] ?? "(no such list)"}`);
       await send("/api/auth/sign-out", { json: {}, jar: early.jar });
     }
+    // A rule that stops it for now (a payment with a problem): no button, but the page still says it is on record.
+    await db.update(months).set({ problem: "Stripe took $20.00 of $60.00." }).where(eq(months.id, gus.monthId));
+    const gusBlocked = await page(gusPath, gus.person);
+    check("while a payment problem stops it, his page has no such button, and still says the request is on record and what stops it", gusBlocked.status === 200 && !formsOf(gusBlocked.text).some((f) => f.buttons.includes("Cancel within 14 days")) && /data-fourteen-on-record/.test(gusBlocked.text) && gusBlocked.words.includes(`You pressed "Cancel within 14 days" on ${gusDay} (UTC), in time, and it could not be finished yet.`) && gusBlocked.words.includes("It cannot be finished while there is a problem with this month's payment"), gusBlocked.words.slice(0, 400));
+    await db.update(months).set({ problem: null }).where(eq(months.id, gus.monthId));
     const gusCancelled = await press(gus.person, gusPath, "Cancel within 14 days");
     await helper();
     const gusAfter = await page(gusPath, gus.person);
@@ -681,7 +686,7 @@ async function main() {
       // The one thing the page changes: a new membership cancelled within 14 days, for a member who wrote to us (plans/46, part 3c).
       const founderForms = formsOf(founder.text);
       const fourteen = founderForms.filter((f) => f.buttons.includes("Cancel this membership within the 14 days"));
-      check("the page has nothing to press but the 14-day form of a new membership, and each such form asks for the day", founderForms.every((f) => fourteen.includes(f) || f.buttons.every((b) => /log out/i.test(b))) && fourteen.every((f) => f.fields.some(([name]) => name === "membership")) && (fourteen.length === 0 || founder.words.includes("request reached Connect")), JSON.stringify(founderForms.map((f) => f.buttons)));
+      check("the page has nothing to press but the 14-day form of a new membership (and \"Settled by hand\" for a request that ran out of its month), and each such form asks for the day", founderForms.every((f) => fourteen.includes(f) || f.buttons.every((b) => /log out/i.test(b) || b === "Settled by hand")) && fourteen.every((f) => f.fields.some(([name]) => name === "membership")) && (fourteen.length === 0 || founder.words.includes("request reached Connect")), JSON.stringify(founderForms.map((f) => f.buttons)));
       // Dave joined in this journey and is in his first month: his membership must have the form, with its three fields.
       const daveForm = fourteen.find((f) => f.fields.some(([name, value]) => name === "membership" && value === dave.membershipId));
       check("a new membership in its first month (Dave's) has the founder's 14-day form, with the membership, its month and the day", daveForm !== undefined && daveForm.fields.some(([name, value]) => name === "month" && value === dave.monthId) && /name="day"/.test(founder.text), JSON.stringify(fourteen.map((f) => f.fields)));
