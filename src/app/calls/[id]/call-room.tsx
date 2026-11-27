@@ -397,7 +397,15 @@ export function CallRoom(props: Props) {
       const settle = async () => {
         // A server that cannot be reached is asked again for half a minute before the camera check is offered once more.
         const giveUpAt = Date.now() + 30_000;
-        while (!(await refresh()) && Date.now() < giveUpAt) await new Promise((resolve) => setTimeout(resolve, 1_500));
+        let answer = await refresh();
+        while (!answer && Date.now() < giveUpAt) {
+          await new Promise((resolve) => setTimeout(resolve, 1_500));
+          answer = await refresh();
+        }
+        // The other person pressed "End call now" while this one was in the room: on to who ended it and the three
+        // choices, as the presser's own screen does (plans/51, decision 25). Until that page is there, the
+        // screen says that the call has ended, with the same way on as a link.
+        if (answer?.safetyEnded && !answer.cancelled) router.push(`/calls/${props.callId}/ended`);
         setAskingAfterDrop(false);
       };
       void settle();
@@ -408,9 +416,10 @@ export function CallRoom(props: Props) {
 
   // After "End call now" (by either person) the way on is the screen that says who ended it and offers "Report",
   // "Block" and "Neither"; after a call that simply ran out or was cancelled, its results.
+  const toChoices = Boolean(live?.safetyEnded && !live.cancelled);
   const resultsLink = (
-    <Link href={live?.safetyEnded && !live.cancelled ? `/calls/${props.callId}/ended` : `/calls/${props.callId}/results`} className="underline underline-offset-2">
-      {ROOM_WORDS.results}
+    <Link href={toChoices ? `/calls/${props.callId}/ended` : `/calls/${props.callId}/results`} className="underline underline-offset-2">
+      {toChoices ? END_WORDS.toChoices : ROOM_WORDS.results}
     </Link>
   );
 

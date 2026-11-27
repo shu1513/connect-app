@@ -22,7 +22,7 @@ import { block } from "./blocks";
 import type { EndReportEffect } from "./end-guard";
 import { decideEndReport, type EndReportDecision } from "./end-report";
 import { keepMessages, type KeptSummary, keptSummaries, MessageGoneError, reportableMessage } from "./kept-messages";
-import { type ReportBlock, REPORT_TEXT_MAX } from "./report-words";
+import { type ReportBlock, type ReportedBack, REPORT_TEXT_MAX } from "./report-words";
 
 export class ReportError extends Error {}
 
@@ -206,7 +206,7 @@ export async function openReports() {
     .orderBy(desc(schema.reports.urgent), desc(schema.reports.createdAt));
   // That messages are kept with a report, and how many: never their words (kept-messages.ts).
   const kept = await keptSummaries(rows.filter(({ report }) => report.context === "message").map(({ report }) => report.id));
-  const out: Array<{ report: (typeof rows)[number]["report"]; reporterName: string; reported: { name: string; email: string; pausedAt: Date | null; closedAt: Date | null } | null; profile: typeof schema.hostProfiles.$inferSelect | null; earlierReports: number; callsTogether: number; actions: (typeof schema.adminActions.$inferSelect)[]; kept: KeptSummary | null }> = [];
+  const out: Array<{ report: (typeof rows)[number]["report"]; reporterName: string; reported: { name: string; email: string; pausedAt: Date | null; closedAt: Date | null } | null; profile: typeof schema.hostProfiles.$inferSelect | null; earlierReports: number; callsTogether: number; reportedBack: ReportedBack; actions: (typeof schema.adminActions.$inferSelect)[]; kept: KeptSummary | null }> = [];
   for (const { report, reporterName } of rows) {
     const [reported] = await db.select({ name: schema.user.name, email: schema.user.email, pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, report.reportedId));
     const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, report.reportedId));
@@ -215,8 +215,15 @@ export async function openReports() {
       .select({ together: sql<number>`count(*)::int` })
       .from(schema.calls)
       .where(or(and(eq(schema.calls.hostId, report.reporterId), eq(schema.calls.customerId, report.reportedId)), and(eq(schema.calls.hostId, report.reportedId), eq(schema.calls.customerId, report.reporterId))));
+    // Reports the other way round, open or closed: the person this report is about has also reported its reporter
+    // (plans/51, decision 26). Read for the founder only; nothing follows from it by itself.
+    const back = await db
+      .select({ context: schema.reports.context, contextId: schema.reports.contextId })
+      .from(schema.reports)
+      .where(and(eq(schema.reports.reporterId, report.reportedId), eq(schema.reports.reportedId, report.reporterId)));
+    const reportedBack: ReportedBack = { count: back.length, sameCall: report.context === "call" && back.some((other) => other.context === "call" && other.contextId === report.contextId) };
     const actions = await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetUserId, report.reportedId)).orderBy(desc(schema.adminActions.createdAt)).limit(10);
-    out.push({ report, reporterName, reported: reported ?? null, profile: profile ?? null, earlierReports: earlier, callsTogether: together, actions, kept: kept.get(report.id) ?? null });
+    out.push({ report, reporterName, reported: reported ?? null, profile: profile ?? null, earlierReports: earlier, callsTogether: together, reportedBack, actions, kept: kept.get(report.id) ?? null });
   }
   return out;
 }

@@ -876,4 +876,16 @@ guard against repeated reports is the builder's choice, which the founder asked 
   thing to send, and should it cite the Payment Terms once they say so?
 - **A call ended with the old button** keeps its place on the founder's review list (the builder
   knows of none outside test data). Nothing to do unless such calls exist when the app goes live.
+- **Both people are led to "Report" and "Block", and each can report the other** (added 27
+  November 2026). The person who did not press now lands on the same three choices by itself. If
+  both report each other, the founder's list says so on each report ("Both reported each other
+  about this call"), and nothing follows automatically: the money goes by who pressed. Is there
+  any duty to tell a person that a report about them exists, or that the person they reported
+  has reported them too? (The app tells neither.)
+- **Ratings after "End call now"** (added 27 November 2026). Both people can now rate such a
+  call, under the usual rules; before, neither could. A person who was just cut off, or who was
+  reported without knowing it, can therefore give one star. Ratings are never shown one by one
+  and averages move only in groups of three people. The draft Terms forbid "retaliatory"
+  ratings: is that enough, and must the Terms' sentence on which calls can be rated be changed
+  (proposed wording: `docs/legal/end-call-now-proposed-wording.md`, section 5)?
 

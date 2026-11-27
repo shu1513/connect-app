@@ -66,7 +66,8 @@ export async function tipFacts(reader: Reader, viewerId: string, call: Call, now
   const attendance = await loadAttendance(call, now, undefined, reader);
   return {
     role,
-    rating: await ratingStateOf(call, now, reader),
+    // A call ended with the call's button is never asked about money, though it can be rated (plans/51, decisions 20 and 27).
+    rating: call.safetyEndedAt ? "never" : await ratingStateOf(call, now, reader),
     reported: Boolean(report),
     blocked: await isBlockedEitherWay(call.customerId, call.hostId, reader),
     refundAsked: Boolean(refund),

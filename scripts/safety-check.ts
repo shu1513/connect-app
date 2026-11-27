@@ -279,6 +279,14 @@ async function main() {
       check("his report after ending the call himself is written on the call: charged by the minutes, with nothing for the founder to decide", ["minutes", "minutes_uncounted"].includes((await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].endReportEffect ?? "") && (await payment()).needsReview === false);
       await unblock(cust.id, hana.id);
 
+      // Both report each other about the same call (plans/51, decision 26): the founder's list says so on each report.
+      check("with one report only, the founder's list says nothing about a report the other way", (await R.openReports()).find((o) => o.report.id === report.id)?.reportedBack.count === 0);
+      const hers = await R.createReport({ reporterId: hana.id, context: "call", contextId: callId, reason: "other", text: "Check: the other side.", now: new Date() });
+      await unblock(hana.id, cust.id);
+      const bothWays = (await R.openReports()).filter((o) => o.report.reference === reference || o.report.reference === hers.reference);
+      check("when both reported each other about one call, each report on the founder's list says so", bothWays.length === 2 && bothWays.every((o) => o.reportedBack.count === 1 && o.reportedBack.sameCall), JSON.stringify(bothWays.map((o) => o.reportedBack)));
+      check("and her report changed nothing about the call's money", ["minutes", "minutes_uncounted"].includes((await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].endReportEffect ?? "") && (await payment()).needsReview === false);
+
       check("a report about a call you are not on is refused", await refused(R.createReport({ reporterId: (await person("nosy")).id, context: "call", contextId: callId, reason: "other", text: "", now: new Date() })));
       check("an unknown reason is refused", await refused(R.createReport({ reporterId: cust.id, context: "call", contextId: callId, reason: "made-up", text: "", now: new Date() })));
       const hidden = await person("hidden5");

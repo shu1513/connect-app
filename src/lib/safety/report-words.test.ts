@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reportNotice } from "./report-words";
+import { reportedBackWords, reportNotice } from "./report-words";
 
 describe("what a reporter reads after a report was saved", () => {
   it("a report about a post, and a report whose block went through: the usual thank-you, no receipt", () => {
@@ -40,5 +40,21 @@ describe("what a reporter reads after a report was saved", () => {
     for (const block of ["none", "done", "done_unsure", "not_done", "unknown"] as const) {
       for (const callsNotCancelled of [0, 2]) expect(reportNotice({ reference: 1, block, callsNotCancelled }).notice).not.toMatch(/below|button|press/i);
     }
+  });
+});
+
+describe("what the founder's list says when the two reported each other", () => {
+  const names = { reporter: "Cory", reported: "Hana" };
+  it("nothing when the reported person has made no report about the reporter", () => {
+    expect(reportedBackWords({ count: 0, sameCall: false }, names)).toBeNull();
+  });
+  it("both from one call: said as about this call, with any further reports counted apart", () => {
+    expect(reportedBackWords({ count: 1, sameCall: true }, names)).toBe("Both reported each other about this call: Hana has also reported Cory.");
+    expect(reportedBackWords({ count: 3, sameCall: true }, names)).toBe("Both reported each other about this call: Hana has also reported Cory. Hana has made 2 other reports about Cory.");
+    expect(reportedBackWords({ count: 2, sameCall: true }, names)).toContain("1 other report about Cory.");
+  });
+  it("a report the other way about something else: said, with how many", () => {
+    expect(reportedBackWords({ count: 1, sameCall: false }, names)).toBe("Both have reported each other: Hana has made 1 report about Cory, about something else than this.");
+    expect(reportedBackWords({ count: 2, sameCall: false }, names)).toContain("2 reports about Cory");
   });
 });

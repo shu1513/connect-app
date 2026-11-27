@@ -63,6 +63,11 @@ export default async function EndedPage(props: PageProps<"/calls/[id]/ended">) {
           <p className="mt-2 opacity-80">{screen.neither.what}</p>
         </section>
       </div>
+      {screen.rate && (
+        <p className="mt-6 text-sm" data-ended-rate>
+          {screen.rate}
+        </p>
+      )}
       <p className="mt-6 text-sm opacity-70">
         <Link href={results} className="underline underline-offset-2">
           {END_WORDS.toResults}
