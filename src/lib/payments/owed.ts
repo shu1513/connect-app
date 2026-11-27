@@ -12,6 +12,7 @@ import { db } from "@/db";
 import type { Call, Payment } from "@/db/schema";
 import { countedWindow } from "@/lib/attendance/calc";
 import { loadAttendance } from "@/lib/attendance/load";
+import { roomOpensAt } from "@/lib/calls";
 import { lowers } from "@/lib/safety/end-guard";
 import { chargedSeconds, customerLeftFree, hostThereAt, restIsCharged, type EndedNow } from "./ended";
 import { attendanceChargeCents, countedSeconds } from "./pricing";
@@ -58,9 +59,11 @@ export async function endedNowOf(call: Call, now: Date, reader: Reader = db): Pr
   }
   // Nothing more is needed when the rest of the booking cannot be charged anyway.
   if (!facts.wholeSaid || facts.loweredByReport) return facts;
-  // The host's connected periods over the whole call, which end at the press.
-  const whole = await loadAttendance(call, now, undefined, reader);
-  facts.hostThere = hostThereAt(whole.result.hostIntervals, Math.floor(pressedAt.getTime() / 1000));
+  // Whether she was there at the press is read from her connections around it, from the moment the room opened:
+  // not from the time that is billed, which starts at the booked start. (A host who is in the room when he
+  // presses in the first second of the call was there, although no billed second had passed.)
+  const around = await loadAttendance({ ...call, startsAt: roomOpensAt(call) }, now, undefined, reader);
+  facts.hostThere = hostThereAt(around.result.hostIntervals, Math.floor(pressedAt.getTime() / 1000));
   return facts;
 }
 

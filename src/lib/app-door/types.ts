@@ -604,6 +604,8 @@ export type AppRoom = {
     endNow: string;
     /** The question before the press, with what it costs this person on this call. */
     endNowSure: string;
+    /** The same question while the booked start has not come yet (the room opens a little early). */
+    endNowSureEarly: string;
     endNowYes: string;
     endNowNo: string;
     ending: string;
@@ -640,8 +642,12 @@ export type AppPass = { token: string; serverUrl: string; endsAt: string; server
 /** Where a call stands, asked near its end and after a lost connection. */
 export type AppCallLive = { endsAt: string; serverNow: string; cancelled: boolean; safetyEnded: boolean };
 
-/** "End call now" went through: the call is ended for both (or was over already). The screen after it is read on its own. */
-export type AppEnded = { ended: true };
+/**
+ * "End call now" went through: the press is saved (or the call was over already), and nobody gets a new entry pass.
+ * `closed`: the video service has confirmed that both are out. The screen after it is read on its own, and says
+ * "it is being closed" until that is so.
+ */
+export type AppEnded = { ended: true; closed: boolean };
 
 /**
  * The screen after "End call now" (plans/50-end-call-now.md, decision 19): who ended the call,
@@ -653,7 +659,11 @@ export type AppEndedScreen = {
   lines: string[];
   what: string;
   report: { label: string; what: string; money: string | null };
-  /** `done`: this person has blocked the other one already. `sure`, `yes`, `no`: the question the app asks once more before it blocks. */
+  /**
+   * `done`: this person has blocked the other one already; `doneWords` says so and nothing more, and the button (then
+   * "Block ... again") stays, because blocking again tries once more to cancel the calls still to come.
+   * `sure`, `yes`, `no`: the question the app asks once more before it blocks.
+   */
   block: { label: string; what: string; done: boolean; doneWords: string; sure: string; yes: string; no: string };
   neither: { label: string; what: string };
 };

@@ -22,8 +22,7 @@ export type EndedNow = {
   by: "host" | "customer";
   /**
    * For a customer's press: the rule "you pay for your whole booked time" holds for him. His booking was made
-   * under words that say it, and the page he pressed on asked him with that sentence (the call carries
-   * "customer", not "customer_untold").
+   * under words that say it (the call carries "customer", not "customer_untold").
    */
   wholeSaid: boolean;
   /** The customer reported the host after his own press, and that lowered the charge to the minutes. */
@@ -54,13 +53,14 @@ export function restIsCharged(billing: string, ended: EndedNow | null): boolean 
 }
 
 /**
- * A customer ended the call before its booked start, at a moment when cancelling was still free:
- * nothing is owed, and that is his own choice, not the host's doing. (For a call paid from a
- * membership this decides how the time that comes back is counted: as it was booked, like a
- * cancellation in time, and not as time returned because of the host.)
+ * A customer ended the call before its booked start and the rest of the booking is not charged
+ * (cancelling was still free, or he was never told that it costs the whole booking): nothing is
+ * owed, and that is his own choice, not the host's doing. (For a call paid from a membership
+ * this decides how the time that comes back is counted: as it was booked, like a cancellation in
+ * time, and not as time returned because of the host.)
  */
 export function customerLeftFree(ended: EndedNow | null): boolean {
-  return ended !== null && ended.by === "customer" && ended.beforeStart && !ended.lateToCancel;
+  return ended !== null && ended.by === "customer" && ended.beforeStart && !ended.loweredByReport && !(ended.wholeSaid && ended.lateToCancel);
 }
 
 /**

@@ -1,5 +1,5 @@
 {
-  "id": "20a8d5b9-8f68-4167-8c7c-b17849cf7ba8",
+  "id": "605cc051-cea8-47e8-aff3-fde0e014a9fa",
   "prevId": "92a44226-fb9c-454b-a602-f7070f5b2290",
   "version": "7",
   "dialect": "postgresql",
@@ -1514,7 +1514,7 @@
         },
         "calls_end_report": {
           "name": "calls_end_report",
-          "value": "(\"calls\".\"end_report_effect\" is null and \"calls\".\"end_report_at\" is null)\n        or (\"calls\".\"end_report_effect\" in ('minutes', 'minutes_uncounted', 'whole') and \"calls\".\"end_report_at\" is not null and \"calls\".\"ended_now_by\" = 'customer')"
+          "value": "(\"calls\".\"end_report_effect\" is null and \"calls\".\"end_report_at\" is null)\n        or (\"calls\".\"end_report_effect\" is not null and \"calls\".\"end_report_effect\" in ('minutes', 'minutes_uncounted', 'whole') and \"calls\".\"end_report_at\" is not null and \"calls\".\"ended_now_by\" is not null and \"calls\".\"ended_now_by\" = 'customer')"
         }
       },
       "isRLSEnabled": false

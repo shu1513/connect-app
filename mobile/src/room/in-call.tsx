@@ -47,6 +47,8 @@ export function InCall(props: {
   onLost: (reason?: DisconnectReason) => void;
   onLeave: () => void;
   onEndNow: () => void;
+  /** The booked start has not come yet: the question before "End call now" then says what such a press costs. */
+  early: boolean;
   onProblem: (words: string) => void;
 }) {
   const { onLost } = props;
@@ -88,12 +90,12 @@ export function InCall(props: {
   return (
     <LiveKitRoom room={room} serverUrl={props.pass.serverUrl} token={props.pass.token} connect audio={props.choices.microphone} video={video} onError={failed}>
       {PICTURES_ALLOWED ? null : <NoPictures />}
-      <Stage words={props.words} clock={props.clock} onLeave={props.onLeave} onEndNow={props.onEndNow} onProblem={props.onProblem} />
+      <Stage words={props.words} clock={props.clock} early={props.early} onLeave={props.onLeave} onEndNow={props.onEndNow} onProblem={props.onProblem} />
     </LiveKitRoom>
   );
 }
 
-function Stage({ words, clock, onLeave, onEndNow, onProblem }: { words: Words; clock: { text: string; last: boolean }; onLeave: () => void; onEndNow: () => void; onProblem: (words: string) => void }) {
+function Stage({ words, clock, early, onLeave, onEndNow, onProblem }: { words: Words; clock: { text: string; last: boolean }; early: boolean; onLeave: () => void; onEndNow: () => void; onProblem: (words: string) => void }) {
   const insets = useSafeAreaInsets();
   const watch = useWatch();
   const tracks = useTracks([Track.Source.Camera, Track.Source.ScreenShare]);
@@ -144,7 +146,7 @@ function Stage({ words, clock, onLeave, onEndNow, onProblem }: { words: Words; c
   function endNow() {
     // Asked once. The question stays up whatever happens beneath it: a "yes" only counts while this call is still the screen in front.
     const still = watch();
-    Alert.alert(words.endNow, words.endNowSure, [
+    Alert.alert(words.endNow, early ? words.endNowSureEarly : words.endNowSure, [
       { text: words.endNowNo, style: "cancel" },
       {
         text: words.endNowYes,

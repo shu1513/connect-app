@@ -22,7 +22,8 @@ const isPlaceId = (place: AppReportPlace, value: unknown): value is string => ty
  * also blocks them, as the form says.
  */
 export async function GET(request: Request) {
-  const asked = await appRequest(request, "member");
+  // Also for a copy of the app that has become too old meanwhile: reporting follows "End call now", which such a copy can still press.
+  const asked = await appRequest(request, "member", { safety: true });
   if (asked instanceof Response) return asked;
   const query = new URL(request.url).searchParams;
   const places = APP_REPORT_PLACES.filter((place) => query.has(place));
@@ -32,7 +33,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const asked = await appRequest(request, "member");
+  // Also for a copy of the app that has become too old meanwhile: reporting follows "End call now", which such a copy can still press.
+  const asked = await appRequest(request, "member", { safety: true });
   if (asked instanceof Response) return asked;
   const sent: unknown = await request.json().catch(() => null);
   const given = (sent !== null && typeof sent === "object" ? sent : {}) as { place?: unknown; id?: unknown; reason?: unknown; text?: unknown };

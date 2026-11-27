@@ -5751,11 +5751,12 @@ for report and block."
 **What is the builder's own choice, and can be changed by the founder.**
 
 - **The guard (decision 16 of the plan), all of it.** Look at the customer's last 5 booked calls
-  that took place (this one and the 4 before it; paid, both joined, not "available now"). If 3
+  (this one and the 4 others nearest to now; only calls that were really charged or that carry a
+  lowered report of his, never "available now" calls or calls that cost nothing). If 3
   of the 4 before it ended with him pressing "End call now", reporting the host, and having the
   charge lowered by that, this report does not lower the charge. Not "3 in a row", which one
   cheap normal call would reset. A report about a host whom another person has also reported,
-  from a call with her that really took place, is lowered and not counted. Past the line nothing
+  from a call with her that was really paid for, is lowered and not counted. Past the line nothing
   lowers the charge. No automatic freeze: the founder is told once when the line is crossed
   (3 of 5), and decides. The customer is told at once when a report does not lower his charge.
   **What it cannot stop:** two cheap, real, booked calls push two old ones out, and then a report
@@ -5772,10 +5773,18 @@ for report and block."
 - **Only a customer who was told.** The words a customer ticks when he books now say the rule
   (a new version of them, "2026-11-d"), and so do the confirm-and-pay step and a member's booking
   page. A booking made under the earlier words is charged by the host's time, whoever ends the
-  call: its customer agreed to nothing else. The same for a press on a page that was open when
-  the app was updated and still showed the old button.
+  call: its customer agreed to nothing else. Only the booking's words decide this, never the page
+  or the address a press comes from.
 - **The guard counts the switch, not the dollars.** A report counts when it changed a call from
   "the whole booking" to "the minutes", whatever that saved in the end.
+- **No sentence promises an amount before it is known.** Whether the host was in the call at
+  the press is only known when the call's record is final, so the pages say "the whole booked
+  time is charged: ... and, if [the host] was in the call at that moment, the rest of the
+  booking".
+- **What a customer at the line can infer.** A report about a host whom somebody else has also
+  reported is not counted. A customer who stands at the line can see from his next call's screen
+  whether an earlier report was counted, and so learn that somebody else has reported one of
+  those hosts (not which, not who). Closing this fully would mean dropping "does not count".
 - **Saying openly that a report lowers the charge.** The screen after the press tells a customer
   who ended the call: "If you report [name], this call is charged only for the time it lasted."
   Hiding it would leave someone who was really treated badly believing they must pay for the
@@ -5792,8 +5801,8 @@ for report and block."
 
 - **The press** (`src/lib/safety/calls.ts`). It takes the call's row first, the row that adding
   time, cancelling and closing the room also hold, and then writes when, who, and in which role
-  (`calls.endedNowBy`, new: "host", "customer", or "customer_untold" for a customer who was
-  never told that it costs the whole booking). If a press is already written, the answer says
+  (`calls.endedNowBy`, new: "host", "customer", or "customer_untold" for a customer whose
+  booking's words never said that it costs the whole booking). If a press is already written, the answer says
   whose it was: ended by you, ended by the other person a moment earlier, already over, or not
   open yet. No payment is marked for review. The room is then closed by the helper's own step,
   and no screen says "nobody can come back in" before the video service has confirmed it.
@@ -5829,3 +5838,32 @@ for report and block."
   section 24. **The documents in the app still describe the old button.** They are drafts; a new
   version would send every account back to the welcome step, so the wording waits for the
   lawyer, as with messages.
+
+**What the reviewers found.**
+
+- **Astra on the first draft of the plan: "not ready", twelve points.** The ones that changed the
+  most: a customer had never agreed to pay for a whole booking (so the booking words now say it,
+  and only bookings made under them are charged that way); a press just after the old end, while
+  added time was being saved, could have been told "too late" (the press now holds the call's
+  row); "ended" is not "both are out" (no screen says so before the video service confirms it);
+  a hold that lands after the press, and a report made before it lands; reports made newest
+  first; calls that cost nothing pushing reports out; the customer's message saying "is blocked"
+  before the block existed; and the phone app having no way to the choices later.
+- **An automatic security check of the commits: four points, all taken.** Another person's
+  report only counts from a call that was really paid for; calls that cost nothing are not among
+  "his last 5"; what a customer sees must not depend on other people's reports; and the button's
+  old address must not decide the charge (a customer could have paid less by sending the press
+  there).
+- **Astra on the plan and the code together: "not ready", fifteen points.** Eleven taken, among
+  them: a member's booking recorded words its member may never have seen; a host in the room at
+  the press could be read as absent when he pressed in the first second; a hold recorded after
+  the press was judged by our own clock; a payment that could never be paid counted as "can
+  still change"; reports that were not lowered on calls that cost nothing cleared the guard;
+  sentences promised "the whole booking" before that was known; a block that stands was shown as
+  proof that every call was cancelled; the phone was left without the choices when the video
+  service fails; and several checks would have passed with the protection broken. Four not
+  taken, each written into the plan under "What stays as it is": the helper's first look, which
+  can let a hold go outside the step that holds the call (as it always could); a charge recorded
+  as failed that Stripe later reports as made; the two readings behind "may these two write"
+  (only the old button could fall between them); and a backlog of unsettled calls reported after
+  newer ones were settled (the day's wait does not allow it).

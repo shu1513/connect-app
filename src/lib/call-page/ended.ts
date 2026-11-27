@@ -27,7 +27,8 @@ export type EndedScreen = {
   lines: string[];
   what: string;
   report: { label: string; what: string; money: string | null };
-  block: { label: string; what: string; done: boolean };
+  /** `done`: the block stands; `doneWords` says so, and nothing more (whether every call still to come was cancelled is said when the block is made). */
+  block: { label: string; what: string; done: boolean; doneWords: string };
   neither: { label: string; what: string };
 };
 
@@ -61,12 +62,15 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
       if (call.pricePer15Cents > 0) lines.push("The charge for this call is decided by a person at Connect.");
     } else {
       const money = END_WORDS.money(role, endMoneyFor(call), names);
-      if (money) lines.push(money, END_WORDS.moneyWhen);
+      // While the call's own money is still to be taken, when that happens; once it is settled, where to read it.
+      const settled = !access.payment || (access.payment.status !== "held" && access.payment.status !== "awaiting_payment");
+      if (money) lines.push(money, settled ? END_WORDS.moneyDone : END_WORDS.moneyWhen);
       // For the customer who pressed: what a report would do to the charge right now, so nothing is promised that the guard would not give.
       const preview = await endReportPreview(call, userId, now);
-      reportMoney = preview === null ? null : preview === "whole" ? END_WORDS.reportDoesNotLower : END_WORDS.reportLowers(otherName);
+      reportMoney = preview === null ? null : preview.effect === "whole" ? END_WORDS.reportDoesNotLower : END_WORDS.reportLowers(otherName, preview.partly);
     }
   }
+  const blockDone = await hasBlocked(userId, otherId);
 
   return {
     callId: call.id,
@@ -78,7 +82,8 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
     lines,
     what: END_WORDS.what,
     report: { label: REPORT_WORDS.reportPerson(otherName), what: END_WORDS.reportWhat(otherName), money: reportMoney },
-    block: { label: BLOCK_WORDS.label(otherName), what: END_WORDS.blockWhat(otherName), done: await hasBlocked(userId, otherId) },
+    // A block that stands can be made again: that tries once more to cancel the calls still to come, and is safe.
+    block: { label: blockDone ? END_WORDS.blockAgain(otherName) : BLOCK_WORDS.label(otherName), what: END_WORDS.blockWhat(otherName), done: blockDone, doneWords: END_WORDS.blocked(otherName) },
     neither: { label: END_WORDS.neither, what: END_WORDS.neitherWhat(otherName) },
   };
 }

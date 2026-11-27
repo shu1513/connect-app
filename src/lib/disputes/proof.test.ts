@@ -170,9 +170,11 @@ describe("the proof for a call the customer ended with \"End call now\"", () => 
   it("says the customer ended it and confirmed the charge, and never that only time that took place is charged", () => {
     const ended = { ...call, chargeReason: "customer_ended", endedByCustomerAt: at("2027-01-10T20:04:00Z"), charged: { hostSeconds: 240, customerSeconds: 240, togetherSeconds: 240 } };
     const proof = proofFrom({ ...facts, about: ended });
-    expect(proof.uncategorized_text).toContain('with the "End call now" button inside the call');
-    expect(proof.uncategorized_text).toContain("the whole booked time is still charged; the customer confirmed");
-    expect(proof.uncategorized_text).toContain("before that moment (4 min)");
+    expect(proof.uncategorized_text).toContain('with the "End call now" button of the call');
+    expect(proof.uncategorized_text).toContain("The words the customer agreed to when booking say that a customer who ends the call with that button pays for the whole booked time");
+    // Only what is really held is claimed: the press and the booking's words, not that he read a sentence.
+    expect(proof.uncategorized_text).not.toMatch(/the customer confirmed/);
+    expect(proof.uncategorized_text).toContain("before that moment (4 min of the time this payment is for)");
     expect(proof.uncategorized_text).toContain("$13.33 was charged under that rule");
     expect(proof.uncategorized_text).not.toContain("Connect charges only for time that took place");
     // It was held, so the day of the service and the room's record go with it.

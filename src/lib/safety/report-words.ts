@@ -23,10 +23,10 @@ export type ReportBlock = "none" | "done" | "done_unsure" | "not_done" | "unknow
  * report's number is in every one of them. Each sentence stands by itself and names no button:
  * the phone app shows the same sentence, and has no such button on that screen.
  */
-export function reportNotice(outcome: { reference: number; block: ReportBlock; callsNotCancelled: number; endEffect?: string | null; endPartly?: boolean }): { notice: string; needsReceipt: boolean } {
+export function reportNotice(outcome: { reference: number; block: ReportBlock; callsNotCancelled: number; endEffect?: string | null; endPartly?: boolean; endTooLate?: boolean }): { notice: string; needsReceipt: boolean } {
   const said = reportSaid(outcome);
   // A customer's report after his own "End call now" also says what it did to that call's charge (plans/50).
-  const money = outcome.endEffect === "whole" ? END_WORDS.thanksNotLowered : outcome.endEffect === "minutes" || outcome.endEffect === "minutes_uncounted" ? (outcome.endPartly ? END_WORDS.thanksLoweredPartly : END_WORDS.thanksLowered) : null;
+  const money = outcome.endTooLate ? END_WORDS.thanksTooLate : outcome.endEffect === "whole" ? END_WORDS.thanksNotLowered : outcome.endEffect === "minutes" || outcome.endEffect === "minutes_uncounted" ? (outcome.endPartly ? END_WORDS.thanksLoweredPartly : END_WORDS.thanksLowered) : null;
   return money ? { notice: `${said.notice} ${money}`, needsReceipt: said.needsReceipt } : said;
 }
 

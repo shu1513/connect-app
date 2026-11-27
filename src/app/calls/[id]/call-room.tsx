@@ -221,6 +221,8 @@ export function CallRoom(props: Props) {
   const [joining, setJoining] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [takenOver, setTakenOver] = useState(false);
+  /** The connection dropped without this person leaving, and the server is being asked where the call stands. */
+  const [askingAfterDrop, setAskingAfterDrop] = useState(false);
   // "End call now": this person leaves at once, whatever happens next. Kept here, not inside the
   // call screen, so that if the call could not be ended for the other person, that is still shown (with
   // a way to try again) after this person is out of the room.
@@ -389,8 +391,10 @@ export function CallRoom(props: Props) {
     } else if (reason !== DisconnectReason.CLIENT_INITIATED) {
       setNotice(ROOM_WORDS.disconnected);
       // The other person may have ended the call for both ("End call now"), or it may have been cancelled: the
-      // server is asked at once, so this screen says that the call has ended instead of offering to join again.
-      void refresh();
+      // server is asked at once, and until it has answered nothing is offered (not "join again"). If it says the
+      // call has ended, this screen says so; if it cannot be reached, the camera check comes back as before.
+      setAskingAfterDrop(true);
+      void refresh().finally(() => setAskingAfterDrop(false));
     }
   }
 
@@ -417,6 +421,7 @@ export function CallRoom(props: Props) {
   // The clock has reached the end and the server is being asked one last time. Someone who is in the
   // call stays in it for that moment; anyone else just waits for the answer.
   if (now >= closesAt && !connection) return <p className="mt-10 opacity-70">{ROOM_WORDS.oneMoment}</p>;
+  if (askingAfterDrop && !connection) return <p className="mt-10 opacity-70">{ROOM_WORDS.oneMoment}</p>;
 
   if (now < opensAt) {
     return (
@@ -546,7 +551,7 @@ export function CallRoom(props: Props) {
     <section className="mt-4 flex flex-1 flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {clockLine}
-        <EndNow sure={END_WORDS.sure(endCostFor({ role: props.role, billing: props.billing, pricePer15Cents: props.pricePer15Cents, wholeBookingSaid: props.wholeBookingSaid }))} onEnd={endNow} />
+        <EndNow sure={END_WORDS.sure(endCostFor({ role: props.role, billing: props.billing, pricePer15Cents: props.pricePer15Cents, wholeBookingSaid: props.wholeBookingSaid, beforeStart: now < startsAt }))} onEnd={endNow} />
       </div>
       {addTimePanel}
       <div className="mt-3 h-[72vh] min-h-[320px] overflow-hidden rounded" data-lk-theme="default">

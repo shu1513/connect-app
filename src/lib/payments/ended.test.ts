@@ -16,7 +16,7 @@ describe("whether the rest of the booking is charged", () => {
     expect(restIsCharged("host", pressed({ loweredByReport: true }))).toBe(false);
     expect(restIsCharged("host", pressed({ loweredByReport: true, beforeStart: true, lateToCancel: true }))).toBe(false);
   });
-  it("he was never told that it costs his whole booked time (an earlier booking's words, or a page from before the button changed): no", () => {
+  it("he was never told that it costs his whole booked time (his booking was made under the earlier words): no", () => {
     expect(restIsCharged("host", pressed({ wholeSaid: false }))).toBe(false);
     expect(restIsCharged("host", pressed({ wholeSaid: false, beforeStart: true, lateToCancel: true }))).toBe(false);
   });
@@ -36,9 +36,11 @@ describe("whether the rest of the booking is charged", () => {
 });
 
 describe("a customer who ended the call before its start while cancelling was free", () => {
-  it("only that case: it is his own choice, not the host's doing", () => {
+  it("only then: it is his own choice, not the host's doing", () => {
     expect(customerLeftFree(pressed({ beforeStart: true, lateToCancel: false }))).toBe(true);
     expect(customerLeftFree(pressed({ beforeStart: true, lateToCancel: false, wholeSaid: false }))).toBe(true);
+    // He was never told that it costs the whole booking: nothing is charged also where cancelling would have been late, and it is still his own choice.
+    expect(customerLeftFree(pressed({ beforeStart: true, lateToCancel: true, wholeSaid: false }))).toBe(true);
     expect(customerLeftFree(pressed({ beforeStart: true, lateToCancel: true }))).toBe(false);
     expect(customerLeftFree(pressed({ beforeStart: false }))).toBe(false);
     expect(customerLeftFree(pressed({ by: "host", beforeStart: true }))).toBe(false);

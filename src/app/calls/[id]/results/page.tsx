@@ -296,7 +296,7 @@ export default async function ResultsPage(props: PageProps<"/calls/[id]/results"
 
       {call.safetyEndedAt && endedBy && (
         <p className="mt-4 rounded border border-red-600 p-3 text-sm" data-ended-now={call.endedNowBy === "host" ? "host" : "customer"}>
-          {endedBy} ended this call for both people on <LocalTime iso={call.safetyEndedAt.toISOString()} />, with &quot;End call now&quot;. Time after that is not counted.
+          {endedBy} ended this call on <LocalTime iso={call.safetyEndedAt.toISOString()} />, with &quot;End call now&quot;. Time after that is not counted.
           {endMoney ? ` ${endMoney}` : ""}
         </p>
       )}

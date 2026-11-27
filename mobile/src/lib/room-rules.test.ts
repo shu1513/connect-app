@@ -60,8 +60,10 @@ describe("where a call stands, and the end of a call", () => {
     expect(isLive({ endsAt: room.endsAt, serverNow: room.serverNow, cancelled: false, safetyEnded: false })).toBe(true);
     expect(isLive({ endsAt: room.endsAt, serverNow: room.serverNow, cancelled: false })).toBe(false);
     expect(isLive({ endsAt: "x", serverNow: room.serverNow, cancelled: false, safetyEnded: false })).toBe(false);
-    expect(isEnded({ ended: true })).toBe(true);
-    expect(isEnded({ ended: "yes" })).toBe(false);
+    expect(isEnded({ ended: true, closed: true })).toBe(true);
+    expect(isEnded({ ended: true, closed: false })).toBe(true);
+    expect(isEnded({ ended: true })).toBe(false);
+    expect(isEnded({ ended: "yes", closed: true })).toBe(false);
     expect(isEnded({})).toBe(false);
   });
   it('the screen after "End call now" is read only with its lines and all three choices', () => {
@@ -70,7 +72,7 @@ describe("where a call stands, and the end of a call", () => {
       lines: ["You ended this call for both of you. Nobody can come back in."],
       what: "Is there anything else you want to do?",
       report: { label: "Report Maya", what: "Tell us what happened.", money: null },
-      block: { label: "Block Maya", what: "Maya can no longer ask you for calls.", done: false, doneWords: "Blocked.", sure: "Maya can no longer ask you for calls.", yes: "Block", no: "Not now" },
+      block: { label: "Block Maya", what: "Maya can no longer ask you for calls.", done: false, doneWords: "You have blocked Maya.", sure: "Maya can no longer ask you for calls.", yes: "Block", no: "Not now" },
       neither: { label: "Neither", what: "Nothing else happens." },
     };
     expect(isEndedScreen(screen)).toBe(true);

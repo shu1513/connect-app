@@ -115,6 +115,8 @@ export type ReportOutcome = {
   endEffect: EndReportEffect | null;
   /** With `endEffect`: a part of that call's money was already taken when the report came, and stays as it is. */
   endPartly: boolean;
+  /** It was such a report, but all of that call's money was already taken: nothing changed, and he is told so. */
+  endTooLate: boolean;
 };
 
 /**
@@ -137,7 +139,7 @@ export async function createReport(input: { reporterId: string; context: string;
   const [profile] = await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, reportedId));
   const full = { ...snapshot, profile: profile ? { displayName: profile.displayName, handle: profile.handle, about: profile.about } : null };
 
-  let ended: EndReportDecision | null = null;
+  let ended: EndReportDecision | "too_late" | null = null;
   const report = await db.transaction(async (tx) => {
     // One reporter at a time, so many reports sent at the same moment cannot slip past the daily limit together.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`reports:${input.reporterId}`}))`);
@@ -176,7 +178,8 @@ export async function createReport(input: { reporterId: string; context: string;
     }
     return row;
   });
-  const money = { endEffect: (ended as EndReportDecision | null)?.effect ?? null, endPartly: (ended as EndReportDecision | null)?.partly ?? false };
+  const decided = ended as EndReportDecision | "too_late" | null;
+  const money = decided === "too_late" || decided === null ? { endEffect: null, endPartly: false, endTooLate: decided === "too_late" } : { endEffect: decided.effect, endPartly: decided.partly, endTooLate: false };
   if (input.context === "post") return { reference: report.reference, reportedId, block: "none", callsNotCancelled: 0, ...money };
   // The report is saved. The block that follows can stumble by itself, and the reporter is then told what is
   // true, with the report's number, in place of "something went wrong" (which made people report twice).

@@ -21,7 +21,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/app/calls/[i
     lines: screen.lines,
     what: screen.what,
     report: screen.report,
-    block: { ...screen.block, doneWords: BLOCK_WORDS.done, sure: screen.block.what, yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no },
+    block: { ...screen.block, sure: screen.block.what, yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no },
     neither: screen.neither,
   };
   return answer(body);

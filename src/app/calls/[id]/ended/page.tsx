@@ -45,17 +45,14 @@ export default async function EndedPage(props: PageProps<"/calls/[id]/ended">) {
         </section>
 
         <section className={choice} data-choice="block">
-          {screen.block.done ? (
-            <p className="font-medium">You have blocked {screen.otherName}.</p>
-          ) : (
-            <form action={blockAction}>
-              <input type="hidden" name="userId" value={screen.otherId} />
-              <input type="hidden" name="back" value={results} />
-              <button type="submit" className={`${button} border border-red-600 text-red-600`}>
-                {screen.block.label}
-              </button>
-            </form>
-          )}
+          {screen.block.done && <p className="mb-2 font-medium">{screen.block.doneWords}</p>}
+          <form action={blockAction}>
+            <input type="hidden" name="userId" value={screen.otherId} />
+            <input type="hidden" name="back" value={results} />
+            <button type="submit" className={`${button} border border-red-600 text-red-600`}>
+              {screen.block.label}
+            </button>
+          </form>
           <p className="mt-2 opacity-80">{screen.block.what}</p>
         </section>
 

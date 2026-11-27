@@ -15,7 +15,7 @@ const isCount = (value: unknown): value is number => typeof value === "number" &
 /** Every sentence the call's screen says. A screen is only shown when all of them came. */
 export const ROOM_WORD_NAMES = [
   "check", "join", "joining", "allow", "startsIn", "timeLeft", "endsIn", "ended", "results", "oneMoment", "disconnected", "takenOver", "takenOverSmall", "useThisPhone",
-  "endNow", "endNowSure", "endNowYes", "endNowNo", "ending", "endFailed", "tryAgain", "notJoined", "left", "otherCameraOff", "sharing", "reconnecting", "joinAgain",
+  "endNow", "endNowSure", "endNowSureEarly", "endNowYes", "endNowNo", "ending", "endFailed", "tryAgain", "notJoined", "left", "otherCameraOff", "sharing", "reconnecting", "joinAgain",
   "cameraWhy", "microphoneWhy", "cameraRefused", "microphoneRefused", "openSettings", "cameraOn", "cameraOff", "microphoneOn", "microphoneOff", "turnCamera", "loudspeaker", "earpiece",
   "leave", "youLeft", "backToCall",
 ] as const;
@@ -46,7 +46,7 @@ export function isLive(data: unknown): data is AppCallLive {
 }
 
 export function isEnded(data: unknown): data is AppEnded {
-  return isThing(data) && data.ended === true;
+  return isThing(data) && data.ended === true && typeof data.closed === "boolean";
 }
 
 /** Whether an answer really is the screen after "End call now": the lines, and the three choices with what each does. */

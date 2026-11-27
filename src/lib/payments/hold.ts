@@ -219,10 +219,12 @@ async function applyHeld(tx: Tx, payment: Payment, details: HoldDetails, now: Da
   }
   if (call?.safetyEndedAt && call.endedNowBy !== null) {
     // A call ended with "End call now": its money settles by itself, with nobody looking at it first. So only a card
-    // that is known to have been approved before the press counts. One that Stripe dates at or after it does not,
-    // and neither does one whose time Stripe does not give: for that one the moment this is written down stands in,
-    // which is after the press. The payment then stays unpaid, and the helper closes it and lets the approval go.
-    if (authorisedAt >= call.safetyEndedAt || authorisedAt >= call.endsAt || (await tooLateToHold(tx, payment, authorisedAt))) return;
+    // that is known to have been approved before the press counts: Stripe must give the moment of the bank's approval
+    // (a clock of ours read before the press proves nothing about the bank), and that moment, which Stripe gives to
+    // the second, must lie in an earlier second than the press. Anything else stays unpaid, and the helper closes it
+    // and lets the approval go.
+    const pressedSecond = Math.floor(call.safetyEndedAt.getTime() / 1000) * 1000;
+    if (!dated || authorisedAt.getTime() >= pressedSecond || authorisedAt >= call.endsAt || (await tooLateToHold(tx, payment, authorisedAt))) return;
   } else if (call?.safetyEndedAt) {
     // A call that was ended with the earlier button, "End call and report": the stop put this payment up for the
     // founder's review. A card the bank approved before the stop is kept for that review; so is one whose time

@@ -17,6 +17,7 @@ config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray, like, or, sql } from "drizzle-orm";
+import { CARD_CONSENT_VERSION } from "../src/lib/booking/rules";
 import { requireLocalDatabase } from "./local-only";
 
 let failures = 0;
@@ -169,7 +170,7 @@ async function main() {
     const now = opts.now ?? new Date();
     const view = await B.memberBookingView(m.member.id, m.host.id, now);
     const month = await M(m.monthId);
-    return B.bookAsMember({ customer: m.member, hostId: m.host.id, startsAt, lengthMinutes: opts.length ?? 30, requestKey: opts.key ?? randomUUID(), seen: { pricePer15Cents: month.pricePer15Cents, freeCancelMinutes: view?.offer.freeCancelMinutes ?? 0 }, now });
+    return B.bookAsMember({ customer: m.member, hostId: m.host.id, startsAt, lengthMinutes: opts.length ?? 30, requestKey: opts.key ?? randomUUID(), seen: { pricePer15Cents: month.pricePer15Cents, freeCancelMinutes: view?.offer.freeCancelMinutes ?? 0, wordsVersion: CARD_CONSENT_VERSION }, now });
   }
   /** A booked member call at the member's n-th open time (general hours unless `memberOnly`). */
   async function booked(m: Made, opts: { nth?: number; length?: number; memberOnly?: boolean } = {}): Promise<{ booking: Booking; call: Call }> {
@@ -375,6 +376,9 @@ async function main() {
       () => db.delete(schema.hostProfiles).where(like(schema.hostProfiles.userId, "mk-%")),
       () => db.delete(schema.stripeCustomers).where(like(schema.stripeCustomers.userId, "mk-%")),
       () => db.delete(schema.emailOutbox).where(like(schema.emailOutbox.to, "membercalls-%")),
+      // (A journey that reports: the report, and the block that follows it.)
+      () => db.delete(schema.reports).where(or(like(schema.reports.reporterId, "mk-%"), like(schema.reports.reportedId, "mk-%"))),
+      () => db.delete(schema.blocks).where(or(like(schema.blocks.blockerId, "mk-%"), like(schema.blocks.blockedId, "mk-%"))),
       () => db.delete(schema.session).where(like(schema.session.userId, "mk-%")),
       () => db.delete(schema.user).where(like(schema.user.id, "mk-%")),
     ];
@@ -955,7 +959,8 @@ async function main() {
     await settle(reportedCall);
     const lowered = await pay(c.call);
     check("the member ended it and reported the host: only the 10 minutes are used, and the rest comes back", (sent.endEffect === "minutes" || sent.endEffect === "minutes_uncounted") && lowered.status === "charged" && lowered.chargedCents === 500 && lowered.chargeReason === "attendance" && !lowered.needsReview, `${sent.endEffect} ${lowered.chargedCents}`);
-    await audit("after End call now", m);
+    // (The report blocked the host, and a block ends the membership: what was free is on its way back to the card.)
+    await audit("after End call now", m, { owed: true });
   });
 
   // ========================================================================

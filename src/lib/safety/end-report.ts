@@ -8,7 +8,7 @@
  * either before that or after it, never in the middle. Nothing here can raise a charge: the one
  * thing it writes that changes money is "by the minutes" in place of "the whole booking".
  */
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Call } from "@/db/schema";
 import { END_WORDS } from "@/lib/call-page/end-words";
@@ -38,21 +38,29 @@ export function reportCouldLower(call: Call, reporterId: string): boolean {
 }
 
 /**
- * Where the call's money stands. `waits`: at least one of its charges can still change (it is on
- * hold, or its card step is still open and a hold approved before the press may yet be recorded;
- * not under review, and no charge or release of it written down). `partly`: at least one is
- * already charged, or has its charge written down, so a report cannot change that one.
+ * Where the call's money stands. `waits`: at least one of its charges can still change. That is a
+ * live hold (not run out, not under review), or a card step that was begun before the press and
+ * whose hold may yet be recorded; and no charge or release of it is written down. (A payment
+ * whose card step was never begun cannot be paid any more once the call is ended, and a hold
+ * that has run out can only be let go: neither is a charge a report could lower.)
+ * `partly`: at least one is already charged, or has its charge written down, so a report cannot
+ * change that one.
  * With `lock`, each payment's row is held while it is read (after the call's, in the one order
  * of locks), so a step that only holds a payment cannot slip in between.
  */
-async function moneyOf(reader: Reader | Tx, callId: string, lock: boolean): Promise<{ waits: boolean; partly: boolean }> {
+async function moneyOf(reader: Reader | Tx, callId: string, now: Date, lock: boolean): Promise<{ waits: boolean; partly: boolean }> {
   let waits = false;
   let partly = false;
   for (const seen of await ordinaryPayments(reader, callId)) {
     const [payment] = lock ? await (reader as Tx).select().from(schema.payments).where(eq(schema.payments.id, seen.id)).for("update") : [seen];
     if (!payment) continue;
     if (payment.status === "charged") partly = true;
-    if ((payment.status !== "held" && payment.status !== "awaiting_payment") || payment.needsReview) continue;
+    if (payment.needsReview) continue;
+    const live =
+      payment.status === "held"
+        ? payment.kind === "member_call" || (payment.holdExpiresAt !== null && payment.holdExpiresAt > now)
+        : payment.status === "awaiting_payment" && payment.stripePaymentIntentId !== null;
+    if (!live) continue;
     // A charge that is written down has its amount; a release lets the hold go. (A card step still under way fixes nothing.)
     const [fixed] = await reader
       .select({ kind: schema.moneyOperations.kind })
@@ -65,21 +73,18 @@ async function moneyOf(reader: Reader | Tx, callId: string, lock: boolean): Prom
   return { waits, partly };
 }
 
+/** Something of this call was really charged: its own payment, or time that was added to it. */
+const reallyCharged = sql`exists (select 1 from "payments" p where p.call_id = "calls"."id" and p.status = 'charged' and coalesce(p.charged_cents, 0) > 0)`;
+
 /**
  * A call of his that belongs to "his last 5": a booked or member call (never "available now"),
- * not cancelled, that either carries a report of this kind or was really charged. A call that
- * cost nothing (nobody came, a few seconds, a free one) is not one of them: such calls would let
- * him push the others out for nothing. Read from the calls and their payments alone, so it does
- * not depend on messages of the video service that may still arrive.
+ * not cancelled, that either carries a report of his that lowered its charge, or was really
+ * charged. A call that cost nothing is not one of them, whatever happened in it: nobody came, a
+ * few seconds, a free one, or a report that was not lowered on a call that then cost nothing.
+ * Such calls would let him push the others out for nothing. Read from the calls and their
+ * payments alone, so it does not depend on messages of the video service that may still arrive.
  */
-const inHisHistory = and(
-  eq(schema.calls.billing, "host"),
-  isNull(schema.calls.cancelledAt),
-  or(
-    isNotNull(schema.calls.endReportEffect),
-    sql`exists (select 1 from "payments" p where p.call_id = "calls"."id" and p.extension_id is null and p.status = 'charged' and coalesce(p.charged_cents, 0) > 0)`,
-  ),
-);
+const inHisHistory = and(eq(schema.calls.billing, "host"), isNull(schema.calls.cancelledAt), or(inArray(schema.calls.endReportEffect, ["minutes", "minutes_uncounted"]), reallyCharged));
 
 /** What stands on the 4 calls of his history nearest to now, whichever of them he reports first: newest first, by the call's start. */
 async function earlierEffects(reader: Reader, call: Call): Promise<Array<string | null>> {
@@ -93,18 +98,12 @@ async function earlierEffects(reader: Reader, call: Call): Promise<Array<string 
 }
 
 /**
- * The video service said this person joined the call. (The call's columns are written with the
- * table's name: inside the inner query a bare "id" would be the attendance line's own.)
- */
-const joined = (who: "host_id" | "customer_id") =>
-  sql`exists (select 1 from "attendance_events" a where a.call_id = "calls"."id" and a.type = 'participant_joined' and a.participant_identity = ${sql.raw(`"calls"."${who}"`)})`;
-
-/**
- * Whether another person has also reported this host, as her customer, from a call that took
- * place (paid, not cancelled, over, both joined), in the last 12 months (open or closed). Only
- * such reports count. Anyone can report a public page, and anyone can report from a call the
- * moment it is booked and then cancel it: a second account doing either would switch the guard
- * off for nothing. A call that took place cost that person a real call with her.
+ * Whether another person has also reported this host, as her customer, from a call with her that
+ * was really paid for, in the last 12 months (open or closed). Only such reports count. Anyone
+ * can report a public page, anyone can report from a call the moment it is booked and then
+ * cancel it, and two people can join a room for a moment and leave: a second account doing any
+ * of these would switch the guard off for nothing. A call that was charged cost that person
+ * real money.
  */
 async function othersReported(reader: Reader, call: Call, now: Date): Promise<boolean> {
   const [other] = await reader
@@ -119,10 +118,7 @@ async function othersReported(reader: Reader, call: Call, now: Date): Promise<bo
         eq(schema.calls.hostId, call.hostId),
         eq(schema.calls.customerId, schema.reports.reporterId),
         isNull(schema.calls.cancelledAt),
-        gt(schema.calls.pricePer15Cents, 0),
-        or(isNotNull(schema.calls.safetyEndedAt), lte(schema.calls.endsAt, now)),
-        joined("host_id"),
-        joined("customer_id"),
+        reallyCharged,
         gt(schema.reports.createdAt, new Date(now.getTime() - END_GUARD.othersWithinDays * DAY_MS)),
       ),
     )
@@ -130,35 +126,40 @@ async function othersReported(reader: Reader, call: Call, now: Date): Promise<bo
   return Boolean(other);
 }
 
-/**
- * What the guard would decide for this call right now, read without changing anything. Null when
- * a report could not lower it (any more). What it gives never depends on other people's reports
- * about that host: only "lowered" or "not lowered" is told apart by the screens.
- */
-export async function endReportPreview(call: Call, reporterId: string, now: Date, reader: Reader = db): Promise<EndReportEffect | null> {
-  if (!reportCouldLower(call, reporterId) || !(await moneyOf(reader, call.id, false)).waits) return null;
-  return endReportEffect({ earlier: await earlierEffects(reader, call), othersReported: await othersReported(reader, call, now) }).effect;
-}
-
-/** What a report decided: the effect, and whether a part of the call's money was already taken and stays as it is. */
+/** What a report decided: the effect, and whether a part of the call's money was already taken (or on its way) and stays as it is. */
 export type EndReportDecision = { effect: EndReportEffect; partly: boolean };
 
 /**
+ * What the guard would decide for this call right now, read without changing anything. Null when
+ * a report could not lower it (any more). The screens tell apart only "lowered" and "not
+ * lowered", and say so when a part of the money is already taken.
+ */
+export async function endReportPreview(call: Call, reporterId: string, now: Date, reader: Reader = db): Promise<EndReportDecision | null> {
+  if (!reportCouldLower(call, reporterId)) return null;
+  const money = await moneyOf(reader, call.id, now, false);
+  if (!money.waits) return null;
+  return { effect: endReportEffect({ earlier: await earlierEffects(reader, call), othersReported: await othersReported(reader, call, now) }).effect, partly: money.partly };
+}
+
+/**
  * Called inside the report's own step, after the report is written, for a report made from a call.
- * Gives back what was decided, or null when this report decides nothing about money (it is not
- * the customer's report after his own press, or all of the money was already taken).
+ * Gives back what was decided; "too_late" when it is the customer's report after his own press
+ * but all of the money was already taken; or null when this report has nothing to do with the
+ * call's money.
  *
  * The reporter's own lock is held by the caller, so two reports of one person never decide side
  * by side; the call's row is taken here, which is what the money step waits for, and then the
  * call's payments. Nothing is said here about the block: it follows this step and can fail by
  * itself, and the thank-you says what became of it.
  */
-export async function decideEndReport(tx: Tx, input: { callId: string; reporterId: string; now: Date }): Promise<EndReportDecision | null> {
+export async function decideEndReport(tx: Tx, input: { callId: string; reporterId: string; now: Date }): Promise<EndReportDecision | "too_late" | null> {
   const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, input.callId)).for("update");
   if (!call || !reportCouldLower(call, input.reporterId)) return null;
-  // After the money was taken a report changes nothing by itself: the refund paths that exist remain.
-  const money = await moneyOf(tx, call.id, true);
-  if (!money.waits) return null;
+  // After the money was taken a report changes nothing by itself: the refund paths that exist remain. That is said
+  // to him ("too_late"), so that nobody who was just shown "a report lowers this charge" is left without an answer.
+  const money = await moneyOf(tx, call.id, input.now, true);
+  // (Nothing waits and nothing was taken either: an unpaid call, say. Then there is nothing to tell him about money.)
+  if (!money.waits) return money.partly ? "too_late" : null;
 
   const { effect, crossesLine } = endReportEffect({ earlier: await earlierEffects(tx, call), othersReported: await othersReported(tx, call, input.now) });
   await tx.update(schema.calls).set({ endReportAt: input.now, endReportEffect: effect }).where(eq(schema.calls.id, call.id));

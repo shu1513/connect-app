@@ -68,7 +68,11 @@ function Ended({ id }: { id: string | null }) {
     setBlocking(true);
     setSaid(null);
     const answer = await ask<AppBlocked>(`/api/app/calls/${id}/block`, { body: {} });
-    if (answer.ok && isBlocked(answer.data)) setBlocked(answer.data.notice);
+    if (answer.ok && isBlocked(answer.data)) {
+      // What the server said became of it (also when a call still to come could not be cancelled yet), and the screen read anew.
+      setBlocked(answer.data.notice);
+      void load();
+    }
     // Not reached, or the server could not say whether the block stands: said, and the button stays to try again (blocking twice is safe).
     else setSaid(answer.ok ? UNREACHABLE : answer.message);
     busy.current = false;
@@ -116,7 +120,9 @@ function Ended({ id }: { id: string | null }) {
       </Card>
 
       <Card>
-        {blocked || screen.block.done ? <Notice>{blocked ?? screen.block.doneWords}</Notice> : <Button label={screen.block.label} kind="danger" busy={blocking} onPress={askBlock} />}
+        {blocked || screen.block.done ? <Notice>{blocked ?? screen.block.doneWords}</Notice> : null}
+        {/* The button stays after a block: blocking again is safe, and tries once more to cancel the calls still to come. */}
+        <Button label={screen.block.label} kind="danger" busy={blocking} onPress={askBlock} />
         {said ? <Notice>{said}</Notice> : null}
         <Words soft>{screen.block.what}</Words>
       </Card>

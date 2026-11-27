@@ -210,7 +210,8 @@ async function main() {
       const instant = await newCall(host, cust, { startsIn: 170, billing: "together" });
       const tiny = await newCall(host, cust, { startsIn: 210 });
       for (const call of [hostEnds, custEnds, hostLate, noShow, instant, tiny]) await hold(call, cust);
-      check("each call has $40.00 held on the card", (await pay(hostEnds.id)).bookedCents === 4000 && (await stripe().paymentIntents.retrieve((await pay(hostEnds.id)).stripePaymentIntentId!)).amount_capturable === 4000);
+      const capturable = await Promise.all([hostEnds, custEnds, hostLate, noShow, instant, tiny].map(async (call) => (await stripe().paymentIntents.retrieve((await pay(call.id)).stripePaymentIntentId!)).amount_capturable));
+      check("each call has $40.00 held on the card", capturable.every((amount) => amount === 4000), capturable.join());
 
       await press(hostEnds, host, 600);
       await attend(hostEnds, [["host", 0, 601], ["customer", 0, 601]]);
@@ -331,7 +332,7 @@ async function main() {
       await press(real, cust, 600);
       await attend(real, [["host", 0, 601], ["customer", 0, 601]]);
       check("before a report: the whole booking, $40.00", (await cents(real)) === "4000 customer_ended");
-      check("and a report would lower it, which is what the screen may say", (await endReportPreview(await callOf(real.id), cust.id, new Date())) === "minutes");
+      check("and a report would lower it, which is what the screen may say", (await endReportPreview(await callOf(real.id), cust.id, new Date()))?.effect === "minutes");
       const sent = await report(cust, real.id);
       const after = await callOf(real.id);
       check("his report from that call is written on the call as: charged by the minutes", sent.endEffect === "minutes" && after.endReportEffect === "minutes" && after.endReportAt !== null, String(after.endReportEffect));
@@ -376,19 +377,28 @@ async function main() {
       await attend(tooLate, [["host", 0, 601], ["customer", 0, 601]]);
       await db.update(schema.payments).set({ status: "charged", chargedCents: 4000, chargeReason: "customer_ended", chargedAt: new Date() }).where(eq(schema.payments.id, (await pay(tooLate.id)).id));
       const lateReport = await report(cust, tooLate.id);
-      check("after the money was taken, a report decides nothing by itself (the refund paths remain)", lateReport.endEffect === null && (await callOf(tooLate.id)).endReportEffect === null && (await pay(tooLate.id)).chargedCents === 4000 && (await endReportPreview(await callOf(tooLate.id), cust.id, new Date())) === null);
+      check("after the money was taken, a report decides nothing by itself (the refund paths remain), and he is told so", lateReport.endEffect === null && lateReport.endTooLate && (await callOf(tooLate.id)).endReportEffect === null && (await pay(tooLate.id)).chargedCents === 4000 && (await endReportPreview(await callOf(tooLate.id), cust.id, new Date())) === null && (await import("../src/lib/safety/report-words")).reportNotice(lateReport).notice.endsWith(END_WORDS.thanksTooLate));
 
-      // His card step was still open when he reported (a hold approved before the press may yet be recorded): the
-      // report is taken into account all the same, so that hold cannot be charged in full afterwards.
+      // His card step was begun before the press and its hold is not recorded yet when he reports (the bank's approval
+      // may still arrive): the report is taken into account all the same, so that hold cannot be charged in full afterwards.
       const seventh = await hostPerson("h4g");
       const stillOpen = await newCall(seventh, cust, { startsIn: -100 });
+      await db.update(schema.payments).set({ stripePaymentIntentId: `pi_endnowcheck_${RUN}` }).where(eq(schema.payments.callId, stillOpen.id));
+      fakeHeld.push((await pay(stillOpen.id)).id);
       await press(stillOpen, cust, 600);
       await attend(stillOpen, [["host", 0, 601], ["customer", 0, 601]]);
       const whileOpen = await report(cust, stillOpen.id);
-      check("a report made while the card step is still open is written on the call all the same", (await pay(stillOpen.id)).status === "awaiting_payment" && whileOpen.endEffect !== null && (await callOf(stillOpen.id)).endReportEffect === whileOpen.endEffect, String(whileOpen.endEffect));
+      check("a report made while a card step that was begun is still open is written on the call: charged by the minutes", (await pay(stillOpen.id)).status === "awaiting_payment" && (whileOpen.endEffect === "minutes" || whileOpen.endEffect === "minutes_uncounted") && (await callOf(stillOpen.id)).endReportEffect === whileOpen.endEffect, String(whileOpen.endEffect));
+      // A call whose card step was never begun cannot be paid for any more: a report has nothing to lower, and says nothing about money.
+      const tenth = await hostPerson("h4j");
+      const neverPaid = await newCall(tenth, cust, { startsIn: -460 });
+      await press(neverPaid, cust, 600);
+      const onUnpaid = await report(cust, neverPaid.id);
+      check("a report about a call that was never paid for decides nothing, counts nothing, and says nothing about money", onUnpaid.endEffect === null && !onUnpaid.endTooLate && (await callOf(neverPaid.id)).endReportEffect === null);
 
-      // He was never told that it costs the whole booking: a booking made under the earlier words, or a press on a
-      // page from before the button changed. The call is charged by the host's time, as he was told.
+      // He was never told that it costs the whole booking: his booking was made under the earlier words. The call is
+      // charged by the host's time, as he was told. (Only the booking's own words decide this, never the page or the
+      // address the press came from.)
       const eighth = await hostPerson("h4h");
       const oldWords = await newCall(eighth, cust, { startsIn: -60 });
       await pretendHeld(oldWords);
@@ -396,13 +406,6 @@ async function main() {
       await press(oldWords, cust, 600);
       await attend(oldWords, [["host", 0, 601], ["customer", 0, 601]]);
       check("a booking made under the earlier words: his press is written as 'not told', and he pays for the host's 10 minutes only", (await callOf(oldWords.id)).endedNowBy === "customer_untold" && (await cents(oldWords)) === "1333 attendance" && (await endReportPreview(await callOf(oldWords.id), cust.id, new Date())) === null, `${(await callOf(oldWords.id)).endedNowBy} ${await cents(oldWords)}`);
-      const ninth = await hostPerson("h4i");
-      const oldPage = await newCall(ninth, cust, { startsIn: -20, minutes: 15 });
-      await pretendHeld(oldPage);
-      await endCallNow({ call: await callOf(oldPage.id), by: cust.id, now: new Date(oldPage.startsAt.getTime() + 600_000), told: false });
-      await attend(oldPage, [["host", 0, 601], ["customer", 0, 601]]);
-      check("a press on a page from before the button changed (the old question): the same", (await callOf(oldPage.id)).endedNowBy === "customer_untold" && (await cents(oldPage)) === "1333 attendance", `${(await callOf(oldPage.id)).endedNowBy} ${await cents(oldPage)}`);
-
       // A call ended with the earlier button: its money is the founder's, and a report decides nothing.
       const sixth = await hostPerson("h4f");
       const old = await newCall(sixth, cust, { startsIn: -140 });
@@ -447,22 +450,29 @@ async function main() {
       /** Another person's call with that host: it took place (both there), or it was only ever booked. */
       const theirCall = async (host: Person, tookPlace: boolean) => {
         const theirs = await newCall(host, somebody, { startsIn: (slot += 40) });
-        if (tookPlace) await attend(theirs, [["host", 0, 1800], ["customer", 0, 1800]]);
+        // "Took place" here means it was really paid for: a call that cost that person nothing proves nothing.
+        if (tookPlace) {
+          await attend(theirs, [["host", 0, 1800], ["customer", 0, 1800]]);
+          await paidInFull(theirs);
+        } else {
+          // Both in the room for a moment, and nothing charged: anyone can arrange that.
+          await attend(theirs, [["host", 0, 5], ["customer", 0, 5]]);
+        }
         return theirs;
       };
 
-      // His first. Somebody else has reported that host from a call that was booked and never took place: that changes nothing.
+      // His first. Somebody else has reported that host from a call that cost them nothing (both in the room for a moment): that changes nothing.
       const firstCall = await call(true);
       await report(somebody, (await theirCall(firstCall.host, false)).id);
       const first = await report(cust, firstCall.call.id);
       check("his first report after ending a call lowers the charge, is counted, and tells nobody", first.endEffect === "minutes" && (await founderTold()) === 0, String(first.endEffect));
-      check("(a report by someone else from a call that never took place does not make his uncounted)", (await callOf(firstCall.call.id)).endReportEffect === "minutes");
+      check("(a report by someone else from a call that cost them nothing does not make his uncounted)", (await callOf(firstCall.call.id)).endReportEffect === "minutes");
 
       // A host that another person has also reported, from a call of their own that took place: lowered, and not counted.
       const reportedHost = await call(true);
       await report(somebody, (await theirCall(reportedHost.host, true)).id);
       const uncounted = await report(cust, reportedHost.call.id);
-      check("a report about a host another person has also reported from a call that took place: lowered, and not counted", uncounted.endEffect === "minutes_uncounted" && (await cents(reportedHost.call)) === "1333 attendance", String(uncounted.endEffect));
+      check("a report about a host another person has also reported from a call they really paid for: lowered, and not counted", uncounted.endEffect === "minutes_uncounted" && (await cents(reportedHost.call)) === "1333 attendance", String(uncounted.endEffect));
       check("what he reads is the same as for any lowered report: nothing tells him about other people's reports", (await import("../src/lib/safety/report-words")).reportNotice(uncounted).notice.replace(/R-\d+/, "R-0") === (await import("../src/lib/safety/report-words")).reportNotice(first).notice.replace(/R-\d+/, "R-0"));
 
       // The next. Somebody else has reported this host's PAGE, which anyone can do: that changes nothing either.
@@ -479,7 +489,7 @@ async function main() {
       // Past the line. This host, too, was reported by somebody else from a call that took place: it makes no difference now.
       const fourthCall = await call(true);
       await report(somebody, (await theirCall(fourthCall.host, true)).id);
-      check("past the line, the screen no longer promises a lower charge", (await endReportPreview(await callOf(fourthCall.call.id), cust.id, new Date())) === "whole");
+      check("past the line, the screen no longer promises a lower charge", (await endReportPreview(await callOf(fourthCall.call.id), cust.id, new Date()))?.effect === "whole");
       const fourth = await report(cust, fourthCall.call.id);
       check("the next report is not lowered: the whole booking is charged, whoever else has reported that host", fourth.endEffect === "whole" && (await callOf(fourthCall.call.id)).endReportEffect === "whole" && (await cents(fourthCall.call)) === "4000 customer_ended", await cents(fourthCall.call));
       check("the report and the block still go through", fourth.block === "done" && (await isBlockedEitherWay(cust.id, fourthCall.host.id)) && (await db.select().from(schema.reports).where(eq(schema.reports.reference, fourth.reference))).length === 1);
@@ -534,6 +544,18 @@ async function main() {
         await attend(made, [["host", 0, 5], ["customer", 0, 5]]);
       }
       check('"available now" calls, and booked calls that cost nothing, do not push anything out of his last 5', three.join() === "minutes,minutes,minutes" && (await quick("reported")) === "whole");
+      // Past the line, reports on calls that then cost nothing (the host never came) are not lowered and are no part of
+      // his history either: they cannot push the counted ones out.
+      const noShows: Array<string | null> = [];
+      for (let i = 0; i < 2; i++) {
+        const host = await hostPerson(`q${n++}`);
+        const made = await newCall(host, fresh, { startsIn: (slot2 += 40) });
+        await pretendHeld(made);
+        await press(made, fresh, 600);
+        await attend(made, [["customer", 0, 601]]);
+        noShows.push((await report(fresh, made.id)).endEffect);
+      }
+      check("two reports past the line on calls that cost nothing do not clear it: the next real one is still not lowered", noShows.join() === "whole,whole" && (await quick("reported")) === "whole", noShows.join());
 
       // Two reports in the same moment cannot both slip under the line.
       const twin = await person("c5c");
@@ -602,19 +624,22 @@ async function main() {
         check("a stranger to the call cannot end it or see its screen", (await send(`/api/calls/${paid.id}/end-now`, { method: "POST" })).status === 401 && (await send(`/calls/${randomUUID()}/ended`, { jar: coryJar })).status === 404);
 
         const screen = words((await send(`/calls/${paid.id}/ended`, { jar: coryJar })).text);
-        check("his screen says he ended it, and what that means for the money", screen.includes("You ended this call") && screen.includes("your whole booked time is charged") && screen.includes(END_WORDS.moneyWhen), screen.slice(0, 300));
+        check("his screen says he ended it, and what that means for the money, without promising what is not known yet", screen.includes("You ended this call") && screen.includes("your whole booked time is charged") && screen.includes(`if ${hanaPage.displayName} was not in the call when you ended it, neither is the rest`) && screen.includes(END_WORDS.moneyWhen), screen.slice(0, 300));
+        check('"nobody can come back in" is said only once the room is written down as closed', screen.includes("Nobody can come back in") === ((await callOf(paid.id)).closedAt !== null));
         check('it has the three choices: "Report", "Block" and "Neither", each with what it does', screen.includes(REPORT_WORDS.reportPerson(hanaPage.displayName)) && screen.includes(END_WORDS.reportWhat(hanaPage.displayName)) && screen.includes(BLOCK_WORDS.label(hanaPage.displayName)) && screen.includes(END_WORDS.blockWhat(hanaPage.displayName)) && screen.includes(END_WORDS.neither) && screen.includes(END_WORDS.neitherWhat(hanaPage.displayName)));
         check("the block's sentence says what it ends before it is pressed: other calls, a membership, a monthly contribution", /still to come are cancelled at no charge/.test(END_WORDS.blockWhat("X")) && /membership or monthly contribution between you ends/.test(END_WORDS.blockWhat("X")));
-        check("it says openly that a report lowers this call's charge", screen.includes(END_WORDS.reportLowers(hanaPage.displayName)));
+        check("it says openly that a report lowers this call's charge", screen.includes(END_WORDS.reportLowers(hanaPage.displayName, false)));
         check("he knows the host by the name on her page, never by her account name", hanaPage.displayName === hana.name || !screen.includes(hana.name));
         const form = words((await send(`/report?call=${paid.id}`, { jar: coryJar })).text);
-        check("the report form says the call was ended, and what a report does to its charge", (form.includes(REPORT_WORDS.stopped) || form.includes(REPORT_WORDS.stopping)) && form.includes(END_WORDS.reportLowers(hanaPage.displayName)) && !form.includes("looked at by a person"));
+        check("the report form says the call was ended, and what a report does to its charge", (form.includes(REPORT_WORDS.stopped) || form.includes(REPORT_WORDS.stopping)) && form.includes(END_WORDS.reportLowers(hanaPage.displayName, false)) && !form.includes("looked at by a person"));
         const hostScreen = words((await send(`/calls/${paid.id}/ended`, { jar: hanaJar })).text);
         check("the host's screen says the customer ended it, and has the same three choices by his name", hostScreen.includes(`${cory.name} ended this call`) && hostScreen.includes("the whole booked time is charged") && hostScreen.includes(BLOCK_WORDS.label(cory.name)) && hostScreen.includes(END_WORDS.neither) && !hostScreen.includes("If you report"));
         const results = words((await send(`/calls/${paid.id}/results`, { jar: coryJar })).text);
-        check('the call\'s page says who ended it, with "End call now", and keeps "Report" and "Block"', results.includes('You ended this call for both people') && results.includes('with "End call now"') && results.includes("your whole booked time is charged") && results.includes(`Report ${hanaPage.displayName}`) && results.includes(`Block ${hanaPage.displayName}`) && !results.includes("End call and report") && !results.includes("decided by a person"));
+        check('the call\'s page says who ended it, with "End call now", and keeps "Report" and "Block"', results.includes("You ended this call on") && results.includes('with "End call now"') && results.includes("your whole booked time is charged") && results.includes(`Report ${hanaPage.displayName}`) && results.includes(`Block ${hanaPage.displayName}`) && !results.includes("End call and report") && !results.includes("decided by a person"));
 
-        // "Neither": nothing else happened.
+        // "Neither" leads to the call's own page, and nothing else happens.
+        const screenHtml = (await send(`/calls/${paid.id}/ended`, { jar: coryJar })).text;
+        check('"Neither" is a plain link to the call\'s page, and "Report" a link to the form for this call', screenHtml.includes(`href="/calls/${paid.id}/results"`) && screenHtml.includes(`href="/report?call=${paid.id}"`));
         check('"Neither" changes nothing: no report, and the charge as it was', (await callOf(paid.id)).endReportEffect === null && (await db.select().from(schema.reports).where(and(eq(schema.reports.context, "call"), eq(schema.reports.contextId, paid.id)))).length === 0);
         // After a report of his that lowered the charge. (Written straight onto the call here: a real report would block,
         // and a block between the two test accounts would end what other checks have set up between them.)
@@ -633,11 +658,19 @@ async function main() {
         check("the host presses: her screen says she ended it and is paid for her time up to then", byHost.json?.ended === "you" && hers.includes("You ended this call") && hers.includes("Only your time in the call up to that moment is charged"), hers.slice(0, 200));
         check("the customer's says the host ended it and he pays only for her time, and promises nothing for a report", his.includes(`${hanaPage.displayName} ended this call`) && his.includes(`You pay only for the time ${hanaPage.displayName} was in the call`) && !his.includes("If you report"));
 
-        // The address the button had before: it still ends the call, and the customer is charged as that page told him.
+        // The address the button had before still ends the call (a page that was open when the app was updated). It is
+        // no way to choose a cheaper rule: which rule holds comes from the booking's own words, never from the address.
         const third = await direct(PRICE, -2);
         const oldAddress = await send(`/api/calls/${third.id}/end-for-safety`, { method: "POST", jar: coryJar });
-        const told = words((await send(`/calls/${third.id}/ended`, { jar: coryJar })).text);
-        check("the address the button had before still ends the call; the customer is not charged the whole booking he was never told about", oldAddress.status === 200 && oldAddress.json?.ended === "you" && (await callOf(third.id)).endedNowBy === "customer_untold" && told.includes(`You pay only for the time ${hanaPage.displayName} was in the call`) && !told.includes("whole booked time") && !told.includes("If you report"), `${oldAddress.status} ${(await callOf(third.id)).endedNowBy}`);
+        const viaOld = words((await send(`/calls/${third.id}/ended`, { jar: coryJar })).text);
+        check("the address the button had before still ends the call, and cannot be used to pay less: the booking's words decide", oldAddress.status === 200 && oldAddress.json?.ended === "you" && (await callOf(third.id)).endedNowBy === "customer" && viaOld.includes("your whole booked time is charged"), `${oldAddress.status} ${(await callOf(third.id)).endedNowBy}`);
+        // A booking made under the earlier words: the question says what he was told, and so does the screen after it.
+        const fourth = await direct(PRICE, -2);
+        await db.update(schema.bookings).set({ cardConsentVersion: "2026-11-c" }).where(eq(schema.bookings.callId, fourth.id));
+        const askedPage = (await send(`/calls/${fourth.id}`, { jar: coryJar })).text;
+        const pressedOld = await send(`/api/calls/${fourth.id}/end-now`, { method: "POST", jar: coryJar });
+        const told = words((await send(`/calls/${fourth.id}/ended`, { jar: coryJar })).text);
+        check("a booking made under the earlier words: he is not charged the whole booking he was never told about, and no screen says so", pressedOld.status === 200 && (await callOf(fourth.id)).endedNowBy === "customer_untold" && told.includes(`You pay only for the time ${hanaPage.displayName} was in the call`) && !told.includes("whole booked time") && !told.includes("If you report") && askedPage.includes("wholeBookingSaid") && /wholeBookingSaid\\?":false/.test(askedPage), `${pressedOld.status} ${(await callOf(fourth.id)).endedNowBy}`);
 
         // A call that had simply run out when the button was pressed.
         const over = await direct(0, -90);
@@ -676,7 +709,7 @@ async function main() {
     }
   } finally {
     // The holds that only ever stood in our own record are closed, so no helper tries to charge them at Stripe.
-    if (fakeHeld.length > 0) await db.update(schema.payments).set({ status: "closed_uncharged", needsReview: false, transferStatus: "not_owed", reviewReason: "Closed by the end-now check." }).where(and(inArray(schema.payments.id, fakeHeld), eq(schema.payments.status, "held")));
+    if (fakeHeld.length > 0) await db.update(schema.payments).set({ status: "closed_uncharged", needsReview: false, transferStatus: "not_owed", reviewReason: "Closed by the end-now check." }).where(and(inArray(schema.payments.id, fakeHeld), inArray(schema.payments.status, ["held", "awaiting_payment"])));
     const ids = made.length ? made : ["-"];
     // A real hold that a failed check left behind is let go at Stripe.
     const left = await db.select({ id: schema.payments.id }).from(schema.payments).innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId)).where(and(inArray(schema.calls.customerId, ids), eq(schema.payments.status, "held")));

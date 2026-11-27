@@ -38,11 +38,12 @@ type Pressed = { state: "not_open_yet" } | { state: "over" } | { state: "ended";
  * written and the other is told whose it was. Who pressed is never taken from who is asking.
  *
  * A customer's press is written as "customer" only when the rule "you pay for your whole booked
- * time" holds for him: his booking was made under words that say it (booking/rules.ts), and the
- * page he pressed on asked him with that sentence (`told`). Otherwise it is written as
- * "customer_untold", and the call is charged by the host's time, as he was told.
+ * time" holds for him: his booking was made under words that say it (booking/rules.ts). Otherwise
+ * it is written as "customer_untold", and the call is charged by the host's time, as he was told.
+ * That is read from the booking alone, never from the page or the address the press came from:
+ * nobody can choose the cheaper rule by how they send the press.
  */
-async function press(input: { call: Call; by: string; now: Date; told: boolean }): Promise<Pressed> {
+async function press(input: { call: Call; by: string; now: Date }): Promise<Pressed> {
   const { by, now } = input;
   return db.transaction(async (tx) => {
     const [call] = await tx.select().from(schema.calls).where(eq(schema.calls.id, input.call.id)).for("update");
@@ -60,7 +61,7 @@ async function press(input: { call: Call; by: string; now: Date; told: boolean }
     if (state === "closed") return { state: "over" as const };
 
     let wholeHolds = false;
-    if (role === "customer" && input.told) {
+    if (role === "customer") {
       const [booking] = await tx.select({ cardConsentVersion: schema.bookings.cardConsentVersion }).from(schema.bookings).where(eq(schema.bookings.callId, call.id));
       wholeHolds = wholeBookingSaid(booking?.cardConsentVersion);
     }
@@ -84,12 +85,9 @@ async function press(input: { call: Call; by: string; now: Date; told: boolean }
  * closed before counts too. So pressing again after a failure, also after the call's booked end,
  * asks the video service again instead of taking the clock's word. For a room that has not
  * opened there is nothing to close.
- *
- * `told` is false only for the address the button had before it was "End call now": that page
- * asked with the old question, which said nothing about the whole booking.
  */
-export async function endCallNow(input: { call: Call; by: string; now: Date; told?: boolean }): Promise<EndOutcome> {
-  const pressed = await press({ ...input, told: input.told !== false });
+export async function endCallNow(input: { call: Call; by: string; now: Date }): Promise<EndOutcome> {
+  const pressed = await press(input);
   if (pressed.state === "not_open_yet") return { ...pressed, closed: true };
   const closed = await closeCallIfDue(input.call.id).then(
     (result) => result === "closed" || result === "already closed",

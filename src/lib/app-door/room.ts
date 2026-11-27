@@ -55,6 +55,7 @@ export async function roomFor(person: { id: string }, callId: string, now: Date)
       endNow: ROOM_WORDS.endNow,
       // What the press costs this person, by their role on this call (plans/50-end-call-now.md, decision 18).
       endNowSure: END_WORDS.sure(endCostFor({ role, billing: call.billing, pricePer15Cents: call.pricePer15Cents, wholeBookingSaid: page.wholeBookingSaid })),
+      endNowSureEarly: END_WORDS.sure(endCostFor({ role, billing: call.billing, pricePer15Cents: call.pricePer15Cents, wholeBookingSaid: page.wholeBookingSaid, beforeStart: true })),
       endNowYes: ROOM_WORDS.endNowYes,
       endNowNo: ROOM_WORDS.endNowNo,
       ending: ROOM_WORDS.ending,

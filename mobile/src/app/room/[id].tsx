@@ -433,7 +433,7 @@ function OneRoom({ id }: { id: string }) {
   if (pass) {
     return (
       <View style={styles.fill}>
-        <InCall key={pass.token} pass={pass} choices={choices} words={words} clock={line} onLost={lost} onLeave={leave} onEndNow={() => void endNow()} onProblem={setNotice} />
+        <InCall key={pass.token} pass={pass} choices={choices} words={words} clock={line} onLost={lost} onLeave={leave} early={now < startsAt} onEndNow={() => void endNow()} onProblem={setNotice} />
         {notice ? (
           <View style={styles.over} pointerEvents="box-none">
             <Pressable accessibilityRole="alert" accessibilityLabel={notice} onPress={() => setNotice(null)} style={[styles.overNotice, { backgroundColor: colors.notice, borderColor: colors.noticeLine }]}>

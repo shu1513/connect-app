@@ -258,6 +258,8 @@ async function MemberBook(props: { profile: { userId: string; handle: string; di
         {/* What this page showed. If either has changed since, nothing is booked. */}
         <input type="hidden" name="seenPrice" value={month.pricePer15Cents} />
         <input type="hidden" name="seenFreeCancel" value={offer.freeCancelMinutes} />
+        {/* The version of the words above about the call's charge: the booking records it, and is only ever held to these words. */}
+        <input type="hidden" name="wordsVersion" value={CARD_CONSENT_VERSION} />
         <button type="submit" className="w-full rounded bg-blue-600 px-4 py-2 font-medium text-white">
           Book
         </button>

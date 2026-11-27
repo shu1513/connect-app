@@ -657,8 +657,8 @@ export const calls = pgTable(
     /**
      * The role of the person who pressed "End call now" (plans/50-end-call-now.md): "host", "customer", or
      * "customer_untold" (the customer pressed, and the rule "you pay for your whole booked time" does not hold
-     * for him: his booking was made under words that did not say it, or he pressed on a page from before the
-     * button changed. Such a call is charged by the host's time, as he was told).
+     * for him: his booking was made under words that did not say it. Such a call is charged by the host's
+     * time, as he was told).
      * Empty on a call that carries the mark above without it: that one was ended with the earlier button,
      * "End call and report", and keeps that button's rules (its money waits for the founder's review).
      */
@@ -698,7 +698,7 @@ export const calls = pgTable(
     check(
       "calls_end_report",
       sql`(${t.endReportEffect} is null and ${t.endReportAt} is null)
-        or (${t.endReportEffect} in ('minutes', 'minutes_uncounted', 'whole') and ${t.endReportAt} is not null and ${t.endedNowBy} = 'customer')`,
+        or (${t.endReportEffect} is not null and ${t.endReportEffect} in ('minutes', 'minutes_uncounted', 'whole') and ${t.endReportAt} is not null and ${t.endedNowBy} is not null and ${t.endedNowBy} = 'customer')`,
     ),
   ],
 );

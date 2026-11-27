@@ -62,7 +62,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
   // paused person, as on the website.
   // Entering a call is for someone who may act too. Ending a call one is in, reporting and blocking are for everyone.
   // "End call now" is answered for any copy of the app, also one that has become too old meanwhile.
-  const asked = await appRequest(request, step === "pay" || step === "enter" ? "active" : "member", { safety: step === "end-now" });
+  // So is "Block" from the screen after it: someone who could end a call must be able to block the other person.
+  const asked = await appRequest(request, step === "pay" || step === "enter" ? "active" : "member", { safety: step === "end-now" || step === "block" });
   if (asked instanceof Response) return asked;
   const me = asked.person!;
   const page = async (notice: string | null = null) => {
@@ -104,18 +105,19 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/calls/[
       // A call that has not opened yet cannot be ended this way (it can be cancelled). One that is already over
       // needs no ending: the person goes on to the three choices as usual.
       if (outcome.state === "not_open_yet") return refuse("not_valid", "This call has not started yet.");
-      // The call is marked as ended (nobody can enter it again), but there is no proof yet that the other person
-      // is out: the video service has not confirmed that the room is closed. "Ended for both" is not said until it
-      // has: the app says so and offers to try again, and trying again asks the video service again (also after
-      // the call's booked end: the clock is no proof).
-      if (!outcome.closed) return notKnown();
+      // A call that was over already, with its room not confirmed closed: nothing was pressed and nothing is known.
+      // The app says so and offers to try again, and trying again asks the video service again.
+      if (outcome.state === "over" && !outcome.closed) return notKnown();
+      // The press is saved: nobody gets a new entry pass, and the three choices are reachable at once, whatever the
+      // video service says. `closed` tells the app whether the room is confirmed closed; until it is, the screen
+      // after the press says "it is being closed for both of you", and the helper keeps closing it.
+      const body: AppEnded = { ended: true, closed: outcome.closed };
+      return answer(body);
     } catch (error) {
       // Whether it was ended for both cannot be told: the app says so and offers to try again.
       console.error("[safety] could not end a call for the app", error);
       return notKnown();
     }
-    const body: AppEnded = { ended: true };
-    return answer(body);
   }
 
   if (step === "block") {
