@@ -639,7 +639,7 @@ async function main() {
 
         // "Neither" leads to the call's own page, and nothing else happens.
         const screenHtml = (await send(`/calls/${paid.id}/ended`, { jar: coryJar })).text;
-        check('"Neither" is a plain link to the call\'s page, and "Report" a link to the form for this call', screenHtml.includes(`href="/calls/${paid.id}/results"`) && screenHtml.includes(`href="/report?call=${paid.id}"`));
+        check('"Neither" is a plain link to the call\'s page, and "Report" a link to the form for this call', new RegExp(`data-choice="neither"[^]*?href="/calls/${paid.id}/results"[^]*?</section>`).test(screenHtml) && new RegExp(`data-choice="report"[^]*?href="/report\\?call=${paid.id}"[^]*?</section>`).test(screenHtml));
         check('"Neither" changes nothing: no report, and the charge as it was', (await callOf(paid.id)).endReportEffect === null && (await db.select().from(schema.reports).where(and(eq(schema.reports.context, "call"), eq(schema.reports.contextId, paid.id)))).length === 0);
         // After a report of his that lowered the charge. (Written straight onto the call here: a real report would block,
         // and a block between the two test accounts would end what other checks have set up between them.)
@@ -647,7 +647,7 @@ async function main() {
         const hostAfter = words((await send(`/calls/${paid.id}/results`, { jar: hanaJar })).text);
         const custAfter = words((await send(`/calls/${paid.id}/results`, { jar: coryJar })).text);
         check("after his report his page says the charge is by the time the call lasted", custAfter.includes("is charged only for the time the call lasted"));
-        check("the host's page says only which rule the charge follows, never that she was reported", !/reported (the host|you|her|him)|You reported/i.test(hostAfter) && hostAfter.includes("Only your time in the call up to that moment is charged"), hostAfter.slice(0, 200));
+        check("the host's page says only which rule the charge follows, never that she was reported", !/reported (the host|you|her|him)|You reported/i.test(hostAfter) && hostAfter.includes("It is charged for your time in the call up to that moment."), hostAfter.slice(0, 200));
         check("nor does her screen after the call", !/reported (the host|you|her|him)|You reported|If you report/i.test(words((await send(`/calls/${paid.id}/ended`, { jar: hanaJar })).text)));
 
         // The host presses on another call: her screen, and the customer's.

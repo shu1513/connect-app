@@ -173,7 +173,7 @@ function callSentences(facts: ProofFacts, call: CallFacts): { what: string; serv
     const before = call.charged ? call.charged.hostSeconds : null;
     service =
       `The customer ended this call before its booked end${call.endedByCustomerAt ? `, at ${at(call.endedByCustomerAt)}` : ""}, with the "End call now" button of the call. ` +
-      `The words the customer agreed to when booking say that a customer who ends the call with that button pays for the whole booked time, and the app's question before the button ends a call says so again. ` +
+      `The words the customer agreed to when booking say that a customer who ends the call with that button pays for the whole booked time, and the app's question before the button ends a call says what ending it costs. ` +
       `The charge is for the time the host was in the call before that moment${before !== null ? ` (${minutes(before)} of the time this payment is for)` : ""} and for the rest of the booked time, which the host had set aside for this customer. ${money(facts.chargedCents)} was charged under that rule. ` +
       `The video service's record of the call:\n${activity(call.visits)}` +
       (call.recordChanged ? "\nA later message from the video service changed this record after the money was taken. The record above is as it stands now; the amount charged was worked out from the record as it stood at that time." : "");

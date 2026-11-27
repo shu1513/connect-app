@@ -349,7 +349,7 @@ async function main() {
       const [blockRow] = await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, cust.id), eq(schema.blocks.blockedId, host.id)));
       check('"Block" blocks the other person of that call, cancels their call that is still to come, and says so', blocked.status === 200 && keys(blocked.json) === "notice" && (blocked.json as { notice?: string }).notice === BLOCK_WORDS.done && Boolean(blockRow) && (await callRow(ahead.call.id)).cancelledAt !== null, `${blocked.status} ${blocked.text.slice(0, 120)}`);
       const afterBlock = ((await asApp(`/api/app/calls/${id}/ended`, { jar: cust.jar })).json as AppEndedScreen).block;
-      check("the screen then says only that the block stands, and keeps a button to block again", afterBlock.done === true && afterBlock.doneWords === END_WORDS.blocked(hostName) && afterBlock.label === END_WORDS.blockAgain(hostName) && !/cancelled|ended/.test(afterBlock.doneWords));
+      check("the screen then says only that the block stands, and keeps a button to block again", afterBlock.done === true && afterBlock.doneWords === END_WORDS.blocked(hostName) && afterBlock.label === END_WORDS.blockAgain(hostName) && afterBlock.what === END_WORDS.blockAgainWhat(hostName) && !/are cancelled|have ended/.test(`${afterBlock.doneWords} ${afterBlock.what} ${afterBlock.sure}`));
       // Taken away again: the rest of this script needs the two unblocked. (The calls the block cancelled stay cancelled.)
       await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, cust.id), eq(schema.blocks.blockedId, host.id)));
     }

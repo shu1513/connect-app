@@ -64,7 +64,9 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
       const money = END_WORDS.money(role, endMoneyFor(call), names);
       // While the call's own money is still to be taken, when that happens; once it is settled, where to read it.
       const settled = !access.payment || (access.payment.status !== "held" && access.payment.status !== "awaiting_payment");
-      if (money) lines.push(money, settled ? END_WORDS.moneyDone : END_WORDS.moneyWhen);
+      const kind = endMoneyFor(call);
+      // (Where nothing is charged there is nothing to wait for.)
+      if (money) lines.push(...(kind === "free_early" ? [money] : [money, settled ? END_WORDS.moneyDone : END_WORDS.moneyWhen]));
       // For the customer who pressed: what a report would do to the charge right now, so nothing is promised that the guard would not give.
       const preview = await endReportPreview(call, userId, now);
       reportMoney = preview === null ? null : preview.effect === "whole" ? END_WORDS.reportDoesNotLower : END_WORDS.reportLowers(otherName, preview.partly);
@@ -83,7 +85,7 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
     what: END_WORDS.what,
     report: { label: REPORT_WORDS.reportPerson(otherName), what: END_WORDS.reportWhat(otherName), money: reportMoney },
     // A block that stands can be made again: that tries once more to cancel the calls still to come, and is safe.
-    block: { label: blockDone ? END_WORDS.blockAgain(otherName) : BLOCK_WORDS.label(otherName), what: END_WORDS.blockWhat(otherName), done: blockDone, doneWords: END_WORDS.blocked(otherName) },
+    block: { label: blockDone ? END_WORDS.blockAgain(otherName) : BLOCK_WORDS.label(otherName), what: blockDone ? END_WORDS.blockAgainWhat(otherName) : END_WORDS.blockWhat(otherName), done: blockDone, doneWords: END_WORDS.blocked(otherName) },
     neither: { label: END_WORDS.neither, what: END_WORDS.neitherWhat(otherName) },
   };
 }

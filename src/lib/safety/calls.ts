@@ -14,6 +14,9 @@ import { wholeBookingSaid } from "@/lib/booking/rules";
 import { roleOnCall, roomState } from "@/lib/calls";
 import { closeCallIfDue } from "@/lib/video/closing";
 
+/** How long the answer to a press waits for the video service to confirm that the room is closed. */
+const CLOSE_WAIT_MS = 8_000;
+
 /**
  * What became of a press, said from what is really written on the call:
  *   not_open_yet  the room has not opened: nothing was ended (such a call is cancelled, not ended)
@@ -89,12 +92,15 @@ async function press(input: { call: Call; by: string; now: Date }): Promise<Pres
 export async function endCallNow(input: { call: Call; by: string; now: Date }): Promise<EndOutcome> {
   const pressed = await press(input);
   if (pressed.state === "not_open_yet") return { ...pressed, closed: true };
-  const closed = await closeCallIfDue(input.call.id).then(
+  const closing = closeCallIfDue(input.call.id).then(
     (result) => result === "closed" || result === "already closed",
     (error) => {
       console.error(`[safety] could not close the room of call ${input.call.id} yet; the helper will retry`, error);
       return false;
     },
   );
+  // The press is saved. Its answer does not wait long for the video service: a slow closing goes on by itself (and
+  // the helper repeats it), and the person is told "it is being closed", with the three choices at hand.
+  const closed = await Promise.race([closing, new Promise<false>((resolve) => setTimeout(() => resolve(false), CLOSE_WAIT_MS))]);
   return { ...pressed, closed };
 }

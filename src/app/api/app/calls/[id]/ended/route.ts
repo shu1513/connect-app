@@ -1,5 +1,6 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
 import type { AppEndedScreen } from "@/lib/app-door/types";
+import { END_WORDS } from "@/lib/call-page/end-words";
 import { endedScreenFor } from "@/lib/call-page/ended";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
 
@@ -18,7 +19,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/app/calls/[i
   if (!screen || screen === "not_ended") return refuse("not_found");
   const body: AppEndedScreen = {
     title: screen.title,
-    lines: screen.lines,
+    // The phone app's page of a call has no receipt yet: the line that points to it names the website.
+    lines: screen.lines.map((line) => (line === END_WORDS.moneyDone ? END_WORDS.moneyDoneApp : line)),
     what: screen.what,
     report: screen.report,
     block: { ...screen.block, sure: screen.block.what, yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no },

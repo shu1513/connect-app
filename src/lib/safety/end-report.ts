@@ -73,8 +73,14 @@ async function moneyOf(reader: Reader | Tx, callId: string, now: Date, lock: boo
   return { waits, partly };
 }
 
-/** Something of this call was really charged: its own payment, or time that was added to it. */
-const reallyCharged = sql`exists (select 1 from "payments" p where p.call_id = "calls"."id" and p.status = 'charged' and coalesce(p.charged_cents, 0) > 0)`;
+/** Something of this call was really paid for and kept: its own payment, or time that was added to it, after anything given back. */
+const reallyCharged = sql`exists (select 1 from "payments" p where p.call_id = "calls"."id" and p.status = 'charged' and coalesce(p.charged_cents, 0) - coalesce(p.refunded_cents, 0) > 0)`;
+/**
+ * When a call came into his history: when his report about it was taken, or else when it was charged. His calls
+ * are read in that order, newest first, and not by their start: so each report he makes is the newest thing in
+ * his history for the next one, in whatever order he reports and whenever the calls themselves settle.
+ */
+const cameIntoHistory = sql`coalesce("calls"."end_report_at", (select max(p.charged_at) from "payments" p where p.call_id = "calls"."id" and p.status = 'charged'))`;
 
 /**
  * A call of his that belongs to "his last 5": a booked or member call (never "available now"),
@@ -86,13 +92,13 @@ const reallyCharged = sql`exists (select 1 from "payments" p where p.call_id = "
  */
 const inHisHistory = and(eq(schema.calls.billing, "host"), isNull(schema.calls.cancelledAt), or(inArray(schema.calls.endReportEffect, ["minutes", "minutes_uncounted"]), reallyCharged));
 
-/** What stands on the 4 calls of his history nearest to now, whichever of them he reports first: newest first, by the call's start. */
+/** What stands on the 4 calls that came into his history last (see `cameIntoHistory`), newest first. */
 async function earlierEffects(reader: Reader, call: Call): Promise<Array<string | null>> {
   const rows = await reader
     .select({ effect: schema.calls.endReportEffect })
     .from(schema.calls)
     .where(and(eq(schema.calls.customerId, call.customerId), ne(schema.calls.id, call.id), inHisHistory))
-    .orderBy(desc(schema.calls.startsAt), desc(schema.calls.id))
+    .orderBy(sql`${cameIntoHistory} desc nulls last`, desc(schema.calls.startsAt), desc(schema.calls.id))
     .limit(END_GUARD.calls - 1);
   return rows.map((row) => row.effect);
 }

@@ -10,7 +10,8 @@ describe("what a press costs, for the question before it", () => {
     expect(END_WORDS.sure("whole_booking")).toBe("End this call for both of you? Nobody will be able to come back in. Your whole booked time is still charged, except time the host was not in the call.");
     // Before the booked start it is charged as a cancellation at that moment would be, and the question says that.
     expect(endCostFor({ role: "customer", billing: "host", pricePer15Cents: 2000, wholeBookingSaid: true, beforeStart: true })).toBe("before_start");
-    expect(END_WORDS.sure("before_start")).toContain("is charged as cancelling it now would be");
+    // It also says what holds once the call has started, in case the question is answered a moment after the start.
+    expect(END_WORDS.sure("before_start")).toContain("it is charged as cancelling it would be; once it has started, your whole booked time is charged");
     // No question says that nobody CAN come back in: that is only known once the room is confirmed closed.
     for (const cost of ["free", "together", "host_minutes", "whole_booking", "before_start", "customer_minutes"] as const) expect(END_WORDS.sure(cost)).not.toMatch(/Nobody can come back in/);
   });
@@ -58,16 +59,18 @@ describe("how a call ended with the button is charged, from what is written on i
     expect(endMoneyFor(call({ safetyEndedAt: early, freeCancelMinutes: 60, endedNowBy: "host" }))).toBe("minutes");
     // A report after a late press before the start lowers it like any other.
     expect(endMoneyFor(call({ safetyEndedAt: early, freeCancelMinutes: 60, endReportEffect: "minutes" }))).toBe("lowered");
+    expect(endMoneyFor(call({ safetyEndedAt: early, freeCancelMinutes: 60, endReportEffect: "whole" }))).toBe("not_lowered_early");
   });
 });
 
 describe("what the call's page says about the money", () => {
-  const all: EndMoney[] = ["free", "together", "minutes", "whole", "free_early", "whole_early", "lowered", "not_lowered"];
+  const all: EndMoney[] = ["free", "together", "minutes", "whole", "free_early", "whole_early", "lowered", "not_lowered", "not_lowered_early"];
   it("a host is never told that she was reported: a lowered charge reads like any charge by the minutes", () => {
     for (const money of all) expect(END_WORDS.money("host", money, names) ?? "").not.toMatch(/report/i);
-    expect(END_WORDS.money("host", "lowered", names)).toBe(END_WORDS.money("host", "minutes", names));
-    // And a report that did not lower the charge reads, for her, like no report at all.
+    expect(END_WORDS.money("host", "lowered", names)).toBe("It is charged for your time in the call up to that moment.");
+    // And a report that did not lower the charge leaves her page exactly as it was, also for a press before the start.
     expect(END_WORDS.money("host", "not_lowered", names)).toBe(END_WORDS.money("host", "whole", names));
+    expect(END_WORDS.money("host", "not_lowered_early", names)).toBe(END_WORDS.money("host", "whole_early", names));
   });
   it("the customer is told what his report did", () => {
     expect(END_WORDS.money("customer", "lowered", names)).toContain("You reported Maya after ending it");

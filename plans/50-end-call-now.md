@@ -4,8 +4,9 @@
 26 November 2026 by the builder alone (no helper agents), from the code as it is on `main` after
 pull request 106. Astra (gpt-6.2-astra, high effort) checked the first draft against the code:
 "not ready", twelve must-fix points. An automatic security check of the first build made three
-more, and a later one a fourth. Astra then checked the plan and the code together: "not ready",
-fifteen points. All are answered below; the lists are at the end.
+more, and later ones three more. Astra then checked the plan and the code together: "not ready",
+fifteen points; and looked a third time at what had changed: "not ready", eight smaller points.
+All are answered below; the lists are at the end.
 
 **Its size, said plainly:** one change, one pull request. Three new columns on a call, one new page,
 the charging rule in one new place that every money step asks, and the phone app's call screen
@@ -167,8 +168,9 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
      confirm-and-pay step and on a member's booking page, and added time is "charged in the same
      way", as before.
    - **A member's booking records the words its page showed**, sent with the form like the card
-     tick of an ordinary booking. A request that was written down earlier and is finished later
-     keeps what it recorded then.
+     tick of an ordinary booking. A new booking that comes without them, or with other ones, is
+     refused, so nobody gets the earlier rule by leaving the field out. A request that was
+     written down earlier and is finished later keeps what it recorded then.
    - **A booking made under the earlier words is never charged that way.** At the press the
      server looks at the version of the words on the call's booking. Only with the new version is
      the press written as "customer". Otherwise it is written as "customer_untold", the button's
@@ -235,15 +237,20 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
 ### The guard (the builder's choice, on the founder's word "do what you think is the best")
 
 16. **Three of the last five. (builder)**
-    - **His last 5 calls** are this call and the 4 others nearest to now, whichever of them he
-      reports first: calls he was the customer of, with any host, booked or from a membership,
-      not cancelled, that carry a report of his that lowered the charge, or of which something
-      was really charged (the call itself, or time added to it). A call that cost nothing is
-      not one of them, whatever happened in it: nobody came, a few seconds, a free one, or a
-      report that was not lowered on a call that then cost nothing. Neither is an "available
-      now" call. Counting such calls would let him push the others out for nothing. This is
-      read from the calls and their payments alone, so it does not depend on messages of the
-      video service that may still arrive, or on the order in which he reports.
+    - **His last 5 calls** are this call and the 4 that came into his history last: calls he
+      was the customer of, with any host, booked or from a membership, not cancelled, that carry
+      a report of his that lowered the charge, or of which something was really paid and kept
+      (the call itself, or time added to it, after anything given back). A call that cost
+      nothing is not one of them, whatever happened in it: nobody came, a few seconds, a free
+      one, a call the host gave back in full, or a report that was not lowered on a call that
+      then cost nothing. Neither is an "available now" call. Counting such calls would let him
+      push the others out for nothing.
+    - **In what order.** A call comes into his history when his report about it is taken, or
+      else when it is charged, and his calls are read in that order, newest first, not by when
+      they took place. So each report he makes is the newest thing in his history for the next
+      one, in whatever order he reports and whenever the calls themselves are settled. It is
+      read from the calls and their payments alone, not from messages of the video service that
+      may still arrive.
     - **It counts the switch, not the dollars.** A report counts when it changed the call from
       "the whole booking" to "the minutes". How much that saved is only known a day later, and
       it can be nothing (the host was not there). The sentences to the founder and to the
@@ -307,7 +314,9 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
     and goes on:
     - a customer on a booked or member call: "Your whole booked time is still charged, except
       time the host was not in the call." Before the booked start: "The call has not started
-      yet: ending it now is charged as cancelling it now would be." For a booking made under
+      yet. Ended before its start, it is charged as cancelling it would be; once it has started,
+      your whole booked time is charged." (Both halves, because the question may be answered a
+      moment after the start.) For a booking made under
       the earlier words: "You pay for the time the host was in the call up to now."
     - a host: "You are paid for your time up to now."
     - an "available now" call: "The time you were both in the call is charged."
@@ -331,7 +340,8 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
       monthly contribution between you ends. [name] is told that those have ended, never that
       you blocked them." Once the block stands the page says "You have blocked [name]" and
       nothing more, and the button stays as "Block [name] again": whether every call still to
-      come was cancelled is said when the block is made, and blocking again tries once more.
+      come was cancelled is said when the block is made, and blocking again tries once more. The
+      sentence under that button says only what blocking again does.
     - **Neither**: "Nothing else happens. You can still report or block [name] later from this
       call's page."
     The other person sees "This call has ended" and is led to the same page, which says who
@@ -366,8 +376,10 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
     that is over shows "Report or block [name]" on its page in the app, so the choices can be
     reached later and by the other person. The server gets one new reading (the screen after
     ending) and one new step (block the other person of this call, which names only the call).
-    Ending, the screen after it, blocking and reporting all still work for a copy of the app
-    that was declared too old while the call ran.
+    Ending, learning that the other person ended it, the screen after it, blocking and reporting
+    all still work for a copy of the app that was declared too old while the call ran. The
+    answer to the press waits at most 8 seconds for the video service; after that the person is
+    told "it is being closed" and has the three choices.
     The app's step has a new name and the old one is gone: the app is not in any store, so no
     copy with the old name exists. (The website's old address is kept, decision 8a.)
 
@@ -457,6 +469,15 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
   report; the founder's refund is the answer.
 - **The two readings behind "may these two write"** are not taken in one step. Only a call ended
   with the old button could fall between them, and nothing writes such a call any more.
+- **A hold whose approval and the press fall within the same moment.** The step that records a
+  hold reads the call without holding its row, so a hold recorded in the very instant of the
+  press can be judged by the call as it was a moment earlier; and the time Stripe gives is when
+  the charge was begun, which for a card that asks its owner to confirm can be before the bank's
+  yes. Either way the call is then charged by its rule, on a card its owner was authorising for
+  this call.
+- **A card step that was cancelled at Stripe and not yet tidied away** still counts as "can
+  change" for a report. Such a call was never paid, so its customer was never in it; a report
+  from it can only count against the person who made it.
 - **A record that changes after the money was taken** is flagged as before, for both kinds of
   charge. It is noticed by a change in the counted seconds; a change that moves a connection and
   keeps its length would not be noticed.
@@ -573,3 +594,32 @@ ones, which the day's wait does not allow).
 Smaller points taken: the database's check on the new columns no longer lets a half-written
 report through; a bank dispute's text claims only what is held (the press and the booking's
 words, not that he read a sentence).
+
+## Astra's third look, at what had changed (26 November 2026): "not ready"
+
+Eight points, each smaller than before. Fixed as it found them: the two addresses (1 of the
+second check), the history (7), a second person's report (8) and the member's press before the
+start (14). Taken now:
+
+1. *A new member booking sent without the words' version was recorded under the earlier rule.*
+   A new booking must come with the version in force (8a). The security check found the same.
+2. *A host who joined in the very second of the press was read as absent.* The reading runs one
+   second past the press (8).
+5. *The backlog: newer calls can be settled before older ones, when a refund request is answered
+   at once.* True, and the reason given before was wrong. His history is now read in the order
+   in which calls came into it (a report, or a charge), not by when they took place (16).
+6. *Sentences.* A host's page after a report that was not lowered on a press before the start;
+   "time after that is not counted" on a call charged for that time; "nothing is charged"
+   followed by "the money is taken about a day after the call"; "had already been taken" for a
+   charge that was only on its way; the phone's question that could be answered a moment after
+   the start; and the bank dispute's text. All reworded (18, 18a).
+7. *The other person's screen offered "join again" when the server did not answer; a slow video
+   service left the phone without the choices; a copy of the app declared too old could not
+   learn that the other person had ended the call.* 3a, 23.
+8. *Under "You have blocked [name]" the page still said that the calls to come are cancelled.* 19.
+
+Not taken, both under "What stays as it is": 3 (a hold recorded in the very instant of the
+press) and 4 (a card step cancelled at Stripe and not yet tidied away).
+
+The security check of the same commit added: a call counts as paid only for what was kept after
+anything given back (16).

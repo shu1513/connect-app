@@ -62,7 +62,8 @@ export async function endedNowOf(call: Call, now: Date, reader: Reader = db): Pr
   // Whether she was there at the press is read from her connections around it, from the moment the room opened:
   // not from the time that is billed, which starts at the booked start. (A host who is in the room when he
   // presses in the first second of the call was there, although no billed second had passed.)
-  const around = await loadAttendance({ ...call, startsAt: roomOpensAt(call) }, now, undefined, reader);
+  // The window runs one second past the press, so a connection that began in the very second of the press is seen too.
+  const around = await loadAttendance({ ...call, startsAt: roomOpensAt(call), safetyEndedAt: new Date(pressedAt.getTime() + 1000) }, now, undefined, reader);
   facts.hostThere = hostThereAt(around.result.hostIntervals, Math.floor(pressedAt.getTime() / 1000));
   return facts;
 }

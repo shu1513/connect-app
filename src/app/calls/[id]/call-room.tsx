@@ -392,9 +392,15 @@ export function CallRoom(props: Props) {
       setNotice(ROOM_WORDS.disconnected);
       // The other person may have ended the call for both ("End call now"), or it may have been cancelled: the
       // server is asked at once, and until it has answered nothing is offered (not "join again"). If it says the
-      // call has ended, this screen says so; if it cannot be reached, the camera check comes back as before.
+      // call has ended, this screen says so; if it cannot be reached for half a minute, the camera check comes back.
       setAskingAfterDrop(true);
-      void refresh().finally(() => setAskingAfterDrop(false));
+      const settle = async () => {
+        // A server that cannot be reached is asked again for half a minute before the camera check is offered once more.
+        const giveUpAt = Date.now() + 30_000;
+        while (!(await refresh()) && Date.now() < giveUpAt) await new Promise((resolve) => setTimeout(resolve, 1_500));
+        setAskingAfterDrop(false);
+      };
+      void settle();
     }
   }
 

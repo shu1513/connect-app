@@ -39,9 +39,10 @@ export function endCostFor(input: { role: Role; billing: string; pricePer15Cents
  *   free_early      the customer pressed before the booked start while cancelling was still free: nothing
  *   whole_early     the customer pressed before the booked start, after that time: the whole booking
  *   lowered         the customer pressed and then reported the host: the time the call lasted
- *   not_lowered     the customer pressed and reported, and the guard did not lower it
+ *   not_lowered     the customer pressed and reported, and the guard did not lower it (`_early`: pressed before the
+ *                   booked start, after the time in which cancelling was free)
  */
-export type EndMoney = "free" | "together" | "minutes" | "whole" | "free_early" | "whole_early" | "lowered" | "not_lowered";
+export type EndMoney = "free" | "together" | "minutes" | "whole" | "free_early" | "whole_early" | "lowered" | "not_lowered" | "not_lowered_early";
 
 export function endMoneyFor(call: { billing: string; pricePer15Cents: number; endedNowBy: string | null; endReportEffect: string | null; startsAt: Date; safetyEndedAt: Date | null; freeCancelMinutes: number }): EndMoney {
   if (call.pricePer15Cents <= 0) return "free";
@@ -51,7 +52,7 @@ export function endMoneyFor(call: { billing: string; pricePer15Cents: number; en
   if (early && call.endedNowBy !== "host" && call.endedNowBy !== null && cancellationOutcome({ by: "customer", now: call.safetyEndedAt!, startsAt: call.startsAt, freeCancelMinutes: call.freeCancelMinutes, held: true }) !== "late_charge") return "free_early";
   if (call.endedNowBy !== "customer") return "minutes";
   if (call.endReportEffect === "minutes" || call.endReportEffect === "minutes_uncounted") return "lowered";
-  if (call.endReportEffect === "whole") return "not_lowered";
+  if (call.endReportEffect === "whole") return early ? "not_lowered_early" : "not_lowered";
   return early ? "whole_early" : "whole";
 }
 
@@ -68,7 +69,7 @@ export const END_WORDS = {
     cost === "whole_booking"
       ? `${SURE} Your whole booked time is still charged, except time the host was not in the call.`
       : cost === "before_start"
-        ? `${SURE} The call has not started yet: ending it now is charged as cancelling it now would be.`
+        ? `${SURE} The call has not started yet. Ended before its start, it is charged as cancelling it would be; once it has started, your whole booked time is charged.`
         : cost === "host_minutes"
           ? `${SURE} You are paid for your time up to now.`
           : cost === "together"
@@ -103,6 +104,8 @@ export const END_WORDS = {
   /** The block stands. Nothing more is claimed: whether every call still to come was cancelled is said when the block is made. */
   blocked: (name: string) => `You have blocked ${name}.`,
   blockAgain: (name: string) => `Block ${name} again`,
+  /** Under that button: what blocking again does, with nothing claimed about what the first block managed. */
+  blockAgainWhat: (name: string) => `Blocking again tries once more to cancel any calls with ${name} that are still to come. ${name} is not told.`,
   /** On the phone app's page of a call that is over: the way to the same choices later. */
   reportOrBlock: (name: string) => `Report or block ${name}`,
   neither: "Neither",
@@ -121,26 +124,29 @@ export const END_WORDS = {
       if (money === "free_early") return "You ended it before its booked start, while cancelling was still free: nothing is charged.";
       if (money === "whole_early") return "You ended it before its booked start, after the time in which cancelling was free: the whole booking is charged, as for a late cancellation.";
       if (money === "lowered") return `You reported ${names.host} after ending it, so what had not been charged yet is charged only for the time the call lasted, not the whole booking.`;
-      if (money === "not_lowered") return `Your report was saved. It does not change what this call is charged: ${SEVERAL}.`;
+      if (money === "not_lowered" || money === "not_lowered_early") return `Your report was saved. It does not change what this call is charged: ${SEVERAL}.`;
       return `Because you ended it, your whole booked time is charged: the time ${names.host} was in the call, and the rest of the booking. Time you waited for ${names.host} is not charged, and if ${names.host} was not in the call when you ended it, neither is the rest.`;
     }
     if (viewer === "host") {
       if (money === "free_early") return `${names.customer} ended it before its booked start, while cancelling was still free: nothing is charged.`;
-      if (money === "whole_early") return `${names.customer} ended it before its booked start, after the time in which cancelling was free: the whole booking is charged, as for a late cancellation.`;
+      // (A report of his that was not lowered leaves her page exactly as it was.)
+      if (money === "whole_early" || money === "not_lowered_early") return `${names.customer} ended it before its booked start, after the time in which cancelling was free: the whole booking is charged, as for a late cancellation.`;
       if (money === "whole" || money === "not_lowered") return `Because ${names.customer} ended it, the whole booked time is charged: your time in the call and, if you were in the call at that moment, the rest of the booking.`;
-      return "Only your time in the call up to that moment is charged.";
+      // (Not "only": on a call with time added by card, a charge that was taken earlier stays as it is.)
+      return money === "lowered" ? "It is charged for your time in the call up to that moment." : "Only your time in the call up to that moment is charged.";
     }
     if (money === "minutes") return "Only the host's time in the call up to that moment is charged.";
     if (money === "free_early") return "The customer ended it before its booked start, while cancelling was still free: nothing is charged.";
     if (money === "whole_early") return "The customer ended it before its booked start, after the time in which cancelling was free: the whole booking is charged.";
     if (money === "lowered") return "The customer reported the host afterwards, so what had not been charged yet is charged only for the host's time in the call up to that moment.";
-    if (money === "not_lowered") return "The customer reported the host afterwards, and the guard did not lower the charge: it stays as for a call the customer ended.";
+    if (money === "not_lowered" || money === "not_lowered_early") return "The customer reported the host afterwards, and the guard did not lower the charge: it stays as for a call the customer ended.";
     return "Because the customer ended it, the whole booked time is charged: the host's time in the call and, if the host was in the call at that moment, the rest of the booking.";
   },
   /** Under the money line, while the money is still to be taken: nothing is taken yet, and where the amount will be. */
   moneyWhen: "The money is taken about a day after the call. The amount is on the call's page a few minutes after the call.",
-  /** The same place, once the call's money is settled. */
+  /** The same place, once the call's money is settled. (The phone app's page of a call has no receipt yet: it says where the receipt is.) */
   moneyDone: "What was charged is on the call's page.",
+  moneyDoneApp: "The call's money is settled. The receipt is on the call's page on the website.",
 
   /** Added to the thank-you after a report that decided the charge. */
   thanksLowered: "This call is charged only for the time it lasted, not the whole booking.",
@@ -148,7 +154,7 @@ export const END_WORDS = {
   thanksLoweredPartly: "What had not been charged yet for this call is charged only for the time it lasted. A charge that was already taken, or was on its way, stays as it is; if you think it is wrong, write to us.",
   thanksNotLowered: `Your report does not change what this call is charged: ${SEVERAL}. If you think the charge is wrong, write to us.`,
   /** All of the call's money was taken before the report arrived (he may have opened the form while it was still waiting). */
-  thanksTooLate: "The money for this call had already been taken, so your report does not change the charge. If you think the charge is wrong, write to us.",
+  thanksTooLate: "The charge for this call had already been made or was on its way, so your report does not change it. If you think the charge is wrong, write to us.",
 
   /** To the customer whose report did not lower the charge: a message with its email, long before the money is taken. Nothing about the block, which follows the report and can fail by itself. */
   customerSubject: "Your report was saved. The call's charge stays as it is",

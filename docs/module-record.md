@@ -5866,4 +5866,16 @@ for report and block."
   can let a hold go outside the step that holds the call (as it always could); a charge recorded
   as failed that Stripe later reports as made; the two readings behind "may these two write"
   (only the old button could fall between them); and a backlog of unsettled calls reported after
-  newer ones were settled (the day's wait does not allow it).
+  newer ones were settled.
+- **Astra's third look, at what had changed: "not ready", eight smaller points.** Six taken: a
+  new member booking sent without the words' version was recorded under the earlier rule; a host
+  who joined in the very second of the press was read as absent; the backlog case, where the
+  builder's reason for leaving it had been wrong (a customer's history is now read in the order
+  in which calls came into it, by report or by charge, not by when they took place); six
+  sentences that were still wrong in an edge case; the other person's screen offering "join
+  again" when the server did not answer, a slow video service leaving the phone without the
+  choices, and a too-old copy of the app not learning that the other person had ended the call;
+  and the sentence under "You have blocked". Two not taken, both in the plan under "What stays as
+  it is": a hold recorded in the very instant of the press, and a card step cancelled at Stripe
+  and not yet tidied away. Astra was not asked a fourth time: the points had become edge cases
+  of edge cases, and the pull request's own reviewer reads the whole change next.

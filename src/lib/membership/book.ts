@@ -181,15 +181,15 @@ async function mustBeBookable(
 
 /**
  * `seen.wordsVersion`: the version of the words about the call's charge that the booking page showed (booking/rules.ts,
- * WHOLE_BOOKING_SAID). It is what the booking records, so a member is only ever held to words he was shown. Left out
- * when a saved request is continued: that one keeps what it recorded when it was first written down.
+ * WHOLE_BOOKING_SAID). A new booking must come with the version in force, and records it; one that comes without
+ * it, or with another one, is refused, so nobody gets a booking under the earlier words by leaving the field out.
+ * Left out only when a saved request is continued: that one keeps what it recorded when it was first written down.
  */
 type Input = { customer: Person; hostId: string; startsAt: Date; lengthMinutes: number; requestKey: string; seen: { pricePer15Cents: number; freeCancelMinutes: number; wordsVersion?: string }; now: Date };
 
 const WORDS_CHANGED = "The words about this booking have changed since you opened this page. Please read them again.";
-/** The version a new booking records: the one its page showed, which must be the one in force. None when the page sent none. */
-function wordsShown(input: Input): string | null {
-  if (input.seen.wordsVersion === undefined) return null;
+/** The version a new booking records: the one its page showed, which must be the one in force. */
+function wordsShown(input: Input): string {
   if (input.seen.wordsVersion !== CARD_CONSENT_VERSION) throw new BookingError(WORDS_CHANGED);
   return CARD_CONSENT_VERSION;
 }
