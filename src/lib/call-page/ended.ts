@@ -9,6 +9,7 @@ import { db, schema } from "@/db";
 import { roomClosesAt } from "@/lib/calls";
 import { hasBlocked } from "@/lib/follows/follows";
 import { callForParticipant } from "@/lib/payments/access";
+import { ordinaryPayments } from "@/lib/payments/take";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
 import { endReportPreview } from "@/lib/safety/end-report";
 import { REPORT_WORDS } from "@/lib/safety/report-words";
@@ -46,8 +47,7 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
   const [customer] = await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, call.customerId));
   // A customer knows the host by the name on her page, and by nothing else: never by her account name.
   const [hostPage] = await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId));
-  const [hostAccount] = role === "host" || hostPage ? [] : await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, call.hostId));
-  const names = { host: hostPage?.displayName ?? hostAccount?.name ?? "the host", customer: customer?.name ?? "the customer" };
+  const names = { host: hostPage?.displayName ?? "the host", customer: customer?.name ?? "the customer" };
   const otherName = role === "host" ? names.customer : names.host;
 
   const lines: string[] = [];
@@ -63,7 +63,8 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
     } else {
       const money = END_WORDS.money(role, endMoneyFor(call), names);
       // While the call's own money is still to be taken, when that happens; once it is settled, where to read it.
-      const settled = !access.payment || (access.payment.status !== "held" && access.payment.status !== "awaiting_payment");
+      // (Every charge of the call counts: its own, and each stretch of added time the host accepted.)
+      const settled = !(await ordinaryPayments(db, call.id)).some((payment) => payment.status === "held" || payment.status === "awaiting_payment");
       const kind = endMoneyFor(call);
       // (Where nothing is charged there is nothing to wait for.)
       if (money) lines.push(...(kind === "free_early" ? [money] : [money, settled ? END_WORDS.moneyDone : END_WORDS.moneyWhen]));

@@ -164,7 +164,8 @@ Decisions marked **(founder)** below are these. Every other one is the builder's
    there is free. Charging him the whole booking needs him to have agreed to that. So:
    - **The words he agrees to when he books now say it** (a new version of them, "2026-11-d"):
      "If you end the call yourself with 'End call now', you pay for your whole booked time: the
-     time the host was in the call, and the rest of your booking." The same sentence is on the
+     time the host was in the call, and the rest of your booking. If you end it before its
+     booked start, that is charged as cancelling it at that moment would be." The same sentence is on the
      confirm-and-pay step and on a member's booking page, and added time is "charged in the same
      way", as before.
    - **A member's booking records the words its page showed**, sent with the form like the card

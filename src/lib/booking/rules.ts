@@ -272,5 +272,7 @@ export function lengthWords(minutes: number): string {
  * What ending a call himself costs a customer, said where he books and where he pays (plans/51-end-call-now.md).
  * Part of the wording CARD_CONSENT_VERSION names: only a booking made under it is charged this way.
  */
-export const END_NOW_RULE = 'If you end the call yourself with "End call now", you pay for your whole booked time: the time the host was in the call, and the rest of your booking.';
-export const MEMBER_END_NOW_RULE = 'If you end the call yourself with "End call now", all the time you booked is used: the time the host was in the call, and the rest of your booking.';
+/** (The second sentence: these words are read before the call, and a press before the booked start is charged as a cancellation at that moment would be.) */
+const END_NOW_EARLY = "If you end it before its booked start, that is charged as cancelling it at that moment would be.";
+export const END_NOW_RULE = `If you end the call yourself with "End call now", you pay for your whole booked time: the time the host was in the call, and the rest of your booking. ${END_NOW_EARLY}`;
+export const MEMBER_END_NOW_RULE = `If you end the call yourself with "End call now", all the time you booked is used: the time the host was in the call, and the rest of your booking. ${END_NOW_EARLY}`;

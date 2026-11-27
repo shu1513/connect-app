@@ -142,8 +142,8 @@ export const END_WORDS = {
     if (money === "not_lowered" || money === "not_lowered_early") return "The customer reported the host afterwards, and the guard did not lower the charge: it stays as for a call the customer ended.";
     return "Because the customer ended it, the whole booked time is charged: the host's time in the call and, if the host was in the call at that moment, the rest of the booking.";
   },
-  /** Under the money line, while the money is still to be taken: nothing is taken yet, and where the amount will be. */
-  moneyWhen: "The money is taken about a day after the call. The amount is on the call's page a few minutes after the call.",
+  /** Under the money line, while the money is still to be taken: nothing is taken yet, and where the amount will be. (The call's record is final a few minutes after its BOOKED end, also when it was ended early.) */
+  moneyWhen: "The money is taken about a day after the call. The amount is on the call's page a few minutes after the booked end of the call.",
   /** The same place, once the call's money is settled. (The phone app's page of a call has no receipt yet: it says where the receipt is.) */
   moneyDone: "What was charged is on the call's page.",
   moneyDoneApp: "The call's money is settled. The receipt is on the call's page on the website.",
