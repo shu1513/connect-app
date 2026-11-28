@@ -2042,6 +2042,26 @@ async function main() {
       await instead("create", () => (asked++, Promise.reject(no())), () => look(operationId, roundBegan));
       return asked;
     }
+    type Fake = (real: (...args: unknown[]) => unknown, args: unknown[]) => unknown;
+    /** Stripe's list of the charge's refunds, with one refund shown in another state than it really is in. */
+    const shownAs = (refundId: string, status: string): Fake => (real, args) => ({
+      async *[Symbol.asyncIterator]() {
+        for await (const refund of real(...args) as AsyncIterable<Stripe.Refund>) yield refund.id === refundId ? { ...refund, status } : refund;
+      },
+    });
+    /** Stripe's list, answering only after `ms`. `mark.ended` is the moment the reading of it was over. */
+    const slowList = (ms: number, mark: { ended: number }): Fake => (real, args) => ({
+      async *[Symbol.asyncIterator]() {
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        try {
+          for await (const refund of real(...args) as AsyncIterable<Stripe.Refund>) yield refund;
+        } finally {
+          mark.ended = Date.now();
+        }
+      },
+    });
+    /** Stripe's list, refused with a clear "no". `mark.asked` counts how often it was asked for. */
+    const noList = (mark: { asked: number }): Fake => () => ({ [Symbol.asyncIterator]: () => ({ next: () => (mark.asked++, Promise.reject(no())) }) });
     let owedSoFar = 0;
     /** A part of a month's free money is owed back to the card. */
     const part = (monthId: string, amountCents = 500) =>
@@ -2064,18 +2084,23 @@ async function main() {
     // round is one that began 50 minutes ago: the hour is counted from when the "no" is written down.
     const lineB = await part(a.monthId, 300);
     const tryB = await unanswered(lineB, { first: false, oldMs: 55 * MIN });
-    const refusedFrom = Date.now();
-    const askedB = await lookWithRepeatRefused(tryB.started.operationId, new Date(Date.now() - 50 * MIN));
+    const searchB = { ended: 0 };
+    let askedB = 0;
+    await instead("list", slowList(1500, searchB), async () => void (askedB = await lookWithRepeatRefused(tryB.started.operationId, new Date(Date.now() - 50 * MIN))));
     l = await lineOf(lineB.id);
     const refusedB = await tryOf(tryB.started.operationId);
     check("a refused repeat with nothing on Stripe's list means the try did not happen: owed again as a new try, with Stripe's own words kept", askedB === 1 && l.status === "owed" && l.attempt === 2 && l.lastFailedAt !== null && refusedB.status === "failed" && /made up by the check script/.test(refusedB.error ?? "") && (await atStripe(a.monthId)).length === 1 && (await paid(a.monthId)) === "500/300", { askedB, status: l.status, attempt: l.attempt, error: refusedB.error });
-    check("the hour before the new try is counted from the moment the \"no\" is written down, not from the start of the helper's round", (l.lastFailedAt?.getTime() ?? 0) >= refusedFrom - 1000, { lastFailedAt: l.lastFailedAt, refusedFrom: new Date(refusedFrom) });
+    check("the hour before the new try is counted from the moment the \"no\" is written down: not from the start of the helper's round, and not from before its (slow) search of Stripe's list", searchB.ended > 0 && (l.lastFailedAt?.getTime() ?? 0) >= searchB.ended, { lastFailedAt: l.lastFailedAt, searchEnded: new Date(searchB.ended) });
     const tooSoon = await requestsDuring(() => P.sendPayBack(lineB.id, new Date(Date.now() + 15 * MIN)));
     const sameHour = (await lineOf(lineB.id)).status;
     const afterHour = await requestsDuring(() => P.sendPayBack(lineB.id, new Date(Date.now() + 61 * MIN)));
     const sentB = (await atStripe(a.monthId)).filter((r) => r.metadata?.refundId === lineB.id);
     check("it is not sent within the hour, and after it the new try is sent once", tooSoon.length === 0 && sameHour === "owed" && afterHour.length === 1 && afterHour[0].label === `monthrefund:${lineB.id}:2:1` && (await lineOf(lineB.id)).status === "done" && sentB.length === 1 && sentB[0].metadata?.attempt === "2" && (await paid(a.monthId)) === "800/0", { tooSoon, sameHour, afterHour, sent: sentB.length });
-    check("the first sender gives its request 10 seconds and does not let the Stripe library repeat it", afterHour[0]?.timeout === 10_000 && afterHour[0]?.maxNetworkRetries === 0, afterHour);
+    // An ordinary pay-back, as the helper's job sends it the first time.
+    const lineP = await part(a.monthId, 100);
+    const plain = await requestsDuring(() => P.sendPayBack(lineP.id, new Date()));
+    const timed = (sent: Sent | undefined) => sent?.timeout === 10_000 && sent?.maxNetworkRetries === 0;
+    check("whoever writes a try down sends it with 10 seconds for the request and with the Stripe library told not to repeat it: a first try and a later one alike", plain.length === 1 && plain[0].label === `monthrefund:${lineP.id}:1:1` && timed(plain[0]) && timed(afterHour[0]) && (await lineOf(lineP.id)).status === "done" && (await paid(a.monthId)) === "900/0", { plain, afterHour });
     await audit("after a pay-back found on Stripe's list, and one that was really refused", a);
 
     // 3. The repeat answers with the FIRST answer, "succeeded"; the refund has failed since.
@@ -2109,18 +2134,24 @@ async function main() {
     const lineH = await part(c.monthId, 200);
     const tryH = await unanswered(lineH, { first: true, oldMs: 2 * MIN });
     await instead("retrieve", (real, args) => (args[0] === tryH.first!.id ? Promise.resolve({ ...tryH.first!, status: "failed" }) : real(...args)), () => look(tryH.started.operationId));
-    const notFinished = (real: (...args: unknown[]) => unknown, args: unknown[]) => ({
-      async *[Symbol.asyncIterator]() {
-        for await (const refund of real(...args) as AsyncIterable<Stripe.Refund>) yield refund.id === tryH.first!.id ? { ...refund, status: "pending" } : refund;
-      },
-    });
+    const notFinished = shownAs(tryH.first!.id, "pending");
     let sentH: Sent[] = [];
     await instead("list", notFinished, async () => void (sentH = await requestsDuring(() => P.sendPayBack(lineH.id, new Date(Date.now() + 61 * MIN)))));
     l = await lineOf(lineH.id);
     const waitingH = sentH.length === 0 && l.status === "at_stripe" && l.attempt === 2 && l.stripeRefundId === tryH.first!.id && tryH.first!.metadata?.attempt === "1" && (await paid(c.monthId)) === "1000/200";
-    await P.runPayBacks(new Date());
+    // Stripe then says that refund failed: the try the line is on is over, and it is owed again.
+    let askedH = 0;
+    await instead("retrieve", (real, args) => (args[0] === tryH.first!.id ? (askedH++, Promise.resolve({ ...tryH.first!, status: "failed" })) : real(...args)), () => P.runPayBacks(new Date()));
     l = await lineOf(lineH.id);
-    check("an earlier try's refund that Stripe has not finished is booked as \"at Stripe\" on the new try, and when the helper asks about it by its number it is booked for the try the line is on, not the try the refund names", waitingH && l.status === "done" && l.attempt === 2 && (await paid(c.monthId)) === "1200/0" && (await atStripe(c.monthId)).length === 3, { waitingH, sentH, status: l.status, attempt: l.attempt, paid: await paid(c.monthId) });
+    check("an earlier try's refund that Stripe has not finished is booked as \"at Stripe\" on the new try; when the helper asks about it by its number and it has failed, the try the line is on is over: owed again, nothing booked as paid", waitingH && askedH === 1 && l.status === "owed" && l.attempt === 3 && l.stripeRefundId === null && (await paid(c.monthId)) === "1000/200" && (await ledger({ monthId: c.monthId }, "customer_refund")).lines === 2, { waitingH, sentH, askedH, status: l.status, attempt: l.attempt, paid: await paid(c.monthId) });
+    // (Stripe really paid that refund; only this script said it failed.) Found again before the third try, still not finished; then Stripe finishes it.
+    let sentH3: Sent[] = [];
+    await instead("list", notFinished, async () => void (sentH3 = await requestsDuring(() => P.sendPayBack(lineH.id, new Date(Date.now() + 61 * MIN)))));
+    const waitingH3 = sentH3.length === 0 && (await lineOf(lineH.id)).status === "at_stripe" && (await lineOf(lineH.id)).attempt === 3;
+    askedH = 0;
+    await instead("retrieve", (real, args) => (args[0] === tryH.first!.id && askedH++, real(...args)), () => P.runPayBacks(new Date()));
+    l = await lineOf(lineH.id);
+    check("and when Stripe has paid it, the helper's asking books it for the try the line is on, not the try the refund names: once, and nothing was ever sent again", waitingH3 && askedH === 1 && l.status === "done" && l.attempt === 3 && l.stripeRefundId === tryH.first!.id && (await paid(c.monthId)) === "1200/0" && (await atStripe(c.monthId)).length === 3 && (await ledger({ monthId: c.monthId }, "customer_refund")).lines === 3, { waitingH3, sentH3, askedH, status: l.status, attempt: l.attempt, paid: await paid(c.monthId) });
     await audit("after lines that were moved on although their earlier try was paid", c);
 
     // 4. Too old to repeat (23 hours), and not on Stripe's list.
@@ -2168,15 +2199,70 @@ async function main() {
     const lineG = await part(f.monthId, 200);
     const tryG = await unanswered(lineG, { first: true, oldMs: 2 * MIN });
     const untouched = async () => (await tryOf(tryG.started.operationId)).status === "started" && (await lineOf(lineG.id)).status === "owed" && (await lineOf(lineG.id)).attempt === 1 && (await paid(f.monthId)) === "500/200";
-    await instead("retrieve", (real, args) => (args[0] === tryG.first!.id ? Promise.reject(no()) : real(...args)), () => look(tryG.started.operationId));
-    const afterRetrieve = await untouched();
-    const noList = () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(no()) }) });
-    await instead("list", noList, () => lookWithRepeatRefused(tryG.started.operationId));
-    const afterList = await untouched();
-    check("when Stripe says a clear \"no\" to asking about the refund by its number, or to reading its list after a refused repeat, nothing is decided: the try stays open and the line as it is", afterRetrieve && afterList, { afterRetrieve, afterList });
+    let refusedByNumber = 0;
+    await instead("retrieve", (real, args) => (args[0] === tryG.first!.id ? (refusedByNumber++, Promise.reject(no())) : real(...args)), () => look(tryG.started.operationId));
+    const afterRetrieve = (await untouched()) && refusedByNumber === 1;
+    const listG = { asked: 0 };
+    let repeatsG = 0;
+    await instead("list", noList(listG), async () => void (repeatsG = await lookWithRepeatRefused(tryG.started.operationId)));
+    const afterList = (await untouched()) && repeatsG === 1 && listG.asked === 1;
+    check("when Stripe says a clear \"no\" to asking about the refund by its number, or to reading its list after a refused repeat, nothing is decided: the try stays open and the line as it is", afterRetrieve && afterList, { afterRetrieve, afterList, refusedByNumber, repeatsG, listAsked: listG.asked });
     await look(tryG.started.operationId);
     check("and the next look, when Stripe answers, books it once", (await lineOf(lineG.id)).status === "done" && (await paid(f.monthId)) === "700/0" && (await atStripe(f.monthId)).filter((r) => r.metadata?.refundId === lineG.id).length === 1);
     await audit("after a writer that was too late, and looks that Stripe refused", f);
+
+    // 8. The search for this try must not take a refund of the same line and ANOTHER try for it, and the look for an
+    // earlier try passes over one that has failed. (Stripe really paid the first try's refund here; the script shows
+    // it as failed, on Stripe's list and by its number, for as long as that is the story.)
+    const g = await running(host2);
+    const lineK = await part(g.monthId);
+    const tryK = await unanswered(lineK, { first: true, oldMs: 2 * MIN });
+    await instead("retrieve", (real, args) => (args[0] === tryK.first!.id ? Promise.resolve({ ...tryK.first!, status: "failed" }) : real(...args)), () => look(tryK.started.operationId));
+    const secondK = await unanswered(await lineOf(lineK.id), { first: false, oldMs: 2 * MIN, now: new Date(Date.now() + 61 * MIN) });
+    let repeatsK = 0;
+    await instead("list", shownAs(tryK.first!.id, "failed"), async () => void (repeatsK = await lookWithRepeatRefused(secondK.started.operationId)));
+    l = await lineOf(lineK.id);
+    check("a refused repeat of the second try, with only the first try's failed refund on Stripe's list: that refund is neither \"an earlier try that is still alive\" nor \"this try\", so the second try did not happen and the line is owed again", repeatsK === 1 && l.status === "owed" && l.attempt === 3 && (await tryOf(secondK.started.operationId)).status === "failed" && (await paid(g.monthId)) === "0/500", { repeatsK, status: l.status, attempt: l.attempt });
+    const sentK = await requestsDuring(() => P.sendPayBack(lineK.id, new Date(Date.now() + 61 * MIN)));
+    l = await lineOf(lineK.id);
+    check("(and as Stripe really paid the first try, the third finds it and books it: nothing is sent)", sentK.length === 0 && l.status === "done" && l.attempt === 3 && l.stripeRefundId === tryK.first!.id && (await paid(g.monthId)) === "500/0" && (await atStripe(g.monthId)).length === 1, { sentK, status: l.status });
+
+    // 9. The order of things, with a search of Stripe's list that is slow.
+    // Whether "not on the list" may be final is decided before the search begins, not after it.
+    const lineM = await part(g.monthId, 300);
+    const tryM = await unanswered(lineM, { first: false, oldMs: 24 * HOUR - 3000 });
+    const searchM = { ended: 0 };
+    await instead("list", slowList(5000, searchM), () => look(tryM.started.operationId));
+    l = await lineOf(lineM.id);
+    const olderThanADay = Date.now() - (await tryOf(tryM.started.operationId)).createdAt.getTime() >= 24 * HOUR;
+    check("a search that began before the 24 hours were over and ended after them is not final: the try stays open", searchM.ended > 0 && olderThanADay && (await tryOf(tryM.started.operationId)).status === "started" && l.status === "owed" && l.attempt === 1, { searchEnded: searchM.ended, olderThanADay, status: l.status, attempt: l.attempt });
+    await look(tryM.started.operationId);
+    l = await lineOf(lineM.id);
+    check("the next search, begun after them, is final", (await tryOf(tryM.started.operationId)).status === "failed" && l.status === "owed" && l.attempt === 2, { status: l.status, attempt: l.attempt });
+    // The sender's last moment is looked at after its search for an earlier try, as the very last thing.
+    const secondM = await unanswered(l, { first: false, now: new Date(Date.now() + 61 * MIN) });
+    const searchM2 = { ended: 0 };
+    let sentM: Sent[] = [];
+    let saidM = "";
+    await instead("list", slowList(2500, searchM2), async () => void (sentM = await requestsDuring(async () => void (saidM = await said(completeOwnedOperation({ ...secondM.started, params: { ...secondM.started.params, sendByMs: Date.now() + 1000 } }, secondM.plan))))));
+    l = await lineOf(lineM.id);
+    check("a sender whose last moment passes while it searches Stripe's list for an earlier try sends nothing", searchM2.ended > 0 && sentM.length === 0 && /^money: The pay-back was not sent to Stripe in time/.test(saidM) && l.status === "owed" && l.attempt === 3 && (await atStripe(g.monthId)).length === 1, { sentM, saidM, status: l.status, attempt: l.attempt });
+
+    // 10. A "no" to the look for an earlier try, before a new try is sent: nothing is sent, by the sender or by the helper.
+    const listM = { asked: 0 };
+    let sentM3: Sent[] = [];
+    // (Three hours on: the "no" just above was written for a pretend moment an hour ahead.)
+    await instead("list", noList(listM), async () => void (sentM3 = await requestsDuring(() => P.sendPayBack(lineM.id, new Date(Date.now() + 3 * HOUR)))));
+    const [thirdM] = (await operations(g.monthId, "refund")).filter((operation) => operation.label === `monthrefund:${lineM.id}:3:1`);
+    const bySender = sentM3.length === 0 && listM.asked === 1 && thirdM?.status === "started" && (await lineOf(lineM.id)).status === "owed" && (await lineOf(lineM.id)).attempt === 3;
+    await age(thirdM.id, 2 * MIN);
+    let sentM3b: Sent[] = [];
+    await instead("list", noList(listM), async () => void (sentM3b = await requestsDuring(() => look(thirdM.id))));
+    const byHelper = sentM3b.length === 0 && listM.asked === 2 && (await tryOf(thirdM.id)).status === "started" && (await lineOf(lineM.id)).attempt === 3;
+    check("when Stripe refuses the look for an earlier try, the new try is written down and not sent, by the sender and by the helper: it stays open", bySender && byHelper, { bySender, byHelper, sentM3, sentM3b, listAsked: listM.asked });
+    const sentM3c = await requestsDuring(() => look(thirdM.id));
+    check("and when Stripe answers the look, the helper sends it once under its label and books it", sentM3c.length === 1 && sentM3c[0].label === `monthrefund:${lineM.id}:3:1` && (await lineOf(lineM.id)).status === "done" && (await paid(g.monthId)) === "800/0" && (await atStripe(g.monthId)).length === 2, { sentM3c, paid: await paid(g.monthId) });
+    await audit("after the searches that were slow, refused, or showed another try", g);
   });
 
   // ========================================================================

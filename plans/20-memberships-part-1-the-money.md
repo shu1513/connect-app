@@ -1113,4 +1113,53 @@ earlier try was paid is not sent again, by the sender and by the helper alike: t
 refund is booked, also when Stripe had not finished it yet; after 23 hours a missing refund
 stays open, and after 24 it is final; after 23 hours a refund on the list is booked without
 a second request; a writer that is too late sends nothing, and the helper sends it once,
-under the same label; a "no" to a mere look at Stripe decides nothing.
+under the same label; a "no" to a mere look at Stripe decides nothing. After Astra's check
+(below) the journey also proves the order of things with a search that is made slow: a
+search begun before the 24 hours were over is not final, a sender whose last moment passes
+during its look for an earlier try sends nothing, and the hour is counted from after the
+search; a refund of the same line and another try is not taken for this try; an earlier
+try's refund that fails while the line waits on it makes the line owed again; and a "no" to
+the look for an earlier try stops the sender and the helper alike.
+
+## Astra's check of the pay-back's follow-up (27 November 2026): "merge after fixes"
+
+Five points. Three were taken, two are left and named.
+
+1. *A helper that stands still for more than an hour at one exact step* (after it has read
+   that a try is open, before its repeat leaves), while a second helper is refused on the
+   same try and nothing is on Stripe's list: the line moves on, is paid as a new try, and
+   the first helper then wakes up and sends the old try, which Stripe pays too. **Left, and
+   named.** It is the same for a call's refund and a contribution's, so it should be decided
+   for all three at once, not for memberships alone. Astra's fix (a short life for the
+   helper's look) makes the moment smaller and cannot close it: the Stripe library can still
+   send a request once more by itself after such a standstill. It needs two helpers, a
+   refusal, and a standstill of over an hour in a step that takes a fraction of a second.
+   Proposed as a follow-up of its own.
+2. *A pay-back that Stripe confirmed and that fails days later stays booked as paid.*
+   **Not here:** it was so before, it is in the code for Stripe's messages
+   (`src/lib/disputes/takeback.ts`, `months.ts`), and plan 50, part 2 is building exactly
+   that right now (a confirmed pay-back that fails is owed again as a new try). This
+   change fits it: a failed refund on Stripe's list is passed over by the look for an
+   earlier try, so the new try goes out.
+3. *Pay-backs that cannot be sent could keep others waiting.* The helper tries the 50 oldest
+   pay-backs that are owed; one whose month has an action without an answer is refused under
+   the lock and stays where it was, so fifty of those would keep a newer pay-back of another
+   month waiting. A try that now stays open until its 24 hours are over makes that a little
+   more likely. **Taken:** such lines are left out before the 50 are picked, as a
+   contribution's refunds already are.
+4. *The checks did not pin the order of things:* a sender that looked at its last moment
+   before its search, or a helper that decided "final" after its search, would have passed.
+   **Taken:** the three cases with a slow search, above.
+5. *Some checks proved less than they said.* **Taken:** the 10 seconds and "no repeats" are
+   now read from a first try too; the search for this try is shown a refund of the same line
+   and another try; the refund a line waits on is made to fail as well as to succeed, and
+   how often it is asked about is counted; the refused looks are counted, and the look
+   before a new try is refused too.
+
+Astra also confirmed: the six rules stand in the same order as for a contribution; two
+helpers cannot book the same try twice; closing a month keeps what is owed, and a finished
+month is reopened when time is given back; a dispute still stops new tries; moving the three
+search functions changed nothing for contributions; holds, takings and letting go are
+followed up as before. For going live: the app and its helper are put out together, because
+an older sender has no last moment for sending (rule 5 covers a try it left behind, not a
+request it still holds).
