@@ -44,6 +44,11 @@ export class NotSentError extends Error {}
 /** An unfinished action is only checked by the helper once Stripe has had time to finish it. */
 export const RECONCILE_AFTER_MS = 60_000;
 
+/** How long one search through a list at Stripe may take before it is given up as unfinished. */
+export const SEARCH_WITHIN_MS = 20_000;
+/** From when "Stripe's list does not show it" is final for a request that can no longer be repeated: an hour after the last repeat could have been sent. */
+export const SETTLED_AFTER_MS = 24 * 3_600_000;
+
 /** The action may or may not have happened. It will be checked with Stripe before anything else runs. */
 export class OutcomeUnknownError extends Error {}
 
