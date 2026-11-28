@@ -898,13 +898,13 @@ guard against repeated reports is the builder's choice, which the founder asked 
 
 ## 26. An account paused by the app itself, and the rating average (new, plan 52, 27 November 2026)
 
-**This is built and switched off.** The round that does it runs only where `AUTO_PAUSE=on` is
-set, and it stays off until a pause no longer ends an account's memberships for good (the
-founder wants them paused instead; that is the next piece of work) and until the questions
-below are answered.
+**This is switched on in the app (27 November 2026, with plan 53), and Connect is not open to
+real people yet.** It was held back until a pause no longer ended an account's memberships for
+good; now a pause pauses them (section 27). The questions below should be answered before real
+people use Connect.
 
-What the app does once it is switched on (`plans/52-automatic-pause.md`): about every 10 minutes
-it looks for accounts that have reached one of two lines, and pauses them with no person deciding.
+What the app does (`plans/52-automatic-pause.md`): about every 10 minutes it looks for accounts
+that have reached one of two lines, and pauses them with no person deciding.
 
 - **Reports:** 5 different people reported the account within 90 days, each of them had a call
   with it in that time that was really paid for, and those people are at least 1 in 10 of
@@ -919,8 +919,8 @@ it looks for accounts that have reached one of two lines, and pauses them with n
 
 The person is told the rule that was reached, in general words: never who reported or rated
 them, how many people reported them, or what their average is. The founder gets an email that it
-happened, with the numbers. Only a person can lift the pause. A pause ends the account's
-memberships and monthly contributions for good, as a pause by hand does.
+happened, with the numbers. Only a person can lift the pause. A pause pauses the account's
+memberships (section 27) and ends its monthly contributions, as a pause by hand does.
 
 The average itself changed too: it is shown from 5 different people on (before: 3), and it is a
 rolling one, worked out from the most recent 50 people or so.
@@ -943,9 +943,10 @@ Questions:
   numbers. Must they, before this is used on real people? Must the numbers be published, or is
   "may be paused automatically when several customers report it or its ratings are very low"
   enough? A low rating is not a broken rule: may Connect pause for it?
-- **Memberships that end for good.** A pause made by a machine ends every membership of the
-  host at once, and lifting the pause does not bring them back. If the pause was wrong, what
-  does Connect owe the host, and the members?
+- **Memberships and a pause that was wrong.** A pause made by a machine pauses every membership
+  of the host at once (section 27): members get their unused time back and must resume by
+  themselves after the pause is lifted; some will not. Her monthly contributions end. If the
+  pause was wrong, what does Connect owe the host, and the members?
 - **Reports nobody examined.** The pause rests on reports that no person has read. Could it be
   said to treat a person as guilty on an accusation? Does it matter that every counted reporter
   paid for a call, and that 5 different people are needed?
@@ -965,4 +966,31 @@ Questions:
   with you" reported her. With exactly five paying customers in that time, that is all of them.
   Is that an unlawful disclosure of who reported, and must the pause for reports be kept from
   accounts with so few customers?
+
+## 27. A paused account now pauses its memberships, it no longer ends them (new, plan 53, 27 November 2026)
+
+What the app does (`plans/53-memberships-paused-with-an-account.md`): when an account is paused,
+by a person on the team or by the app itself, every membership it has, as a host and as a member,
+is paused in the same step. Before, they ended for good. The member's coming member calls are
+cancelled at no charge, the time they had not used in the month they paid for is paid back to
+their card, and a month that was not paid yet is given up. The member keeps their place, their
+own price and their own time, and can resume by themselves once the account's pause is lifted:
+they are sent an email then. Resuming is a new agreement and a new month, as from any pause.
+Both people are told "one of the two accounts was paused", never which one or why. A closed
+account, a block, a suspended host and a bank dispute still end a membership for good.
+
+Questions:
+
+- **The Payment Terms, section 10.11** say a membership "you cancelled or that was paused for a
+  failed payment can be resumed by you". A pause with an account is a third case. Must the
+  section name it, and say that unused time is paid back at such a pause?
+- **Telling the member that "one of the two accounts was paused".** Where the member's own
+  account is fine, that tells them the host's account is paused. Is that a disclosure about the
+  host that needs care, or simply what a member must be told to understand why their membership
+  stopped? (The email at an ending has said the same until now.)
+- **Money paid back, then a pause lifted.** The member was paid back for the time they had not
+  used, and the host is back. Nothing is owed in either direction after that: correct? The
+  host has lost that month's unused time through a pause that may have been wrong.
+- **Monthly contributions still end** with a pause. A contributor who wants to go on must start
+  again. Should they be treated like memberships?
 

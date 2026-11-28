@@ -288,8 +288,10 @@ member's "Keep my membership" undoes their own cancelling and the stop from the 
 membership is on again), and leaves the host's pause where it is; the page then says that the
 membership is still set to pause, and does not promise a renewal. The membership renews only when
 no stop is left. Once
-the host has ended a membership, or it ended through a block, a closed or paused account or a
-dispute, coming back needs a new invitation from the host.
+the host has ended a membership, or it ended through a block, a closed account or a
+dispute, coming back needs a new invitation from the host. (A paused account no longer ends a
+membership: since plans/53 it pauses it, the time not used is paid back, and the member can
+resume once the account's pause is lifted.)
 
 **The monthly receipt** is an email at the start of each month. It says that the amount is held
 now, when it will be taken, and that cancelling before then, with nothing booked, costs nothing.

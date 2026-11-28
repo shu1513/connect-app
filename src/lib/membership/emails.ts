@@ -72,8 +72,13 @@ export async function queuePaymentFailedEmail(tx: Writer, membership: Membership
   });
 }
 
+/** The reason a membership carries when it was paused because one of its two accounts was paused (plans/53). */
+export const ACCOUNT_PAUSE = "account";
+
 /** Why a membership is paused, in the words said to its member (the email, and the member's page). */
 export const PAUSED_WHY: Record<string, string> = {
+  // Never which of the two, and never why that account was paused.
+  [ACCOUNT_PAUSE]: "one of the two accounts was paused",
   payment: "the monthly payment did not go through",
   cancel_now: "you cancelled it",
   member: "you cancelled it, and the month you paid for has ended",
@@ -94,6 +99,22 @@ export async function queuePausedEmail(tx: Writer, membership: Membership, reaso
   const { member, host, hostName } = found;
   const why = PAUSED_WHY[reason] ?? "it could not go on";
   const key = `membership-paused:${membership.id}:${membership.period}`;
+  if (reason === ACCOUNT_PAUSE) {
+    // Paused with an account (plans/53): the paid month is settled as after an ending, and resuming waits for the account.
+    await queueEmail(tx, {
+      to: member.email,
+      key: `${key}:member`,
+      subject: `Your membership with ${hostName} is paused`,
+      text: `Hi ${member.name},\n\nYour membership with ${hostName} is paused, because ${why}.\n\nMember calls that were still to come are cancelled at no charge. Membership time you had not used is paid back to your card; you get an email when that has gone through. (If your bank is disputing a payment, that month's money stays where it is until the bank has decided.)\n\nNothing is charged while it is paused. You keep your place, and you can resume once that pause is over: we will write to you then.\n\nYour membership: ${memberPage(membership)}\n`,
+    });
+    await queueEmail(tx, {
+      to: host.email,
+      key: `${key}:host`,
+      subject: `${member.name}'s membership is paused`,
+      text: `Hi ${host.name},\n\n${member.name}'s membership with you is paused, because ${why}.\n\nTheir member calls that were still to come are cancelled, and the membership time they had not used is paid back to them. They stay in your member list as paused, and can resume by themselves once that pause is over.\n`,
+    });
+    return;
+  }
   await queueEmail(tx, {
     to: member.email,
     key: `${key}:member`,
@@ -105,6 +126,23 @@ export async function queuePausedEmail(tx: Writer, membership: Membership, reaso
     key: `${key}:host`,
     subject: `${member.name}'s membership is paused`,
     text: `Hi ${host.name},\n\n${member.name}'s membership with you is paused, because ${why.replace("you cancelled it", "they cancelled it").replace("your bank", "their bank").replace("your card", "their card")}.\n\nThey stay in your member list as paused and can resume by themselves. If you do not want that, end their membership there.\n\n${appUrl()}/host#membership\n`,
+  });
+}
+
+/**
+ * The pause of an account is over (plans/53): a membership that was paused with it can be resumed.
+ * To the member, who alone can resume. `at` is the moment the pause was lifted, so that a later
+ * pause and lift of the same account writes again.
+ */
+export async function queueCanResumeEmail(tx: Writer, membership: Membership, at: Date): Promise<void> {
+  const found = await peopleOf(tx, membership);
+  if (!found) return;
+  const { member, hostName } = found;
+  await queueEmail(tx, {
+    to: member.email,
+    key: `membership-can-resume:${membership.id}:${at.getTime()}`,
+    subject: `You can resume your membership with ${hostName}`,
+    text: `Hi ${member.name},\n\nYour membership with ${hostName} was paused because one of the two accounts was paused. That pause is over.\n\nYour membership is still paused, and nothing is charged until you resume it yourself. When you resume, you get ${hostName}'s membership as it is now, and a new month starts.\n\nResume here: ${memberPage(membership)}\n`,
   });
 }
 

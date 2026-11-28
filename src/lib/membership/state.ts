@@ -12,7 +12,7 @@ import { schema } from "@/db";
 import type { Membership } from "@/db/schema";
 import type { Tx } from "@/lib/payments/operations";
 import { retireCard } from "./cards";
-import { queueEndedEmail, queuePausedEmail } from "./emails";
+import { ACCOUNT_PAUSE, queueEndedEmail, queuePausedEmail } from "./emails";
 import { isCurrent, lockMembership, type LockedMonth } from "./locks";
 
 const noOffer = { offerId: null, offerMonthId: null, offeredMinutes: null, offeredAt: null } as const;
@@ -31,6 +31,35 @@ export async function pauseMembership(tx: Tx, membership: Membership, reason: st
     .returning();
   await retireCard(tx, membership.id, now);
   if (!quiet) await queuePausedEmail(tx, paused, reason);
+}
+
+/**
+ * One of the membership's two accounts was paused (plans/53): the membership is paused, not ended.
+ * In this one step: it is paused with that reason, its clean-up is marked as not done, its card
+ * is used for nothing new, and a month that is not paid yet is marked as being given up, so that
+ * no payment and no booking can start any more. The clean-up (ending.ts) comes after, exactly as
+ * after an ending: the hold is let go, coming member calls are cancelled, and the unused time of
+ * a month that was paid for is paid back.
+ *
+ * Where nobody is a member yet (an open invitation, a first joining that never got its payment)
+ * there is nothing to keep: that ends, as it always did. Returns what was done, or null for a
+ * membership that was paused or ended already.
+ */
+export async function pauseForAccount(tx: Tx, membership: Membership, now: Date): Promise<"paused" | "ended" | null> {
+  if (membership.status === "ended" || membership.status === "paused") return null;
+  if (!membership.since) return (await endMembership(tx, membership, { by: "connect", reason: "one of the two accounts was paused" }, now)) ? "ended" : null;
+  const [paused] = await tx
+    .update(schema.memberships)
+    .set({ status: "paused", pausedAt: now, pausedReason: ACCOUNT_PAUSE, cleanupDoneAt: null, currentMonthId: null, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, ...noOffer, updatedAt: now })
+    .where(eq(schema.memberships.id, membership.id))
+    .returning();
+  await retireCard(tx, membership.id, now);
+  await tx
+    .update(schema.membershipMonths)
+    .set({ endedHow: "account_paused", updatedAt: now })
+    .where(and(eq(schema.membershipMonths.membershipId, membership.id), inArray(schema.membershipMonths.status, ["to_pay", "held"]), isNull(schema.membershipMonths.endedHow)));
+  await queuePausedEmail(tx, paused, ACCOUNT_PAUSE);
+  return "paused";
 }
 
 /**
@@ -124,7 +153,27 @@ export async function endMembershipsOf(tx: Tx, userId: string, input: { by: stri
 }
 
 /**
- * Runs the clean-up of the memberships a step has just ended, and of those only. Never throws: the
+ * Pauses every live membership a person has, as a host and as a member, inside the step that
+ * pauses their account (plans/53). All of them locked first, in id order, as an ending does it.
+ * Returns the ones that were paused or (where nobody was a member yet) ended: their clean-up is
+ * the same.
+ */
+export async function pauseMembershipsOf(tx: Tx, userId: string, now: Date): Promise<string[]> {
+  const live = await tx
+    .select({ id: schema.memberships.id })
+    .from(schema.memberships)
+    .where(and(ne(schema.memberships.status, "ended"), or(eq(schema.memberships.hostId, userId), eq(schema.memberships.customerId, userId))));
+  const locked: Membership[] = [];
+  for (const id of live.map((row) => row.id).sort()) locked.push(await lockMembership(tx, id));
+  // The moment is taken now that the locks are held: whether a month's unused money is paid back depends on which side of the month's end it falls.
+  const at = new Date(Math.max(now.getTime(), Date.now()));
+  const changed: string[] = [];
+  for (const membership of locked) if (await pauseForAccount(tx, membership, at)) changed.push(membership.id);
+  return changed;
+}
+
+/**
+ * Runs the clean-up of the memberships a step has just ended (or paused with an account), and of those only. Never throws: the
  * ending is already saved, and the helper repeats the clean-up until it is done.
  */
 export async function cleanUpEndedMemberships(membershipIds: string[], now: Date): Promise<void> {

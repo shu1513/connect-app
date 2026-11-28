@@ -128,7 +128,10 @@ So a pause made by mistake costs a host her members. That is the reason for the 
     work and never holding it up. Not at the moment of the report: a report made right after a
     call counts only once that call's money is taken, about a day later.
 
-11. **Switched off for now. (the founder, 27 November 2026)** Told that a pause ends a host's
+11. **Switched off at first, and switched on with plans/53. (the founder, 27 November 2026)** What
+    follows is how it stood when this plan was merged; `plans/53-memberships-paused-with-an-account.md`
+    built the pausing of memberships and took the switch out.
+    *As it stood:* Told that a pause ends a host's
     memberships for good, the founder wrote: "instead of ending the memberships, maybe we should
     pause the memberships". That is a piece of work of its own (members must not be charged
     while the host is paused, their unused time must be kept, and all of it must pick up again

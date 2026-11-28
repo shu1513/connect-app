@@ -955,7 +955,7 @@ async function main() {
     const host2 = await newHost();
     const c = await running(host2);
     await pauseAccount({ adminId: founder.id, userId: host2.id, ruleKey: RULES[0].key, note: "", requestId: randomUUID() });
-    check("a host's account paused by the founder ends her memberships", (await MS(c.membershipId)).status === "ended" && (await M(c.monthId)).freeCents === 0);
+    check("a host's account paused by the founder pauses her memberships (plans/53): not ended, and the unused time is owed back as after an ending", (await MS(c.membershipId)).status === "paused" && (await MS(c.membershipId)).pausedReason === "account" && (await MS(c.membershipId)).endedAt === null && (await M(c.monthId)).freeCents === 0);
 
     const host3 = await newHost();
     const other = await newHost();
@@ -1753,6 +1753,82 @@ async function main() {
     await E.cancelNow({ membershipId: winner.membershipId, memberId: winner.member.id, now: new Date() });
     await helper(new Date(), 1);
     check("when the place frees up, the other can resume", (await refusal(resumeAs(loser, randomUUID(), true))) === null);
+  });
+
+  // ========================================================================
+  journey("A paused account pauses its memberships; after the lift each member can resume (plans/53)", async () => {
+    const [founder] = await db.select().from(schema.user).where(eq(schema.user.email, "admin@test.local"));
+    if (!founder) throw new Error("Run `npm run seed` first.");
+    const { liftPause } = await import("../src/lib/safety/reports");
+    const pauseOf = (userId: string) => pauseAccount({ adminId: founder.id, userId, ruleKey: RULES[0].key, note: "", requestId: randomUUID() });
+    const host = await newHost();
+    const paid = await joined(host, { take: true }); // her month is paid for
+    const onHold = await joined(host); // his month's amount is only held
+    const stays = await joined(host, { take: true }); // will not resume
+    const asked = await invited(host); // an invitation nobody has accepted
+    const before = await M(paid.monthId);
+    const was = await MS(paid.membershipId);
+    await pauseOf(host.id);
+    const a = await MS(paid.membershipId);
+    const b = await MS(onHold.membershipId);
+    check("the host's account is paused: her memberships are paused in the same step, not ended", a.status === "paused" && a.pausedReason === "account" && a.endedAt === null && a.currentMonthId === null && b.status === "paused" && b.pausedReason === "account" && b.endedAt === null, `${a.status} ${b.status}`);
+    check("each member keeps their place, their own price and their own time", a.ownPricePer15Cents === was.ownPricePer15Cents && a.ownMinutes === was.ownMinutes && a.agreementId === was.agreementId && a.since?.getTime() === was.since?.getTime());
+    const month = await M(paid.monthId);
+    const refunds = await refundsOf(paid.monthId);
+    check("a month that was paid for: all the time not used is owed back to the member's card, as after an ending, and nothing is left to expire", before.freeCents > 0 && month.freeCents === 0 && month.toPayBackCents + month.paidBackCents === before.freeCents && refunds.length === 1 && refunds[0].sourceKey === `ending:${paid.monthId}` && /was paused/.test(refunds[0].reason), `${before.freeCents} ${month.freeCents} ${month.toPayBackCents} ${month.paidBackCents}`);
+    const given = await M(onHold.monthId);
+    check("a month whose amount was only held: given up, and the hold let go at once", given.status === "given_up" && given.endedHow === "account_paused" && (await intentOf(onHold.monthId)).status === "canceled", `${given.status} ${given.endedHow}`);
+    check("the tidying-up is done for both, in the same go", a.cleanupDoneAt !== null && b.cleanupDoneAt !== null);
+    const [invitation] = await db.select().from(schema.memberships).where(and(eq(schema.memberships.hostId, host.id), eq(schema.memberships.customerId, asked.member.id)));
+    check("an invitation nobody had accepted ends, as it always did: there is no member to keep", invitation.status === "ended");
+    const told = await emailText(paid.member.email, "is paused");
+    check("the member is told: paused because one of the two accounts was paused, unused time paid back, resuming once that is over", (await emails(paid.member.email, "is paused")) === 1 && (await emails(paid.member.email, "has ended")) === 0 && /one of the two accounts was paused/.test(told) && /paid back to your card/.test(told) && /resume once that pause is over/.test(told) && !/like any customer/.test(told));
+    check("the host is told the same about each member, and nobody is told which account it was", (await emails(host.email, "membership is paused")) === 3 && !/your account|the host's account/i.test(told));
+    const whilePaused = await refusal(resumeAs(paid));
+    check("while her account is paused nobody can resume", whilePaused !== null && (await MS(paid.membershipId)).status === "paused", whilePaused ?? "it went through");
+
+    await helper(new Date());
+    check("lifting the pause", (await liftPause({ adminId: founder.id, userId: host.id })) === true);
+    check("each member whose membership was paused with it gets an email with the way to resume; the person who was only invited gets none", (await emails(paid.member.email, "You can resume your membership")) === 1 && (await emails(onHold.member.email, "You can resume your membership")) === 1 && (await emails(asked.member.email, "You can resume your membership")) === 0);
+    const again = await resumeAs(paid);
+    await pay(again.monthId);
+    const resumed = await MS(paid.membershipId);
+    const old = await M(paid.monthId);
+    check("the member resumes by themselves: a new month, a new agreement, and the old month's pay-back stands", resumed.status === "active" && resumed.period === a.period + 1 && resumed.pausedAt === null && (await M(again.monthId)).status === "held" && old.freeCents === 0 && old.toPayBackCents + old.paidBackCents === before.freeCents);
+    const [, second] = await Promise.all([Promise.resolve(), resumeAs(onHold)]);
+    await pay(second.monthId);
+    check("the member whose month was only held resumes too", (await MS(onHold.membershipId)).status === "active");
+    await audit("after a pause with the host's account, resumed", paid);
+    await audit("after a pause with the host's account, held only, resumed", onHold);
+
+    // The one who does not resume: at the old month's end nothing expires to the host and nothing renews.
+    const notUsed = (await M(stays.monthId)).toPayBackCents + (await M(stays.monthId)).paidBackCents;
+    await helper((await M(stays.monthId)).endsAt!);
+    const closed = await M(stays.monthId);
+    check("a member who does not resume: at the month's end the money has gone back, nothing expired to the host, nothing renewed, and the membership is still paused", notUsed > 0 && closed.paidBackCents === notUsed && closed.expiredCents === 0 && (await expiredPayment(stays.monthId)) === undefined && (await monthsOf(stays.membershipId)).length === 1 && (await MS(stays.membershipId)).status === "paused", `${closed.status} ${closed.paidBackCents} ${closed.expiredCents}`);
+    await audit("after a pause with the host's account, not resumed", stays);
+
+    // The member's own account is paused: their membership with a host is paused the same way.
+    const host2 = await newHost();
+    const mine = await joined(host2, { take: true });
+    await pauseOf(mine.member.id);
+    const theirs = await MS(mine.membershipId);
+    check("a member's own account is paused: their membership is paused too, with the time not used owed back", theirs.status === "paused" && theirs.pausedReason === "account" && (await M(mine.monthId)).freeCents === 0 && (await emails(host2.email, "membership is paused")) === 1);
+    check("paused twice changes nothing more", (await S.pauseForAccount(db as never, theirs, new Date()).catch(() => "threw")) === null);
+    await liftPause({ adminId: founder.id, userId: mine.member.id });
+    check("when their own pause is lifted they are told they can resume", (await emails(mine.member.email, "You can resume your membership")) === 1);
+
+    // A host ends a membership that is paused with an account: it is over for good, and the one pay-back stands.
+    const host3 = await newHost();
+    const gone = await joined(host3, { take: true });
+    await pauseOf(host3.id);
+    const owed = (await M(gone.monthId)).toPayBackCents + (await M(gone.monthId)).paidBackCents;
+    await liftPause({ adminId: founder.id, userId: host3.id });
+    await E.endByHost({ membershipId: gone.membershipId, hostId: host3.id, now: new Date() });
+    const after = await M(gone.monthId);
+    check("ended by the host after such a pause: over for good, and still one pay-back for the month", (await MS(gone.membershipId)).status === "ended" && (await refundsOf(gone.monthId)).length === 1 && after.toPayBackCents + after.paidBackCents === owed);
+    await helper(new Date());
+    await audit("after a pause with an account and then an ending", gone);
   });
 
   // ========================================================================

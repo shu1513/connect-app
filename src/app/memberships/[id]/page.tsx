@@ -27,6 +27,7 @@ const NOT_CHARGED: Record<string, string> = {
   // (A month is given up after 7 days without a payment, and also when the member or the host cancels while its payment is still open.)
   given_up: "its payment did not go through, or was cancelled before it did",
   ending: "the membership ended",
+  account_paused: "the membership was paused with one of the two accounts",
   card_step: "the card step was not finished in time",
   no_room: "the host's hours had no room",
   hold_lost: "your bank released the hold before it was taken",
