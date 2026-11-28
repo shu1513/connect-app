@@ -318,7 +318,7 @@ async function pause(input: {
   /** The admin who decided it, for the admins' record. Null when the app paused the account by itself. */
   adminId: string | null;
   /** When the app paused the account by itself: what the founder is told, in the same step. `alreadyText` when the account was paused already. */
-  tellFounder?: { subject: string; text: string; alreadyText: string; key: string };
+  tellFounder?: { subject: string; /** A function is asked only once the account is paused, in that same step (so it can say what `first` found). */ text: string | (() => string); alreadyText: string; key: string };
 }): Promise<{ callsNotEnded: number } | "already_paused" | "not_first"> {
   const { person, reason } = input;
   let endedMemberships: string[] = [];
@@ -349,7 +349,8 @@ async function pause(input: {
     });
     if (input.adminId) await recordAdminAction({ adminId: input.adminId, action: "account paused", targetUserId: person.id, detail: reason }, tx);
     if (input.tellFounder) {
-      for (const admin of await adminsIn(tx)) await queueEmail(tx, { to: admin.email, subject: input.tellFounder.subject, text: input.tellFounder.text, key: `${input.tellFounder.key}:${admin.id}` });
+      const text = typeof input.tellFounder.text === "function" ? input.tellFounder.text() : input.tellFounder.text;
+      for (const admin of await adminsIn(tx)) await queueEmail(tx, { to: admin.email, subject: input.tellFounder.subject, text, key: `${input.tellFounder.key}:${admin.id}` });
     }
     return "paused" as const;
   });
@@ -451,7 +452,7 @@ export async function pauseByItself(input: {
   stillTrue?: (tx: Tx) => Promise<boolean>;
   reason: string;
   because: string;
-  founder: { subject: string; text: string; alreadyText: string };
+  founder: { subject: string; text: string | (() => string); alreadyText: string };
   key: string;
 }): Promise<"paused" | "not_paused"> {
   const [person] = await db.select().from(schema.user).where(eq(schema.user.id, input.userId));
@@ -459,7 +460,10 @@ export async function pauseByItself(input: {
   if (!person || admin || person.closedAt || person.pausedAt) return "not_paused";
   const paused = await pause({
     first: async (tx) => {
-      const [row] = await tx.select({ from: schema.user.autoPauseFrom, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId)).for("update");
+      // Held as the pause's own change of this row holds it, and no harder: a call or a request that names this
+      // person can still be written meanwhile (a member's booking holds the membership first and then writes a
+      // call; holding the row harder here, with the membership taken after it, could leave the two waiting on each other).
+      const [row] = await tx.select({ from: schema.user.autoPauseFrom, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId)).for("no key update");
       const [isAdmin] = await tx.select({ id: schema.admins.userId }).from(schema.admins).where(eq(schema.admins.userId, input.userId));
       if (!row || isAdmin || row.closedAt !== null || (row.from?.getTime() ?? null) !== (input.expectedFrom?.getTime() ?? null)) return false;
       return input.stillTrue ? input.stillTrue(tx) : true;
@@ -492,8 +496,12 @@ export function pausedListUrl(): string {
   return `${appUrl()}/admin/reports`;
 }
 
-export async function liftPause(input: { adminId: string; userId: string }): Promise<void> {
-  await db.transaction(async (tx) => {
+/**
+ * Lifts a pause. `since`: the moment of the pause the admin was looking at; given, only that very pause is
+ * lifted (a page left open cannot lift a later pause of the same account). False when nothing was lifted.
+ */
+export async function liftPause(input: { adminId: string; userId: string; since?: Date }): Promise<boolean> {
+  return db.transaction(async (tx) => {
     // A person has looked at the account: what was reported and rated before this moment no longer counts toward
     // a pause the app makes by itself (plans/52, decision 8), and a new warning comes before a pause for ratings.
     // Without this, the next round would pause it again. Only an account that IS paused: a second press of the
@@ -501,9 +509,10 @@ export async function liftPause(input: { adminId: string; userId: string }): Pro
     const lifted = await tx
       .update(schema.user)
       .set({ pausedAt: null, pausedReason: null, autoPauseFrom: new Date(), ratingWarnedAt: null, updatedAt: new Date() })
-      .where(and(eq(schema.user.id, input.userId), isNotNull(schema.user.pausedAt)))
+      .where(and(eq(schema.user.id, input.userId), isNotNull(schema.user.pausedAt), input.since ? eq(schema.user.pausedAt, input.since) : undefined))
       .returning({ id: schema.user.id });
-    if (lifted.length === 0) return;
+    if (lifted.length === 0) return false;
     await recordAdminAction({ adminId: input.adminId, action: "pause lifted", targetUserId: input.userId }, tx);
+    return true;
   });
 }

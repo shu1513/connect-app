@@ -94,7 +94,8 @@ async function main() {
    * slow money work can never keep a room open past its end.
    */
   let passes = 0;
-  let autoPauseRunning = false;
+  /** The round of pauses by the app itself that is under way, if one is: waited for before the helper exits. */
+  let autoPauseRound: Promise<void> | null = null;
   async function pass() {
     const now = new Date();
     // Payments first, so anything whose outcome was unknown is settled before bookings act on it.
@@ -138,12 +139,14 @@ async function main() {
     // About every 10 minutes: accounts whose reports or ratings have reached the line for a pause by the app itself
     // (plans/52). Not waited for: it reads much and may pause accounts, and must never hold up the money work of the
     // next passes. One round at a time.
-    if (passes % 120 === 0 && !autoPauseRunning) {
-      autoPauseRunning = true;
-      void runAutoPauses(now)
+    // SWITCHED OFF unless AUTO_PAUSE=on is set where the helper runs: a pause ends the account's memberships for
+    // good, and the founder wants them paused instead before a machine may do this (plans/52, decision 11).
+    if (process.env.AUTO_PAUSE === "on" && passes % 120 === 0 && autoPauseRound === null) {
+      autoPauseRound = runAutoPauses(now)
+        .then(() => undefined)
         .catch((error) => console.error("[auto-pause] the round failed; will retry", error))
         .finally(() => {
-          autoPauseRunning = false;
+          autoPauseRound = null;
         });
     }
     // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
@@ -289,6 +292,7 @@ async function main() {
     await uncollectedPass();
     await uncollectedRerunPass();
     await uncollectedTellPass();
+    await autoPauseRound;
     process.exit(0);
   }
 
@@ -309,6 +313,8 @@ async function main() {
     }
   }
   await Promise.all([loop("closer", tick), loop("jobs", pass), loop("reminders", remindPass), loop("email", sendPass), loop("connection tests", testPass), loop("pictures", picturePass), loop("follows", followPass), loop("disputes", disputePass), loop("notices", noticePass), loop("uncollected", uncollectedPass), loop("uncollected tries", uncollectedRerunPass), loop("uncollected notices", uncollectedTellPass)]);
+  // A round of pauses that is under way is finished before the helper exits.
+  await autoPauseRound;
   process.exit(0);
 }
 

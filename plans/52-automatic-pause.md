@@ -123,6 +123,14 @@ So a pause made by mistake costs a host her members. That is the reason for the 
     work and never holding it up. Not at the moment of the report: a report made right after a
     call counts only once that call's money is taken, about a day later.
 
+11. **Switched off for now. (the founder, 27 November 2026)** Told that a pause ends a host's
+    memberships for good, the founder wrote: "instead of ending the memberships, maybe we should
+    pause the memberships". That is a piece of work of its own (members must not be charged
+    while the host is paused, their unused time must be kept, and all of it must pick up again
+    when the pause is lifted). Until it is built, the round does not run: the helper starts it
+    only where `AUTO_PAUSE=on` is set. Everything else here is in use: the average from 5
+    people, the rolling average, and the fresh start that lifting a pause writes down.
+
 ## What stays as it is, on purpose
 
 - **An appeal needs a person.** There is no automatic way back. The law in the UK and the EU
@@ -197,4 +205,25 @@ work; "5 or more people reported you" named them all for someone with five custo
 "only this account" looked at every account; the founder's email said calls "are ended" before
 they were; the page's note spoke of customers only; three checks that would pass with wrong
 code. Not taken, and why: see the last five points of "What stays as it is".
+
+**Astra's second look, at the fixes: "not ready", 18 points (3 high).** Taken: the 14 days now
+run from the moment the warning email was really sent, and an email that never left leads to no
+pause; a bank's dispute is read from the payment's and the month's own marks, which are written
+first, and a dispute that was "prevented" no longer takes a call out; "Lift the pause" lifts
+only the pause the page showed; the account's row is held no harder than the pause's own change
+holds it (a member's booking could otherwise wait on the pause while the pause waits on it);
+the two numbers of the report rule are read in one question to the database, at the moment of
+the decision, and the founder's email gives those numbers; an admin is not warned; the helper
+waits for a round under way before it exits; "nobody at Connect has judged those reports" and
+"the only email of this kind" were not always true and are gone; the checks were made to tell
+right from wrong (a report closed between the count and the pause, an empty name with an
+account over the line beside it, an old report with a recent call, a call across the fresh
+start, an old report of the host's own). Not taken, and why: a pause that is lifted in the
+moment before its own tidying-up can end a booking made after the lift (this is how every pause
+has worked, by hand too; it belongs to the work on pauses and memberships that comes next); the
+warning says "2.5 or lower", which beside the shown average can tell a person with very few
+ratings more than the pages alone do (the words promise nothing else now); a "pause lifted"
+line that the old button wrote for an account that was not paused can make a fresh start later
+than it was (the safe side); no check with a dispute on a membership month or with two rounds
+at the same instant.
 

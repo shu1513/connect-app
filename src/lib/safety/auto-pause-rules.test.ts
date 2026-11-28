@@ -54,7 +54,7 @@ describe("what a person paused by the app is told", () => {
       expect(text).toContain("several different people");
       expect(text).not.toMatch(/\d/);
     }
-    expect(AUTO_PAUSE_WORDS.reports.because).toContain("Nobody at Connect has judged those reports");
+    expect(AUTO_PAUSE_WORDS.reports.because).toContain("The app made this pause by itself, without a person at Connect deciding it");
     expect(AUTO_PAUSE_WORDS.ratings.reason("host")).toBe("Paused automatically: an average rating as a host of 2.0 or lower from 10 or more people, counting paid calls only.");
     expect(AUTO_PAUSE_WORDS.ratings.because("customer")).toContain("as a customer, counting paid calls only, is 2.0 or lower from 10 or more people");
   });

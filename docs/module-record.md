@@ -6136,3 +6136,66 @@ few minutes after the booked end. "Neither" led to the call's page, which said t
 rating and showed no tip box. Not tried: the phone app on a phone, and the founder's list in a
 browser (it is covered by `safety-check` and the word tests).
 
+
+## An account paused by the app itself, and an average from 5 people that is a rolling one (plan 52, 27 November 2026)
+
+**What it is.** Two things the founder asked for on 27 November 2026 (`plans/52-automatic-pause.md`).
+
+**1. The rating average.** It is shown once 5 different people's ratings count (before: 3), then
+moves three people at a time, and it is now a rolling average: only the most recent whole groups
+count, as many as hold at most 50 people. A bad start can be repaired, and a good past no longer
+hides a bad present (`shownAverage` in `src/lib/ratings/rules.ts`). In use.
+
+**2. A pause the app makes by itself. Built, and SWITCHED OFF.** The helper looks about every 10
+minutes for accounts that reached one of two lines (`src/lib/safety/auto-pause.ts`, the numbers
+and sentences in `auto-pause-rules.ts`):
+
+- *Reports:* 5 different people reported the account within 90 days, each had a call with it in
+  that time that was really paid for, and they are at least 1 in 10 of all the people it had
+  paid calls with in that time. A report does not count when its reporter's account is closed,
+  when the two reported each other, when a bank took the call's money back, or when a person on
+  the team closed it. Money the host gave back does not take a report out.
+- *Ratings:* an average of 2.0 or lower from at least 10 different people, counting paid calls
+  only. At 2.5 or lower the person gets one warning email, and a pause comes no sooner than 14
+  days after that email was really sent.
+
+The pause is the founder's own (`pauseByItself` beside `pauseUnderage` in
+`src/lib/safety/reports.ts`). The person is told the rule, never who reported or rated them and
+never a number of their own; the founder gets an email with the numbers. Lifting a pause is a
+fresh start (`user.auto_pause_from`): earlier reports and ratings no longer count, and "Lift the
+pause" now lifts only the pause the page showed. Whatever a round acts on is counted a second
+time inside the step that pauses or warns.
+
+**Why it is switched off.** A pause ends the account's memberships and monthly contributions for
+good. Told so, the founder wrote "instead of ending the memberships, maybe we should pause the
+memberships". Until that is built, the helper runs the round only where `AUTO_PAUSE=on` is set.
+Nothing else waits for it.
+
+**Whose decisions.** The founder's: an automatic way, harder to reach than the first proposal,
+low ratings as a second reason, 5 people for an average, memberships paused rather than ended.
+Every number and detail is the builder's: 5 people, 90 days, 1 in 10, 2.0 from 10 people, the
+warning at 2.5 and the 14 days, the 50 people of the rolling average.
+
+**Reviews.** The automatic security check found three things, all taken (ratings of free calls
+counted; a count made out of date by a lifted pause; a host could pay complaints away by giving
+money back). Astra (Codex, effort high) said "not ready" twice, with 22 and then 18 points; what
+was taken and what was not is at the end of the plan. Left as it is, and said to the founder:
+one person with five accounts that each pay for a call can have a host paused. CodeRabbit: see
+the pull request.
+
+**Checks, after the last fixes.** 1,176 automatic tests, lint and types.
+`scripts/auto-pause-check.ts` (new, 51 checks, all passed): the fifth reporter pauses; ten things
+that take a report out and three that must not; the share; a customer is paused like a host; an
+admin and a closed account never; lifting, a second press, and a page showing an older pause;
+the warning, an email that never left, the 14 days, a call across the fresh start; a count that
+no longer holds at the moment of the pause. `ratings-check` (its part about averages rewritten
+for 5 people) and `safety-check` (pause and lift by hand, against the running app): all passed.
+The account page's new sentence was read in a browser.
+
+**What was not tried.** The helper running the round by itself (it is switched off; the check
+script calls the same function). The founder's page with a paused account, in a browser.
+
+**Before it is switched on** (the founder's, not code): memberships paused instead of ended (the
+next piece of work); the lawyer's answers in `docs/for-the-lawyer.md` section 26 (a machine
+deciding, what the Terms must say, five accounts of one person); a real support address, since
+writing to it is the only way to appeal.

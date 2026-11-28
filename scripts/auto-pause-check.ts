@@ -31,9 +31,9 @@ function check(label: string, ok: boolean, detail = "") {
 async function main() {
   requireLocalDatabase();
   const { db, schema } = await import("../src/db");
-  const { runAutoPauses, countedReporters } = await import("../src/lib/safety/auto-pause");
+  const { runAutoPauses, countedReporters, reportFacts } = await import("../src/lib/safety/auto-pause");
   const { AUTO_PAUSE, AUTO_PAUSE_WORDS } = await import("../src/lib/safety/auto-pause-rules");
-  const { liftPause } = await import("../src/lib/safety/reports");
+  const { liftPause, pauseByItself } = await import("../src/lib/safety/reports");
 
   const now = new Date();
   const made: string[] = [];
@@ -91,7 +91,7 @@ async function main() {
       check("4 different people who had paid calls with her reported her: nothing happens", first.paused.length === 0 && (await userRow(hana.id)).pausedAt === null);
       await report(customers[0].id, hana.id);
       await runAutoPauses(now, hana.id);
-      check("a second report from one of the four changes nothing: people are counted, not reports", (await userRow(hana.id)).pausedAt === null && (await countedReporters(now, hana.id)).get(hana.id)?.reporters.size === 4);
+      check("a second report from one of the four changes nothing: people are counted, not reports", (await userRow(hana.id)).pausedAt === null && (await countedReporters(now, hana.id)).get(hana.id)?.size === 4);
       await report(customers[4].id, hana.id);
       const second = await runAutoPauses(now, hana.id);
       const paused = await userRow(hana.id);
@@ -101,17 +101,17 @@ async function main() {
       const again = await runAutoPauses(now, hana.id);
       check("the next round does nothing more", again.paused.length === 0 && (await emailsOf(hana.email, "Your Connect account is paused")) === 1);
 
-      await liftPause({ adminId: anAdmin.id, userId: hana.id });
+      const pausedSince = (await userRow(hana.id)).pausedAt!;
+      const wrongOne = await liftPause({ adminId: anAdmin.id, userId: hana.id, since: new Date(pausedSince.getTime() - 60_000) });
+      check("a page that shows an earlier pause of hers cannot lift this one", wrongOne === false && (await userRow(hana.id)).pausedAt !== null);
+      check("the page that shows this pause lifts it", (await liftPause({ adminId: anAdmin.id, userId: hana.id, since: pausedSince })) === true);
       const afterLift = await runAutoPauses(new Date(), hana.id);
       const lifted = await userRow(hana.id);
       check("a person lifts the pause: the reports made before that no longer count, and she is not paused again", afterLift.paused.length === 0 && lifted.pausedAt === null && lifted.autoPauseFrom !== null);
-      await liftPause({ adminId: anAdmin.id, userId: hana.id });
-      check("pressing the button a second time does not move her fresh start", (await userRow(hana.id)).autoPauseFrom?.getTime() === lifted.autoPauseFrom?.getTime());
-      check("a round asked to look at nobody looks at nobody", (await runAutoPauses(now, "")).paused.length === 0);
+      check("pressing the button a second time lifts nothing and does not move her fresh start", (await liftPause({ adminId: anAdmin.id, userId: hana.id })) === false && (await userRow(hana.id)).autoPauseFrom?.getTime() === lifted.autoPauseFrom?.getTime());
       // Five other customers report her after the pause was lifted.
-      const later = new Date(Date.now() + 60_000);
-      for (const p of customers.slice(5, 10)) await db.insert(schema.reports).values({ reporterId: p.id, reportedId: hana.id, context: "profile", contextId: hana.id, reason: "other", text: "check", createdAt: new Date(Date.now() + 30_000) });
-      const fresh = await runAutoPauses(later, hana.id);
+      for (const p of customers.slice(5, 10)) await db.insert(schema.reports).values({ reporterId: p.id, reportedId: hana.id, context: "profile", contextId: hana.id, reason: "other", text: "check" });
+      const fresh = await runAutoPauses(new Date(Date.now() + 1000), hana.id);
       check("five other people report her after that: paused again, and told again", fresh.paused.length === 1 && (await userRow(hana.id)).pausedAt !== null && (await emailsOf(hana.email, "Your Connect account is paused")) === 2);
     }
 
@@ -125,7 +125,7 @@ async function main() {
         const one = build ? await build(host.id) : (await customersOf(host.id, 1, 1))[0];
         await spoil(host, one);
         const before = await runAutoPauses(now, host.id);
-        const counted = (await countedReporters(now, host.id)).get(host.id)?.reporters.size ?? 0;
+        const counted = (await countedReporters(now, host.id)).get(host.id)?.size ?? 0;
         await customersOf(host.id, 1, 1);
         const after = await runAutoPauses(now, host.id);
         check(label, before.paused.length === 0 && counted === 4 && after.paused.length === 1, `counted ${counted}, then paused ${after.paused.length}, good ${good.length}`);
@@ -178,7 +178,17 @@ async function main() {
         await report(refunded.id, host.id);
         const reportedBack = (await customersOf(host.id, 1, 1))[0];
         await report(host.id, reportedBack.id, { closed: true });
-        check("a report still counts when the call's money was given back afterwards (or a host could pay complaints away), and when her own report about that person was closed by the team", (await countedReporters(now, host.id)).get(host.id)?.reporters.size === 5 && (await runAutoPauses(now, host.id)).paused.length === 1);
+        await report(host.id, reportedBack.id, { daysAgo: AUTO_PAUSE.withinDays + 5 });
+        check("a report still counts when the call's money was given back afterwards (or a host could pay complaints away), and when her own reports about that person are closed by the team or older than 90 days", (await countedReporters(now, host.id)).get(host.id)?.size === 5);
+        // Counted, then a person on the team closes one of the five reports, then the pause's own step counts again.
+        const looked = await reportFacts(host.id, now);
+        const [oneReport] = await db.select({ id: schema.reports.id }).from(schema.reports).where(eq(schema.reports.reportedId, host.id)).limit(1);
+        await db.update(schema.reports).set({ status: "closed" }).where(eq(schema.reports.id, oneReport.id));
+        const words = { reason: "check", because: "check", founder: { subject: "check", text: "check", alreadyText: "check" } };
+        const stale = await pauseByItself({ userId: host.id, expectedFrom: looked.from, stillTrue: async (tx) => (await reportFacts(host.id, new Date(), tx)).pauses, ...words, key: `paused:${host.id}:by-itself:check` });
+        check("counted at 5, then a person closes one report before the pause is made: the second count, in the pause's own step, stops it", looked.pauses === true && looked.reporters === 5 && stale === "not_paused" && (await userRow(host.id)).pausedAt === null && (await emailsOf(anAdmin.email, "check", "check")) === 0);
+        await db.update(schema.reports).set({ status: "open" }).where(eq(schema.reports.id, oneReport.id));
+        check("with that report open again the round pauses her", (await runAutoPauses(now, host.id)).paused.length === 1);
       }
       await spoiled("nor a report that a person on the team has closed", async () => {}, async (hostId) => {
         const p = await person("closedreport");
@@ -186,10 +196,17 @@ async function main() {
         await report(p.id, hostId, { closed: true });
         return p;
       });
-      await spoiled(`nor a report that is older than ${AUTO_PAUSE.withinDays} days`, async () => {}, async (hostId) => {
+      await spoiled(`nor a report that is older than ${AUTO_PAUSE.withinDays} days, though the paid call is recent`, async () => {}, async (hostId) => {
         const p = await person("old");
-        await call(hostId, p.id, { daysAgo: 120 });
+        await call(hostId, p.id, { daysAgo: 5 });
         await report(p.id, hostId, { daysAgo: AUTO_PAUSE.withinDays + 1 });
+        return p;
+      });
+      await spoiled("nor one from a call a bank dispute is open on, even before the dispute itself is written down", async () => {}, async (hostId) => {
+        const p = await person("disputeopen");
+        const c = await call(hostId, p.id);
+        await db.update(schema.payments).set({ disputeOpen: true }).where(eq(schema.payments.callId, c.id));
+        await report(p.id, hostId);
         return p;
       });
     }
@@ -214,6 +231,12 @@ async function main() {
       }
       check("a customer is paused like a host: five hosts he had paid calls with reported him", (await runAutoPauses(now, cory.id)).paused.length === 1 && (await userRow(cory.id)).pausedAt !== null);
 
+      const control = await person("control");
+      await customersOf(control.id, 5, 5);
+      const nobody = await runAutoPauses(now, "");
+      check("a round asked to look at an empty name looks at nobody (an account over the line is left alone)", nobody.paused.length === 0 && nobody.warned.length === 0 && (await userRow(control.id)).pausedAt === null);
+      check("and that account is paused when the round is asked to look at it", (await runAutoPauses(now, control.id)).paused.length === 1);
+
       const boss = await person("admin");
       await db.insert(schema.admins).values({ userId: boss.id });
       await customersOf(boss.id, 6, 6);
@@ -235,8 +258,11 @@ async function main() {
           await db.insert(schema.ratings).values({ callId: c.id, raterId: p.id, ratedId: userId, ratedAs: as, stars: s });
         }
       }
-      /** As if the warning had been sent this many days ago. */
-      const warnedDaysAgo = (id: string, days: number) => db.update(schema.user).set({ ratingWarnedAt: new Date(now.getTime() - days * DAY) }).where(eq(schema.user.id, id));
+      /** As if the warning email had really been sent this many days ago (the 14 days run from when it was sent). */
+      const warnedDaysAgo = async (id: string, days: number) => {
+        const warnedAt = (await userRow(id)).ratingWarnedAt!;
+        await db.update(schema.emailOutbox).set({ status: "sent", sentAt: new Date(now.getTime() - days * DAY) }).where(eq(schema.emailOutbox.dedupeKey, `rating-warning:${id}:${warnedAt.getTime()}`));
+      };
       const eleven = (stars: number) => Array.from({ length: 11 }, () => stars);
 
       const lena = await person("low");
@@ -247,7 +273,13 @@ async function main() {
       check("the warning is sent once", second.warned.length === 0 && (await emailsOf(lena.email, AUTO_PAUSE_WORDS.ratings.warnSubject)) === 1);
       await ratedBy(lena.id, [2, 2, 2], 8);
       const third = await runAutoPauses(now, lena.id);
-      check("three more people bring her to the line (1.3 from 11), but she was only just warned: not paused yet", third.paused.length === 0 && (await userRow(lena.id)).pausedAt === null);
+      check("three more people bring her to the line (1.3 from 11), but the warning has not even been sent yet: not paused", third.paused.length === 0 && (await userRow(lena.id)).pausedAt === null);
+      // The mark on her account is made old, but the email itself never left: the days run from the email, not from the mark.
+      const mark = (await userRow(lena.id)).ratingWarnedAt!;
+      const oldMark = new Date(mark.getTime() - 100 * DAY);
+      await db.update(schema.user).set({ ratingWarnedAt: oldMark }).where(eq(schema.user.id, lena.id));
+      await db.update(schema.emailOutbox).set({ dedupeKey: `rating-warning:${lena.id}:${oldMark.getTime()}` }).where(eq(schema.emailOutbox.dedupeKey, `rating-warning:${lena.id}:${mark.getTime()}`));
+      check("a warning marked 100 days ago whose email was never sent does not lead to a pause", (await runAutoPauses(now, lena.id)).paused.length === 0);
       await warnedDaysAgo(lena.id, AUTO_PAUSE.warnDays - 1);
       check(`nor ${AUTO_PAUSE.warnDays - 1} days after the warning`, (await runAutoPauses(now, lena.id)).paused.length === 0);
       await warnedDaysAgo(lena.id, AUTO_PAUSE.warnDays + 1);
@@ -264,6 +296,21 @@ async function main() {
       const again = await person("again");
       await ratedBy(again.id, eleven(5), 40);
       await db.update(schema.user).set({ autoPauseFrom: new Date(now.getTime() - 30 * DAY) }).where(eq(schema.user.id, again.id));
+      {
+        // Three calls that began before that fresh start and whose booked end came after it: they belong to before.
+        const straddling = [];
+        for (let i = 0; i < 3; i++) {
+          const p = await person("straddle");
+          const startsAt = new Date(now.getTime() - 30 * DAY - 10 * 60_000);
+          const [c] = await db.insert(schema.calls).values({ hostId: again.id, customerId: p.id, startsAt, endsAt: new Date(startsAt.getTime() + 30 * 60_000), roomName: `autopause-${randomUUID()}`, closedAt: new Date(startsAt.getTime() + 30 * 60_000), pricePer15Cents: 2000 }).returning();
+          calls.push(c.id);
+          await db.insert(schema.payments).values({ callId: c.id, coversFrom: c.startsAt, coversUntil: c.endsAt, pricePer15Cents: 2000, bookedCents: 4000, feePercentBps: 490, feeFixedCents: 30, feeForeignCardBps: 150, status: "charged", chargedCents: 4000, chargedAt: c.endsAt, originalFeeCents: 226, originalHostShareCents: 3774 });
+          await db.insert(schema.ratings).values({ callId: c.id, raterId: p.id, ratedId: again.id, ratedAs: "host", stars: 5 });
+          straddling.push(c.id);
+        }
+        const { averageSince } = await import("../src/lib/safety/auto-pause");
+        check("a call that began before the fresh start does not count, though its booked end came after it", (await averageSince(again.id, "host", new Date(now.getTime() - 30 * DAY), now)) === null && straddling.length === 3);
+      }
       await ratedBy(again.id, eleven(1), 9);
       const warnedAgain = await runAutoPauses(now, again.id);
       check("a pause was lifted 30 days ago: only the eleven 1-star ratings since then count (with the eleven 5-star ones before it there would be no warning)", warnedAgain.warned.length === 1 && warnedAgain.paused.length === 0);
@@ -307,15 +354,11 @@ async function main() {
       check("after calls whose money she gave back the stars still count: a host cannot pay a low average away", (await runAutoPauses(now, givenBack.id)).warned.length === 1);
 
       // A person lifts a pause in the moment between the app's counting and its pause: what was counted is out of date.
-      const { pauseByItself } = await import("../src/lib/safety/reports");
       const raced = await person("raced");
       await db.update(schema.user).set({ autoPauseFrom: new Date() }).where(eq(schema.user.id, raced.id));
       const words = { reason: "check", because: "check", founder: { subject: "check", text: "check", alreadyText: "check" } };
       const stale = await pauseByItself({ userId: raced.id, expectedFrom: null, ...words, key: `paused:${raced.id}:by-itself:check` });
       check("a pause counted before a person lifted one is not made: the fresh start is read again in the pause's own step", stale === "not_paused" && (await userRow(raced.id)).pausedAt === null);
-      const recount = await person("recount");
-      const noLonger = await pauseByItself({ userId: recount.id, expectedFrom: null, stillTrue: async () => false, ...words, key: `paused:${recount.id}:by-itself:check` });
-      check("nor one whose count no longer holds when it is counted again in that step (a report closed in between)", noLonger === "not_paused" && (await userRow(recount.id)).pausedAt === null);
 
       const fine = await person("fine");
       await ratedBy(fine.id, [5, 5, 4, 1, 1, 5, 5, 5, 5, 5, 5]);

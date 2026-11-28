@@ -21,43 +21,41 @@ const DAY_MS = 24 * 3_600_000;
 type Reader = Pick<typeof db, "select" | "execute">;
 
 /**
- * A call that was really paid for (decision 4): money was taken for it (a member's call by the
- * part of the month it used), and no bank took it back. Money given back afterwards by the host
- * or by Connect does not undo it: otherwise a host could give their money back to the people who
- * complained and make the complaints disappear. A payment a bank dispute is open on, or was lost
- * on, does not count: a person who pays, reports and then has their bank take the money back has
- * paid nothing.
+ * A call that was really paid for (decision 4a): money was taken for it (a member's call by the
+ * part of the month it used), and no bank took it back or is about to. Money given back
+ * afterwards by the host or by Connect does not undo it: otherwise a host could give their money
+ * back to the people who complained and make the complaints disappear.
+ *
+ * A bank's dispute is read where the money work reads it (collect.ts): the payment's own mark
+ * while a dispute is open, the month's mark for a member's call, and the dispute's record once
+ * one is lost. The marks are written first when a dispute arrives, so a dispute whose record
+ * could not be written yet still takes the call out.
  */
 const paidCallOf = (call: string) =>
   sql.raw(`exists (
     select 1 from "payments" p
     where p.call_id = ${call}.id and p.status = 'charged' and coalesce(p.charged_cents, 0) > 0
-      and not exists (
-        select 1 from "disputes" d
-        where (d.payment_id = p.id or (p.month_id is not null and d.month_id = p.month_id))
-          and d.status not in ('won', 'warning_closed')
-      )
+      and p.dispute_open = false
+      and not exists (select 1 from "membership_months" m where m.id = p.month_id and m.dispute in ('open', 'lost'))
+      and not exists (select 1 from "disputes" d where d.payment_id = p.id and d.status = 'lost')
   )`);
 
 const since90 = (now: Date) => new Date(now.getTime() - AUTO_PAUSE.withinDays * DAY_MS).toISOString();
 
 /**
- * The different people whose reports about an account count right now (decision 4), for every
- * account that has at least one, with the fresh start (`from`) they were counted with. A report
+ * The reports that count right now (decision 4), one row for each account and reporter. A report
  * counts when it was made in the last 90 days and after the last lifted pause, nobody on the
  * team has closed it, its reporter had a really paid call with the account in those 90 days and
  * has an account that is not closed, and the account has no open report of its own about that
  * reporter from those 90 days. Accounts that are paused, closed or an admin's are left out.
  */
-export async function countedReporters(now: Date, only?: string, reader: Reader = db): Promise<Map<string, { reporters: Set<string>; from: Date | null }>> {
-  const since = since90(now);
-  const rows = await reader.execute<{ reported_id: string; reporter_id: string; auto_pause_from: Date | string | null }>(sql`
+const countedRows = (now: Date, only?: string) => sql`
     select r.reported_id, r.reporter_id, reported.auto_pause_from
     from "reports" r
     join "user" reported on reported.id = r.reported_id
     join "user" reporter on reporter.id = r.reporter_id
     where r.status = 'open'
-      and r.created_at > ${since}::timestamptz
+      and r.created_at > ${since90(now)}::timestamptz
       and r.created_at <= ${now.toISOString()}::timestamptz
       and r.reporter_id <> r.reported_id
       and reported.paused_at is null
@@ -68,45 +66,55 @@ export async function countedReporters(now: Date, only?: string, reader: Reader 
       and not exists (
         select 1 from "reports" back
         where back.reporter_id = r.reported_id and back.reported_id = r.reporter_id
-          and back.status = 'open' and back.created_at > ${since}::timestamptz
+          and back.status = 'open' and back.created_at > ${since90(now)}::timestamptz
       )
       and exists (
         select 1 from "calls" c
         where c.cancelled_at is null
-          and c.starts_at > ${since}::timestamptz
+          and c.starts_at > ${since90(now)}::timestamptz
           and ((c.host_id = r.reported_id and c.customer_id = r.reporter_id) or (c.host_id = r.reporter_id and c.customer_id = r.reported_id))
           and ${paidCallOf("c")}
       )
       ${only !== undefined ? sql`and r.reported_id = ${only}` : sql``}
-    group by r.reported_id, r.reporter_id, reported.auto_pause_from
-  `);
-  const found = new Map<string, { reporters: Set<string>; from: Date | null }>();
+    group by r.reported_id, r.reporter_id, reported.auto_pause_from`;
+
+/** The different people whose reports about an account count right now, for every account that has at least one (or for `only`). */
+export async function countedReporters(now: Date, only?: string, reader: Reader = db): Promise<Map<string, Set<string>>> {
+  const rows = await reader.execute<{ reported_id: string; reporter_id: string }>(countedRows(now, only));
+  const found = new Map<string, Set<string>>();
   for (const row of rows) {
     const one = found.get(row.reported_id);
-    if (one) one.reporters.add(row.reporter_id);
-    else found.set(row.reported_id, { reporters: new Set([row.reporter_id]), from: row.auto_pause_from ? new Date(row.auto_pause_from) : null });
+    if (one) one.add(row.reporter_id);
+    else found.set(row.reported_id, new Set([row.reporter_id]));
   }
   return found;
 }
 
-/** How many different people an account had a really paid call with, as a host or as a customer, in the last 90 days. Every counted reporter is one of them. */
-export async function peopleWithPaidCalls(userId: string, now: Date, reader: Reader = db): Promise<number> {
-  const rows = await reader.execute<{ people: number }>(sql`
-    select count(distinct case when c.host_id = ${userId} then c.customer_id else c.host_id end)::int as people
-    from "calls" c
-    where (c.host_id = ${userId} or c.customer_id = ${userId})
-      and c.cancelled_at is null
-      and c.starts_at > ${since90(now)}::timestamptz
-      and ${paidCallOf("c")}
-  `);
-  return Number(rows[0]?.people ?? 0);
-}
+export type ReportFacts = { reporters: number; people: number; from: Date | null; pauses: boolean };
 
-/** What the reports about one account come to right now: the numbers, and whether they pause it. */
-async function reportFacts(userId: string, now: Date, reader: Reader = db): Promise<{ reporters: number; people: number; from: Date | null; pauses: boolean }> {
-  const counted = (await countedReporters(now, userId, reader)).get(userId);
-  const facts = { reporters: counted?.reporters.size ?? 0, people: await peopleWithPaidCalls(userId, now, reader) };
-  return { ...facts, from: counted?.from ?? null, pauses: reportsPause(facts) };
+/**
+ * What the reports about one account come to at one moment: how many different people's reports
+ * count, how many different people the account had a really paid call with in the same 90 days
+ * (as a host or as a customer; every counted reporter is one of them), the fresh start it is on,
+ * and whether that pauses it. Read in ONE question to the database, so that the two numbers
+ * belong to the same moment.
+ */
+export async function reportFacts(userId: string, now: Date, reader: Reader = db): Promise<ReportFacts> {
+  const rows = await reader.execute<{ reporters: number; people: number; auto_pause_from: Date | string | null }>(sql`
+    with counted as (${countedRows(now, userId)})
+    select
+      (select count(*)::int from counted) as reporters,
+      (select count(distinct case when c.host_id = ${userId} then c.customer_id else c.host_id end)::int
+         from "calls" c
+         where (c.host_id = ${userId} or c.customer_id = ${userId})
+           and c.cancelled_at is null
+           and c.starts_at > ${since90(now)}::timestamptz
+           and ${paidCallOf("c")}) as people,
+      (select u.auto_pause_from from "user" u where u.id = ${userId}) as auto_pause_from
+  `);
+  const row = rows[0];
+  const facts = { reporters: Number(row?.reporters ?? 0), people: Number(row?.people ?? 0) };
+  return { ...facts, from: row?.auto_pause_from ? new Date(row.auto_pause_from) : null, pauses: reportsPause(facts) };
 }
 
 /**
@@ -151,26 +159,43 @@ async function lowRatedCandidates(only?: string): Promise<Candidate[]> {
 }
 
 const same = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null);
+/** The moment something is decided inside its own step: never earlier than the round's own clock, and not an old one if the round took long. */
+const decisionTime = (now: Date) => new Date(Math.max(now.getTime(), Date.now()));
+const warningKey = (userId: string, warnedAt: Date) => `rating-warning:${userId}:${warnedAt.getTime()}`;
 
 /**
  * The one warning about low ratings (decision 6a), written and marked in one step with the
- * account's row held: only an account that is still open, not paused, on the same fresh start
- * and not warned yet, and whose average is still low when counted again there.
+ * account's row held: only an account that is still open, not paused, not an admin's, on the
+ * same fresh start and not warned yet, and whose average is still low when counted again there.
  */
 async function warnAboutRatings(one: Candidate, now: Date): Promise<boolean> {
   return db.transaction(async (tx) => {
+    // (Held the way a pause holds it, which lets a call or a request that names this person be written meanwhile.)
     const [row] = await tx
       .select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt, from: schema.user.autoPauseFrom, warnedAt: schema.user.ratingWarnedAt })
       .from(schema.user)
       .where(eq(schema.user.id, one.id))
-      .for("update");
-    if (!row || row.pausedAt || row.closedAt || row.warnedAt || !same(row.from, one.from)) return false;
-    const shown = await averageSince(one.id, one.as, one.from, now, tx);
+      .for("no key update");
+    const [admin] = await tx.select({ id: schema.admins.userId }).from(schema.admins).where(eq(schema.admins.userId, one.id));
+    if (!row || admin || row.pausedAt || row.closedAt || row.warnedAt || !same(row.from, one.from)) return false;
+    const at = decisionTime(now);
+    const shown = await averageSince(one.id, one.as, one.from, at, tx);
     if (!ratingsWarn(shown) && !ratingsPause(shown)) return false;
-    await tx.update(schema.user).set({ ratingWarnedAt: now }).where(eq(schema.user.id, one.id));
-    await queueEmail(tx, { to: one.email, subject: AUTO_PAUSE_WORDS.ratings.warnSubject, text: AUTO_PAUSE_WORDS.ratings.warnText(one.name, one.as, SUPPORT_EMAIL), key: `rating-warning:${one.id}:${now.getTime()}` });
+    await tx.update(schema.user).set({ ratingWarnedAt: at }).where(eq(schema.user.id, one.id));
+    await queueEmail(tx, { to: one.email, subject: AUTO_PAUSE_WORDS.ratings.warnSubject, text: AUTO_PAUSE_WORDS.ratings.warnText(one.name, one.as, SUPPORT_EMAIL), key: warningKey(one.id, at) });
     return true;
   });
+}
+
+/**
+ * When the warning this account was marked with really went out: the moment its email was sent,
+ * or null while it has not been (still waiting, or it could not be delivered). The 14 days run
+ * from here: nobody is paused for ratings on the strength of an email that never left.
+ */
+async function warningSentAt(one: Candidate): Promise<Date | null> {
+  if (!one.warnedAt) return null;
+  const [mail] = await db.select({ sentAt: schema.emailOutbox.sentAt }).from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, warningKey(one.id, one.warnedAt)));
+  return mail?.sentAt ?? null;
 }
 
 /**
@@ -183,22 +208,27 @@ export async function runAutoPauses(now: Date, only?: string): Promise<{ paused:
   const list = pausedListUrl();
 
   // Reports.
-  for (const [userId, { reporters }] of await countedReporters(now, only)) {
+  for (const [userId, reporters] of await countedReporters(now, only)) {
     try {
       if (reporters.size < AUTO_PAUSE.reporters) continue;
-      const facts = await reportFacts(userId, now);
-      if (!facts.pauses) continue;
+      const looked = await reportFacts(userId, now);
+      if (!looked.pauses) continue;
       const [person] = await db.select({ name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.id, userId));
       if (!person) continue;
+      // What the pause is really made on: counted again in the pause's own step, at that moment. A report a
+      // person closed in between no longer counts, and the founder is told the numbers of that second count.
+      let decided: ReportFacts = looked;
       const done = await pauseByItself({
         userId,
-        expectedFrom: facts.from,
-        // Counted again in the pause's own step: a report a person closed in between no longer counts.
-        stillTrue: async (tx) => (await reportFacts(userId, now, tx)).pauses,
+        expectedFrom: looked.from,
+        stillTrue: async (tx) => {
+          decided = await reportFacts(userId, decisionTime(now), tx);
+          return decided.pauses;
+        },
         reason: AUTO_PAUSE_WORDS.reports.reason,
         because: AUTO_PAUSE_WORDS.reports.because,
-        founder: { subject: AUTO_PAUSE_WORDS.reports.founderSubject, text: AUTO_PAUSE_WORDS.reports.founderText(person, facts, list), alreadyText: AUTO_PAUSE_WORDS.reports.founderAlready(person, list) },
-        key: `paused:${userId}:by-itself:reports:${facts.from?.getTime() ?? 0}`,
+        founder: { subject: AUTO_PAUSE_WORDS.reports.founderSubject, text: () => AUTO_PAUSE_WORDS.reports.founderText(person, decided, list), alreadyText: AUTO_PAUSE_WORDS.reports.founderAlready(person, list) },
+        key: `paused:${userId}:by-itself:reports:${looked.from?.getTime() ?? 0}`,
       });
       if (done === "paused") paused.push(userId);
     } catch (error) {
@@ -206,22 +236,28 @@ export async function runAutoPauses(now: Date, only?: string): Promise<{ paused:
     }
   }
 
-  // Ratings: first the one warning; the pause only some days after it.
+  // Ratings: first the one warning; the pause only some days after that email was sent.
   for (const one of await lowRatedCandidates(only)) {
     try {
       if (paused.includes(one.id) || warned.includes(one.id)) continue;
-      const shown = await averageSince(one.id, one.as, one.from, now);
-      if (!ratingsWarn(shown) && !ratingsPause(shown)) continue;
+      const looked = await averageSince(one.id, one.as, one.from, now);
+      if (!ratingsWarn(looked) && !ratingsPause(looked)) continue;
       if (one.warnedAt === null) {
         if (await warnAboutRatings(one, now)) warned.push(one.id);
-      } else if (ratingsPause(shown) && warnedLongEnough(one.warnedAt, now)) {
+      } else if (ratingsPause(looked) && warnedLongEnough(await warningSentAt(one), now)) {
+        let decided: ShownAverage = looked!;
         const done = await pauseByItself({
           userId: one.id,
           expectedFrom: one.from,
-          stillTrue: async (tx) => ratingsPause(await averageSince(one.id, one.as, one.from, now, tx)),
+          stillTrue: async (tx) => {
+            const again = await averageSince(one.id, one.as, one.from, decisionTime(now), tx);
+            if (!ratingsPause(again)) return false;
+            decided = again!;
+            return true;
+          },
           reason: AUTO_PAUSE_WORDS.ratings.reason(one.as),
           because: AUTO_PAUSE_WORDS.ratings.because(one.as),
-          founder: { subject: AUTO_PAUSE_WORDS.ratings.founderSubject, text: AUTO_PAUSE_WORDS.ratings.founderText(one, one.as, shown!, list), alreadyText: AUTO_PAUSE_WORDS.ratings.founderAlready(one, list) },
+          founder: { subject: AUTO_PAUSE_WORDS.ratings.founderSubject, text: () => AUTO_PAUSE_WORDS.ratings.founderText(one, one.as, decided, list), alreadyText: AUTO_PAUSE_WORDS.ratings.founderAlready(one, list) },
           key: `paused:${one.id}:by-itself:ratings:${one.as}:${one.from?.getTime() ?? 0}`,
         });
         if (done === "paused") paused.push(one.id);
