@@ -6456,7 +6456,7 @@ fail there (11 checks in the membership journey, 7 in the contribution's, 6 in t
 part): the old request reaches Stripe from a helper that stood still, a call's customer is
 paid for a refund the app calls failed, and no email is written. Because the
 step that books an outcome changed by one line for every kind of money action, the whole
-of `membership-check` (518 checks), `contribution-check` (308), `payments-check` (77) and
+of `membership-check`, `contribution-check`, `payments-check` (77 checks) and
 `refunds-check` (112) were run with that line in and pass.
 
 **Astra's review** (gpt-6.2-astra, effort high), two rounds, both "merge after fixes". The
@@ -6467,6 +6467,13 @@ had six points, all on the email and the checks; they were settled by one change
 "not made"). One point not taken, with the reason: storing a refund's number so that a
 lost email can be tried again later. Both rounds are written out at the end of
 `plans/50-part-1-gifts-owed-back.md`.
+
+**CodeRabbit** could not read pull request 121: its limit of free reviews was reached, with
+the next one an hour away. As agreed for that case, the builder read the whole change in
+its place (every call of the new notice in the ordinary, successful path; the order of
+locks; the email's words) and found nothing to change. After that read, the whole of
+`membership-check` (522 checks) and `contribution-check` (309) were run once more on the
+final code and pass.
 
 **What the checks cannot cover.** A machine that really stands still: the script holds a
 row in the database instead, which is where the helper's last look waits. A real refusal
