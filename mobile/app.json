@@ -59,7 +59,15 @@
       ],
       "expo-font",
       "./plugins/stripe-store-build",
-      "./plugins/quiet-test-build"
+      "./plugins/quiet-test-build",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "dynamic"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
