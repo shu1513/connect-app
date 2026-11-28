@@ -113,8 +113,14 @@ those screens on the test phone and puts seven small things right. Nothing new i
      (The one call a deleting person may finish, part 19, decision 2, is the stated
      exception at the room's door.)
    - **A host's private note about a customer is hers,** and the website lets a paused host
-     go on editing it on purpose. That stays; in the app she reaches it from Contacts (part
-     17), not from a request whose details are being withheld.
+     go on editing it on purpose. That stays for a contact she has had a call with, from
+     Contacts (part 17). **The note that hangs on a request follows the request:** while the
+     request's details are withheld, the app's address for that booking neither sends the
+     note nor takes a change to it. (A note about someone who only ever sent that one
+     request is therefore out of reach until the tidying-up has run; nothing of it is
+     lost.)
+   - **The look into a room before going in** (the app asks whether the room is ready, and
+     offers "Join" from the answer) asks the same rule as going in.
    What the paused person may still do with their own things stays as the website has it
    (take a request back, cancel, look at past calls and receipts, "Report", "Block"), and so
    do the steps that only read or tidy up.
@@ -125,14 +131,24 @@ those screens on the test phone and puts seven small things right. Nothing new i
    changes the terms about contributions or tips would put those on the sign-up screen. The
    app's sentence is fixed ("From 12 January a new version of the Payment Terms applies.
    Read it."); the summary is on the website's page behind the link. What is accepted today is still today's version and
-   nothing else. The link opens the website, as the step's other document links do. (How
-   legal text is shown inside the app is part 18's open decision 5; a link out does not wait
-   for it.)
+   nothing else. **The link is one of the step's document links and is treated as they
+   are:** today they open the website in a sheet over the app, and whether they may is part
+   of part 18's open decision 5 (the page behind this link also shows the version's
+   free-text summary). The fixed notice is built now; its link follows what is settled for
+   the others.
 
 ## How it is tried
 
-- `app-calls-check`, `app-room-check`, `app-booking-check`, `app-door-check` and
-  `end-now-check` grow, and everything they check today still passes:
+- `app-calls-check`, `app-room-check`, `app-booking-check`, `app-door-check`,
+  `app-requests-check`, `app-home-check` and `end-now-check` grow. Everything they check
+  today still passes, **except three things they expect today and must stop expecting,**
+  because they are the very faults this part removes: `app-door-check` expects the app to
+  be sent the stored reason of a pause; `app-room-check` expects the app's sentence under
+  "Block" to equal the website's (the one that names a monthly contribution); and
+  `app-requests-check` expects a closed or blocked customer's name in the host's list and
+  on the request's own screen. Each is turned round. The home screen's own numbers, its
+  calendar's groups and the names on it follow the same rule as the lists, and
+  `app-home-check` says so.
   - the answers of `/api/app/calls/[id]/ended` for a pair with a membership and a monthly
     contribution between them, with memberships on and off for the apps: neither the
     explanation nor the question holds "contribution", and "membership" only when on;

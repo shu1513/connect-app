@@ -42,8 +42,9 @@ stand-in, and no notification leaves this Mac.
   team and leads to the admin pages. **The same writer is used whatever the money was for:**
   a dispute or a debt about a contribution or a tip is written through it too.
 - **Whether an email really arrived** is now recorded for the notices where the law needs it
-  (`src/lib/notifications/provider-events.ts`, plan 46, part 3a): a host's 14 days to object
-  run from the day the email service reports the notice delivered.
+  (`src/lib/notifications/provider-events.ts`, plan 46, part 3a): the 14 days before anything
+  is taken back from a host run from the day the email service reports the notice
+  delivered.
 - **Emails that came with plans 52 and 53:** a warning about low ratings; "your account is
   paused"; "your membership is paused because one of the two accounts was paused"; and, when
   that pause is lifted, the way to resume.
@@ -76,15 +77,14 @@ stand-in, and no notification leaves this Mac.
    - **Which ones: a short list of causes, each for one kind of receiver, and nothing else.**
      For a host: a bank dispute over a call's payment that waits for her choice; the notice
      of money she owes back for a call, and our answer to her objection; a collection Connect
-     started for her, **when her earnings from calls would have made it happen by
-     themselves** (part 16, decision 5, which says exactly how that is asked: if a
-     contribution or a tip is what made it due, or what lifted it over the least amount, it
-     makes no notification). A collection the founder made for a closed host makes none. For a customer: that his report after ending a call did not change its
+     started for her, unless it held nothing but other earnings (part 16, decision 5). A
+     collection the founder made for a closed host makes none: she cannot sign in. For a customer: that his report after ending a call did not change its
      charge (plan 51's guard). A membership counts as a call here only while memberships
      are on for the apps.
-   - **Never:** anything whose cause is a contribution or a tip, even though the sentence
-     names nothing (a phone that rings only because of a project is the project reaching
-     the phone); and anything written to the team (the founder's own messages, which lead to
+   - **Never:** anything that is *about* a contribution or a tip, even though the sentence
+     names nothing: a bank dispute over one, money owed back for one, a collection of
+     nothing else. (The test is what the message is about. A message about a call stays one
+     when a contribution happened to be collected in the same collection.) and anything written to the team (the founder's own messages, which lead to
      the admin pages).
    - **The cause is looked at before the row is written, and again when it is sent and when
      it is touched:** is this still that person, is the thing still theirs and still of an
@@ -98,8 +98,9 @@ stand-in, and no notification leaves this Mac.
      is answered is short (at most 24 hours from the moment she is asked, less when the
      bank's own deadline is near, and sometimes she is not asked at all; if she is asked and
      does not choose, Connect sends its proof), and nothing is
-     taken back before 14 days after its notice arrived (she can object for as long as it
-     has not been taken).
+     taken back before 14 days after its notice arrived (she can object while the debt is
+     in the state its notice puts it in, "told"; the 14 days are the earliest taking, not
+     an end of that right).
    - **A notification never counts as "the notice arrived".** Only the email's delivery
      report starts the 14 days, as today; the time for a bank dispute's choice is the one
      the server has stored for it (`askUntil`), which starts when she is asked, can start
@@ -215,8 +216,9 @@ This plan is read against the code once more on the day it is built.
    team's own.* Decision 2a is now a list of causes and receivers, checked three times.
 2. *Two clocks were mixed up:* the time for a bank dispute's choice (short, with a default;
    first written here as running "from the dispute's arrival", which the second check
-   corrected: it runs from the moment she is asked, and the server stores it) and the 14 days for an objection (from the email's
-   arrival). Decision 2a says each.
+   corrected: it runs from the moment she is asked, and the server stores it) and the 14 days before anything is taken (from the email's
+   arrival; first written here as "14 days for an objection", which was wrong: she can
+   object while the debt is "told"). Decision 2a says each.
 3. *An email that only informs is not "a membership needing the member",* and the middle
    position of the switch must stay silent about paying. Decision 2b.
 

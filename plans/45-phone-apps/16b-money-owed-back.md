@@ -39,8 +39,10 @@ amount owed back a "take-back".
   host held a published Host Agreement (today that is every payment, since the agreements
   are drafts), is written down in the state "waiting": she is told, and a person at Connect
   settles it with her; the app never takes it. One from a *lost bank dispute*, whatever
-  agreement she held, and one from a refund of a payment made under a published Host
-  Agreement, is in the state "told" and takes the way described below. **A debt can be
+  agreement she held, is in the state "told" and takes the way described below. So is one
+  from a refund, but only when the app can show that she had accepted the published Host
+  Agreement in time for that payment; where that cannot be shown, or the charge cannot be
+  matched, the debt stays "waiting". **A debt can be
   objected to while it is "told", and only then:** the 14 days are the earliest moment of
   taking, not the end of her right to object. And money can also be owed the other way:
   when more was taken than turned out to be owed, the rest is hers and is given back.
@@ -101,9 +103,9 @@ amount owed back a "take-back".
 8. **Days and times** are shown in the phone's own time, as part 08 does.
 9. **A take-back about a contribution or a tip is not in the apps at all** *(rewritten after
    Astra's check of 27 November; the first version called it "other earnings")*. Such
-   take-backs exist since plan 50. Even without a name, an amount with its state, its day
-   and an objection box would be a project's money shown on a phone, and "Other earnings"
-   is allowed as two amounts on the earnings screen and nothing more. So:
+   take-backs exist since plan 50. Even without a name, an entry with its state, its day and
+   an objection box is *about* one contribution or one tip, and "Other earnings" (part 16,
+   decision 5) is a nameless total, never an entry. So:
    - **The server sorts by what the money was for before anything else:** before asking
      whether a host has any take-back, before picking the latest ten, before answering one,
      before taking an objection. One about a contribution or a tip gives the app nothing:
@@ -113,6 +115,9 @@ amount owed back a "take-back".
      objection button there.
    - **A member's call** given back by Connect is in the apps while memberships are on for
      them, named as a call; while they are off it is left out in the same way.
+   - **What counts is what the refunded or disputed payment was for,** nothing else. Money
+     owed back for a call is shown as it truly is, also when that call's share was once
+     collected together with a contribution.
    - **One bank dispute can stand behind several amounts.** The app's addresses work with
      one take-back of the signed-in host, never with "the dispute's" debts as a group.
    - In the list, one that is over (taken, settled, called off) is told apart from money

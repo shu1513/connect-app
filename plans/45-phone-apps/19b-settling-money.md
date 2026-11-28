@@ -42,12 +42,13 @@ left, and a host does not have to sign in again to get hers.
   sends its proof (`src/lib/disputes/rules.ts`).
 - **Debts come in more than one kind** (`src/lib/disputes/takeback.ts`). One from a refund,
   for a payment made before the host held a published Host Agreement, is only written down
-  ("waiting") and settled by a person. One from a lost dispute, and one from a refund of a
-  payment she made under a published Host Agreement, is in the state "told" and is taken
-  by the app after its notice. **A debt can be objected to for as long as it is "told":**
-  the 14 days are the earliest moment of taking, not the end of her right to object, and
+  ("waiting") and settled by a person. One from a lost dispute is in the state "told" and is
+  taken by the app after its notice; so is one from a refund, but only when the app can
+  show that she had accepted the published Host Agreement in time for that payment (where
+  it cannot, or the charge cannot be matched, the debt stays "waiting"). **A debt can be objected to while it is "told", and only then:**
+  the 14 days are the earliest moment of taking, not the end of her right to object, so
   she can still object later if the taking was delayed or the notice's arrival is not
-  confirmed. Money can also be owed *to* the
+  confirmed; once it is answered or being taken, no new objection is taken. Money can also be owed *to* the
   host, when more was taken than was owed.
 - **A collection can be under way when the lock falls:** a transfer that was sent to Stripe
   before, whose answer comes after; the helper's 12-month collection among them.
@@ -75,8 +76,8 @@ left, and a host does not have to sign in again to get hers.
    whatever they had: it is what they name when they write to support afterwards. **What
    is known before she confirms and what is known after are two things.** Before: what is
    ready and waiting, and what already stands in the way (no working payout account, an
-   open dispute); the website's screen shows all of that, the app's only for calls (part
-   19, decision 3). After: what was really sent, refused, or is still on its way, which
+   open dispute); the website's screen shows all of that, the app's only the fields part 19,
+   decision 3, lists (no dispute and no debt among them). After: what was really sent, refused, or is still on its way, which
    nobody can know at the press; that comes by email, as it happens. None of it is ever in
    the app's answer to the press: there the reference and
    the general sentences are all there is, the same fields with the same shape for a host
@@ -118,6 +119,11 @@ left, and a host does not have to sign in again to get hers.
      last notice of a case is part of the case:** when a debt is settled or a dispute ends,
      the app closes the case and queues its closing notice in one step, so the address is
      kept until that notice has been sent or given up on, not only "while the case is open".
+     **And the end of one case can be the beginning of another:** a bank dispute that was
+     open at the lock can close, send its closing notice, and only afterwards have its debt
+     written down by the helper. So the address is let go only when the underlying case has
+     been looked through for debts and repayments that follow from it, each of those has
+     finished, and their notices have been sent or given up on.
    - **Her objection** comes by email to support, since she can no longer sign in. It counts
      from the moment it **arrived**, not from when a person typed it in: the founder's page
      takes the day **and the time** it came (a day alone cannot tell the two sides of a

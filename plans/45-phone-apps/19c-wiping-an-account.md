@@ -82,7 +82,7 @@ requests after a year.
    | Memberships, months, agreements, invitations | paid months kept as money records; invitations never accepted erased; the agreement kept, with its date, while the money records are | |
    | A project, its posts and pictures | the name, description, posts and pictures erased (a picture held for a report is kept with it). If a contribution to it was ever paid, or an attempt at one is not yet settled at Stripe, an empty shell of the project stays, because the money record must point to something; while a bank dispute over such a payment is open, what its proof needs is set aside first (decision 3b) | |
    | Contributions | paid ones kept as money records, with their agreement and date; an unpaid attempt is erased **only once its outcome at Stripe is settled** (an attempt given up here can still have been charged there). *(Changed after Astra's check.)* | |
-   | The founder's record of actions on this account | keep | The founder's own accountability |
+   | The founder's record of actions on this account | keep what was done, when and by whom. **A typed reason copied into it** (the reason of a pause is) is kept only as long as the line "Reports about this person, pauses" allows, then emptied there too. *(Changed after Astra's fourth check.)* | The founder's own accountability; the typed words are about the person |
    | *Added 27 November.* Messages between a host and a customer (plan 49): the conversations, what this person wrote, their switch for one host | the conversation is closed at the lock, and from that moment the other person sees "a deleted account" in place of the name (the reader looks names up, so the name is hidden there at once, before the wipe); this person's own messages are erased with the wipe; the other person keeps what they wrote themselves until the twelve months every message has | What someone wrote is theirs. Whether the other person may keep reading it is **for the lawyer**; the builder's first value is no |
    | *Added.* Messages kept for a report (`report_conversations`) | keep with that report, for as long as the report is kept | The report's evidence |
    | *Added.* Messages "From Connect" to this person | as "Emails written to this person" above: the text is erased, that one was sent stays | |
@@ -108,9 +108,11 @@ requests after a year.
    it is made from is wiped** *(added 27 November, after Astra's check)*. The table erases
    names, time in calls and refund texts on different days, but the proof Connect sends a
    bank is put together from exactly those (`src/lib/disputes/evidence.ts`). So for each
-   kind of open case the least that is needed is listed (**for every bank dispute, whatever was paid for:** the customer's real name, email
-   address and the day the account was opened, the host's name, what each had accepted of
-   the legal documents, and the customer's earlier payments that were not disputed; **and
+   kind of open case the least that is needed is listed (**for every bank dispute, whatever was paid for, exactly what the proof reads today and
+   no more:** the customer's real name, email address and the day the account was opened;
+   the host's shown name (her account's name where she has none); which published documents
+   the *customer* had accepted before the charge; and the *number* of the customer's earlier
+   card payments for calls that were charged and never disputed, not a list of them; **and
    then by kind:** for a call, the time in the call, the refund request and its answer; for
    a membership month, the agreement and the month's own facts; for a contribution or a
    tip, the payment's facts and the project's name or the call it belonged to; and in each
@@ -157,7 +159,9 @@ requests after a year.
    to tell them): those are sent, to the address kept for that case. **That includes the last notice of a
    case:** it is queued in the same step that closes the case, so a wipe that looked only
    for "open" cases would find the case closed and cancel its closing notice. The address
-   goes when that notice has been sent, or given up on by the sender's own rules. The clean-up by age
+   goes when that notice has been sent, or given up on by the sender's own rules, **and
+   nothing else can still follow from the case** (a dispute that closes can leave a debt
+   that the helper writes down later; part 19b, decision 8). The clean-up by age
    leaves the same things alone while the case is open; in particular it does not clear
    the email service's number of a notice whose delivery a deadline hangs on
    (`src/lib/retention.ts` clears it today after two years).
@@ -189,7 +193,9 @@ requests after a year.
   still has its empty project to point to; the email arrives after the wipe; a wipe stopped
   halfway and run again; a person's own messages are gone and the other person's stay, a
   message kept for a report is still with that report; a host's open debt keeps her address
-  until it is over and not a day longer; the acceptances are still there; the clean-up by
+  until it is over, its closing notice has been sent and nothing more can follow from it
+  (a dispute that closes first and leaves its debt a day later still finds her address),
+  and then not a day longer; the acceptances are still there; the clean-up by
   age (`runRetention`) neither brings back nor trips over anything a wipe removed; a host's
   average before and after one of her raters is wiped, with that rater in the first group
   of five, in a later group of three, and at the edge of the most recent fifty (no other
@@ -200,17 +206,20 @@ requests after a year.
   wipe the account is still closed and still marked as deleted, the founder's "reopen"
   refuses it, and its ratings still count as a leaver's; an account that was paused when it
   was deleted is still marked paused after the wipe, with its typed reason gone from the
-  row and present in the kept record; a debt settled a minute before the wipe still gets
+  row and present in the kept record and in the founder's record of actions, and gone from
+  both when that line's time is over; a debt settled a minute before the wipe still gets
   its closing notice; a bank dispute over a membership month, and one over a contribution,
   answered after the customer was wiped, carry the customer's real name and not "a deleted
   account"; a debt's notice that was waiting
   at the wipe is sent to the kept address, and its delivery report still starts the 14
   days; a bank dispute over a membership month, and one over a contribution, opened before
   the wipe, can each be answered with full proof after it.
-- Every existing check script green, and unchanged **but for one line that is meant to
-  change:** `refunds-check` today expects the texts of a refund request that is still open
-  to be gone after a year. Decision 6 says they must stay until the request is closed. That
-  line is turned round, and a second one checks that they go once it is closed.
+- Every existing check script green, and unchanged **but for what decision 6 is meant to
+  change:** `refunds-check` today leaves a refund request open, lets a year pass, and then
+  expects two things to be gone: the request's own texts and summary, and the words quoted
+  from it in the email the host was sent. Decision 6 says both must stay while the request
+  is open. Both expectations are turned round; then the request is closed and both must be
+  gone; and a third case keeps both while a bank dispute about that call is open.
 
 ## Astra's second check (20 November 2026): "not ready", now worked in
 

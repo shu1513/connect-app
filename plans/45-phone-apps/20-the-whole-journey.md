@@ -45,22 +45,22 @@ this build and a real app in the two stores, each item with who can do it.
    earnings screen: the two "Other earnings" amounts, the button that collects everything
    ready, and the true outcome of her own press of it. The sweep plays a collection she
    pressed herself with a contribution in it (its outcome and amount are shown, sent in
-   part and refused included) apart from one Connect or the founder started (nothing of it
-   unless her calls alone would have caused it). *Added 27 November, and made stricter after Astra's check:*
+   part and refused included) and one Connect or the founder started (shown by the same rule,
+   with who started it). *Added 27 November, and made stricter after Astra's check:*
    it also makes the newer things that could carry a project's or a tip's money to a phone,
    and checks that **nothing at all** comes of them there, not even without a name: a tip
    and a contribution that Connect refunded after the host collected (no take-back in any
    list or count, "not found" by its number, no notification; part 16b); a bank dispute over
    a contribution (no notification; part 12); a host whose only earnings are tips (no
-   statement, no collection sentence, the same deletion screen as a host with nothing; parts
-   16 and 19); a block between two people who have a monthly contribution (neither sentence
+   statement; the earnings screen says "Other earnings" and never "tips"; the same deletion
+   screen as a host with nothing; parts 16 and 19); a block between two people who have a monthly contribution (neither sentence
    under "Block" says so; part 09a); a person paused with a reason the team typed about a
-   diary (the typed words are in no answer; part 09a). And the mixed cases, where a call is present but is not the
-   cause: a host who never collected, with a contribution a year old and a call share from
-   yesterday, when Connect collects for her (no sentence, no notification); a small call
-   share that only a tip lifts over the least amount (the same); a customer whose only bank
-   dispute is about a contribution, trying to book a call (refused, in the same words and
-   fields as for a dispute about a call, with no cause named; part 09a). And it turns the
+   diary (the typed words are in no answer; part 09a). And a customer whose only bank dispute is about a
+   contribution, trying to book a call: refused, in the same words and fields as for a
+   dispute about a call, with no cause named (part 09a). **What the sweep does not ask
+   for:** that a call's own figures look as they would if no other money existed. A call's
+   receipt, a debt about a call and a collection with a call in it show their true figures
+   (the build plan, "The rule for the apps"). And it turns the
    website's own tip switch on and off while the apps' tip switch is off: nothing a phone is sent changes.
    And in each position of the membership switch it tries every
    way to a membership payment, the ones through booking, the calendar and Contacts

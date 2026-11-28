@@ -64,7 +64,9 @@ earned, the rating, the follow box, the host's note, and the buttons that lead o
    the page also uses, built field by field: no project ask, and no tip field unless the
    apps' tips switch is on. A person of the call sees the page; nobody else; the founder's
    extra view of it stays on the website.
-2. **The money is shown exactly as the website shows it to that role:** the amounts held,
+2. **The money is shown exactly as the website shows it to that role** (a call's receipt is
+   about that call, and its figures are the true ones, also when its share was collected
+   together with other earnings; the app works out no "as if"): the amounts held,
    charged, given back and paid to both; the fee, her share and the payout state to the host
    only. One receipt per payment. Every figure is the server's.
 3. **Small addresses, on the same functions:** rate; save the note; follow, unfollow, "don't

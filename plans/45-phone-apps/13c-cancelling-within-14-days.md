@@ -88,9 +88,11 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
    once and for good, coming calls are cancelled, and what stays paid for (time that was
    used, and a call that was charged under the booking's terms, such as one cancelled late
    or missed), with the rest going back to the card. The sentences are the server's, whole;
-   the app shortens none of them. That includes the case of a call that had already begun
-   when the button was pressed and whose charge is not known yet: the server's sentence says
-   that it is still open and what happens once the amount is known, and the app shows it. Where the month was only held and never taken, nothing is
+   the app shortens none of them. **Before the press the sheet says the rule, as the
+   website's paragraph does** (a call that has already begun is worked out as usual); it
+   cannot say how many such calls there are or what they come to, because that is only
+   worked out during the cancelling. **After the press** the outcome that was recorded
+   reaches the member where decision 8 says: the email. Where the month was only held and never taken, nothing is
    "paid back": the hold is let go, and the sentence says that, as the website's does. Two buttons: "Cancel within 14 days" and "Keep my membership".
 7. **After pressing, the app reads the membership again, whatever came back.** A refusal is
    shown as the sentence the server sent. If the answer was lost on the way and the membership

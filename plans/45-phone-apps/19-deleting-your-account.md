@@ -83,9 +83,11 @@ first: taking the request, locking the account, and deciding what happens to com
    sees "a deleted account") and a membership still inside its 14 days (decision 6a). **How
    much of that is shown depends on where she is.** On the website the screen shows all of
    it, with her own numbers. In the app it shows her own numbers only for calls (and for
-   memberships while they are on for the apps): the coming calls and what each costs or
-   gives back, the memberships that end, and what is ready and what is waiting of her
-   earnings from calls **as it stands at that moment**. What will really be sent, refused or
+   memberships while they are on for the apps), **and this is the whole list:** the coming
+   calls and what each costs or gives back, the memberships that end, and what is ready and
+   what is waiting of her earnings from calls as it stands at that moment. No debt and no
+   dispute is among them, about a call or about anything else: those are in the general
+   sentences here and with their details on the website and by email. What will really be sent, refused or
    still be on its way afterwards is not known yet and is on no screen; it comes by email
    (part 19b, decision 4); for everything else it shows sentences that
    every person sees alike, whatever they have: that deleting cancels no debt and stops no
@@ -108,6 +110,12 @@ first: taking the request, locking the account, and deciding what happens to com
 6a. **A membership still inside its 14 days** *(added 27 November; rewritten after Astra's two
    checks; the builder's)*. Cancelling within 14 days is the **member's** right and nobody
    else's.
+   - **First, whatever is already on record.** A request made in time stays a request made
+     in time, whenever the account is deleted: a member who pressed on day 14, was stopped
+     by a bank, and deletes on day 15 has no button any more but still has that request,
+     with its month, its moment and who made it. The deletion starts from such a request
+     and treats that month's coming calls the 14-day way. Only then does it look whether a
+     new one can be made.
    - **The member deletes their account, and the 14-day way is open** (`ownFourteenDays`
      says so). Their request is written down at the moment of confirming, through the same
      first step the button uses, on the last day too. The helper finishes it as it finishes
@@ -129,7 +137,10 @@ first: taking the request, locking the account, and deciding what happens to com
      settled the case, and the rest of the deletion goes on.
    - **The same holds when a bank dispute has already ended the membership** and its current
      month is no longer marked on it: the case is found from the month's own records, not
-     only from a membership that still shows a button.
+     only from a membership that still shows a button. Whether that month was the first
+     month of a first joining is judged as it was for that month (a dispute over an old
+     month can end a later, different membership of the same two people, which has no such
+     right).
    - **The host deletes her account.** Nothing is asked in a member's name. A request a
      member of hers has on record is kept and finished first; her other memberships end as
      decision 6 says.
@@ -183,7 +194,8 @@ first: taking the request, locking the account, and deciding what happens to com
   a member on day 5 of a new membership (cancelled the 14-day way, with its pay-back), and
   one with a 14-day request already on record; a member whose membership is paused with an
   account; a paused account (it can delete, and stays paused in the record); a host who owes
-  money back and one with an open bank dispute (both shown on the screen before confirming);
+  money back and one with an open bank dispute (both shown, with their details, on the
+  website's screen before confirming; in the app, the general sentences and no entry);
   a person with a conversation (closed, and nothing can be sent either way); the helper's
   once-a-minute tidying-up run against a deleting account before, during and after its
   cancellations (the call in progress goes on, a call with an agreed late charge is charged

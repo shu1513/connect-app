@@ -274,20 +274,40 @@ from the right day.
 - The app's last step of signing up does not say that a new version of a document is coming
   (the website's does).
 
-**The rule that Astra's checks sharpened.** "Other earnings" is allowed on a host's earnings
-screen as three things (part 16, decision 5): two amounts, the button that collects
-everything that is ready, and the true outcome of her own press of it. Nowhere else. Nothing may appear on a phone *only
-because of* a contribution or a tip, with or without a name: no entry of money owed back, no
-count, no notification, no collection sentence, no line on the screen before deleting an
-account. The website and the emails keep everything. Where a call is present but is not the
-cause (an old contribution makes a collection due; a customer's only bank dispute is about
-a contribution), the phone behaves as if only the call were there. **The rule is about what
-a phone shows and says.** It does not undo a consequence that holds for a whole account,
-such as the stop on new payments after a bank dispute: that stays, in words that name no
-cause.
+**The rule for the apps, as it stands after four checks.** The founder's rule is that the
+host's project and everything about it stay out of the apps, so that the 4.9% is safe; tips
+stay out while their switch for the apps is off. Put exactly:
+
+- **Nothing in the apps is about a project, a contribution, a diary or a tip.** No screen, no
+  sentence, no link, no entry, no notification, and no way to do anything with one. That
+  covers things with a name and things without: money owed back for a contribution is not
+  an entry "without a name", it is not there.
+- **"Other earnings" is a group without a name on a host's earnings screen** (part 16,
+  decision 5). Her money is counted there in full, in what is ready, what is waiting and
+  what was collected; nothing says what the group is made of.
+- **A thing that is about a call is shown as it truly is,** also when other earnings touched
+  it: a call's receipt, money owed back for a call, a collection with a call in it. The app
+  works out no "as if the other money did not exist".
+- **Words that would point at a cause the app cannot name are made neutral** (a refusal
+  after a bank dispute, a moment when nobody can collect).
+- The website and the emails keep everything.
+
+**Said plainly, for the founder:** in the first three checks the builder let this rule grow
+into something else, that a phone must behave as if contribution money did not exist at
+all. Astra followed that faithfully, and its fourth check showed where it leads: hiding a
+25-cent difference on a call's payout line, or holding a notification back because a
+contribution's transfer was slow. That is not needed for the 4.9% (a store looks for
+something that is sold or advertised in the app, not for arithmetic), it could never be
+finished, and it would have made every money screen much dearer to build. It is withdrawn.
+The points of the fourth check that rested only on it were not taken (a call's receipt, a
+call's debt, the timing of a notification); the rule above is the one the parts are written
+to now. **If the founder wants the stricter reading after all, this is the place to say
+so.**
 
 **For the founder to decide** (nothing waits for these until the part in question is built):
 
+0. *The rule itself* ("The rule for the apps", above): by what a thing is about, as written
+   there, or the stricter reading that was withdrawn.
 1. *A notification when Connect itself writes to someone* (part 12, decision 2a): the phone
    says only "Connect has written to you.", for a short list of causes (a bank dispute over a
    call that waits for the host's choice, money owed back for a call, a collection Connect
@@ -346,6 +366,19 @@ for deleting an account, the calls of a stopped 14-day case, a second look that 
 show on a phone, what is known before and after the press, which debts can be objected to
 and until when, a case's closing notice, the people's real details in every kind of proof,
 and what becomes of a pause (parts 19, 19b, 19c).
+
+**Astra's fourth check, the same day: "not ready", seventeen points and one smaller.** Four
+points of the third check were found fully answered, and no decision is missing from any
+part any more. Three of the seventeen rested on the stricter reading of the rule and were
+not taken (above). The others were taken: a 14-day request that is already on record when
+a member deletes later; the address kept until nothing more can follow from a case; the
+proof for a bank dispute copies exactly what it reads and no more; one list of what the
+app shows before a deletion; a debt can be objected to while it is "told"; the note on a
+request, and the look into a room, follow the request; part 09a names the three checks
+that must stop expecting today's faults; the link of the sign-up notice follows part 18;
+a typed reason in the founder's record; two expectations of the refunds check; what is
+known before and after pressing "Cancel within 14 days"; the floor under a host's price
+(parts 09a, 12, 13c, 14, 16b, 19, 19b, 19c).
 
 **What stays as it was.** Each part is still read against the code on the day it is built, and
 its plan put right once more if the code has moved. Parts 13c, 14b, 16b, 19, 19b and 19c go

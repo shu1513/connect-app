@@ -18,7 +18,8 @@ in `src/lib/payments/collect.ts`:
 - A host's share of a call is ready 24 hours after the call ends; with a refund request, 2
   days **at the earliest**, and not before she has answered it. Collecting is possible once
   every 24 hours, costs 25 cents, and needs more than 25 cents to be ready. Nothing is sent
-  without her press, except by the 12-month collection described below. Not possible while the payout account is not ready. Also not, for a few
+  without her press, except by the 12-month collection described below and by the final
+  collection the founder can make for a closed host. Not possible while the payout account is not ready. Also not, for a few
   minutes, while a message from Stripe about any bank dispute has arrived and is not yet
   handled: until the helper has read it, nobody collects (`disputeMessageWaiting` in
   `src/lib/payments/collect.ts`); that says nothing about this host owing an answer.
@@ -69,41 +70,34 @@ in `src/lib/payments/collect.ts`:
    one collection. "In part", "refused" and "not known yet" are shown as that.
 4. **Not possible?** The app says which reason the server gave and leads to the payout
    account (part 14b) only when that is the reason.
-5. **Where the exception for "Other earnings" ends** *(added 27 November; put exactly after
-   Astra's three checks)*. It covers three things and no more: the two amounts (ready and
-   waiting), the one button that collects everything that is ready, and what became of **her
-   own press** of that button (sent, in part, refused, not known yet, with its amount),
-   because a button whose outcome is hidden is a broken button. "Her own press" means a
-   collection she started herself. One Connect started for her after 12 months, and the
-   final one the founder can make for a closed host, are not hers in this sense (the record
-   names who started each). Everything else on this screen is worked out as if only her
-   calls existed (and her memberships, while they are on for the apps):
-   - **A collection she did not start** has a sentence in the app, and a notification (part
-     12, decision 2a), only when her calls alone would have caused it. That is asked with
-     the helper's real rule, applied to the calls' own history as it stood when the
-     collection was made: 12 months since her last collection *of call earnings* that went
-     through, or, if there was none, since her oldest call share became ready; and call
-     shares that reach the least amount by themselves. A call share that became ready
-     yesterday beside a contribution a year old does not pass; neither does a small call
-     share that only a tip lifts over the least amount.
-   - **A figure about such a collection is shown only if it is both true of what was really
-     sent and what the calls alone would have given.** The charge of a collection is taken
-     from its largest share, so with a contribution in it even the call's own line can
-     differ from what it would have been alone; then the figure is left out, not corrected.
-   - **"You can collect again from ..."** follows the last collection of any kind, and that
-     stays the rule for the button. But the app does not name a moment, or give a reason,
-     that exists only because of a collection it does not show: the button is simply not
-     offered, with "Collecting is not possible right now. Please try again later."
-   - **The same neutral sentence** is used while a message from Stripe about a bank dispute
-     is waiting to be read (it stops everyone's collecting for some minutes, and can be about
-     anyone's payment of any kind): the app does not say "a disputed charge".
-   - Reasons that are hers to act on are still said plainly: her payout account is not
-     ready, or a refund request for a call waits for her answer.
-   Nothing in the app starts, stops or delays a collection by Connect.
+5. **What "Other earnings" may be, and what it may not** *(added 27 November; rewritten after
+   Astra's fourth check, when the rule for the apps was put as a rule about what a thing is
+   about: see the build plan)*. "Other earnings" is a group without a name. On this screen
+   every statement about her money may count that group in, as an amount: what is ready,
+   what is waiting, what a collection sent or did not send, and who started that collection
+   (she, Connect after 12 months, or the founder for a closed account; the record names
+   which). Nothing ever says what the group is made of, and nothing leads from it anywhere.
+   - **A collection is shown as what it was,** with its true amounts split into calls
+     (memberships, while they are on for the apps) and "Other earnings". A collection that
+     held nothing but other earnings is shown the same way, as a collection of "Other
+     earnings". "You can collect again from ..." is the true moment, whatever was in the
+     last collection.
+   - **A call's figures are the call's true figures.** The charge of a collection is taken
+     from its largest share, so a call's own line can read differently when something else
+     was collected with it. The app shows what was really sent for the call. It does not
+     work out what would have been sent if the other money had not existed.
+   - **What is still not shown here, because it is about one contribution or one tip and not
+     about her total:** money owed back for one (part 16b), a bank dispute over one, and the
+     yearly statement's split by kind (decision 7).
+   - While a message from Stripe about a bank dispute is waiting to be read, nobody can
+     collect for some minutes. That message can be about anyone's payment, so the app says
+     "Collecting is not possible right now. Please try again in a few minutes." and not "a
+     disputed charge".
+   Nothing in the app starts, stops or delays a collection by Connect or by the founder.
 6. **Money owed back is part 16b,** built in the same pull request as this part or in the
    next. If this part is merged first, the app's earnings answer says one plain sentence
-   whenever such a list would not be empty **for calls** (and for memberships while they are
-   on for the apps): "You owe money back, or money was taken back. The details are in your
+   whenever such a list would not be empty **for money owed back about a call** (or about a
+   membership, while they are on for the apps): "You owe money back, or money was taken back. The details are in your
    email, and on your earnings page on the website." A debt about a contribution or a tip
    makes no sentence and no entry (part 16b, decision 9).
 7. **The yearly statement stays on the website** *(changed after Astra's check; the first
@@ -122,15 +116,13 @@ in `src/lib/payments/collect.ts`:
   cents; twice within 24 hours; the same collection sent twice; without a payout account;
   with a refund request not answered; a host with contribution money ready and waiting: the
   totals are right, both lines say only "Other earnings", and no project name is anywhere in
-  the answer; memberships on and off for the apps; a collection the helper started that
-  her calls alone would have caused (its sentence, and no "press again"); one made only of
-  tips, one where a contribution a year old made it due beside a call share from yesterday,
-  and one where a tip lifted a small call share over the least amount (no sentence, no
-  figure, no "collect again from", the two amounts changed); a collection she pressed
-  herself with a contribution in it, sent in part (its true outcome and amount are shown);
-  a collection the founder made for her while her account was closed, after it was opened
-  again (treated as one she did not start); a waiting message about someone else's bank
-  dispute (the neutral sentence); a host with money owed back for a call while part 16b
+  the answer; memberships on and off for the apps; a collection the helper started, one the founder
+  made for her while her account was closed (seen after it was opened again), and one she
+  pressed herself, each with a call share and a contribution in it and each sent in part:
+  the true amounts in the two groups, who started it, and nothing that says what "Other
+  earnings" is made of; a collection of nothing but tips (shown as a collection of "Other
+  earnings"); a waiting message about someone else's bank dispute (the neutral sentence);
+  a host with money owed back for a call while part 16b
   is not built (the plain sentence, and nothing more), and a host whose only debt is about
   a contribution (no sentence); no address of the app answers with a statement, and the
   line about the statement is the same for a host with only calls and a host with only tips.
@@ -192,3 +184,14 @@ This plan is read against the code once more on the day it is built.
    moment she may collect again, and the sentence about a disputed charge. Decision 5.
 3. *"Her own press" needed a meaning,* since Connect and the founder can start a collection
    too. Decision 5.
+
+## Astra's fourth check (27 November 2026): "not ready"; the rule itself was put right
+
+The third check's answers had made this screen pretend that other earnings do not exist: a
+collection was to be shown only if "the calls alone would have caused it". The fourth check
+followed that idea further (a call's receipt, a debt, the moment a phone rings) and showed
+that it has no end. The idea was wrong, and it was the builder's, not the founder's. The
+founder's rule is that the project and everything about it stay out of the apps. So
+decision 5 now says: the nameless group may be counted in wherever her money is counted,
+and nothing may be about one contribution or one tip. The build plan says the same for
+every part, and puts it to the founder.

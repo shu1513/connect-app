@@ -33,9 +33,11 @@ website.
 - **A top price** (plan 48): no host can set a price above the highest allowed, which is the
   same for everyone unless the founder gave her a higher one (`topPriceOf`,
   `hostPriceProblem`). If the founder lowers her top price below her price, her price drops
-  at once and she is told by email. Her own form refuses a regular price below a member price that
-  is in use: one a member is paying or still has a month running at, and the price of a
-  membership offer she has switched on even before anyone has joined.
+  at once and she is told by email (unless her account is closed). **Both her own form and
+  the founder's are held by one floor:** a regular price cannot go below a member price
+  that is in use, so the founder's lowering can be refused too. "In use" means the higher of: the price of a
+  membership offer she has switched on (even before anyone has joined), and the price of
+  any month that is to be paid, held or running.
 - **The ordinary form for changing her profile** also carries "business or private", so an
   approved host can change that answer there at any time.
 - **Changing** (`saveProfile`): a new display name on an approved profile goes for approval
