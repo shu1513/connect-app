@@ -89,7 +89,7 @@ saves a card and waits; the host accepts; a minute later they talk.
    who may still act** *(added 27 November, after Astra's checks)*. The rule is part 09a's,
    decision 6 (both accounts open, neither paused, no block), and it is the same one for the
    booked list, the instant list and one request's own screen, on the website and in the
-   app. The first version of this decision said the booked list already had it; it has
+   app: such a request is left out of the other person's list and of its number. The first version of this decision said the booked list already had it; it has
    only the half about closed accounts and blocks. And **a pause ends an "until its time is
    up" period for good:** it does not come back when the pause is lifted, even if its time
    is not up yet.

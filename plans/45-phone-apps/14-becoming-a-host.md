@@ -33,8 +33,9 @@ website.
 - **A top price** (plan 48): no host can set a price above the highest allowed, which is the
   same for everyone unless the founder gave her a higher one (`topPriceOf`,
   `hostPriceProblem`). If the founder lowers her top price below her price, her price drops
-  at once and she is told by email. Her own form refuses a regular price below a price a
-  member of hers is paying.
+  at once and she is told by email. Her own form refuses a regular price below a member price that
+  is in use: one a member is paying or still has a month running at, and the price of a
+  membership offer she has switched on even before anyone has joined.
 - **The ordinary form for changing her profile** also carries "business or private", so an
   approved host can change that answer there at any time.
 - **Changing** (`saveProfile`): a new display name on an approved profile goes for approval
@@ -79,8 +80,9 @@ website.
    the reader it already uses for legal text (parts 03 and 06), sends back the version it
    showed, and is told "these documents have changed, please read them again" when that
    version is no longer the current one. The box for a host who still owes one of the two
-   answers, and the notice of a coming version, are at the top of the app's Hosting screen
-   with the server's words. The app's form for changing a profile carries "business or
+   answers are at the top of the app's Hosting screen with the server's words. The notice
+   of a coming version is there too, in the fixed words part 09a, decision 7, gives such a
+   notice (the document, the day, a link), without the version's free-text summary. The app's form for changing a profile carries "business or
    private" too, as the website's does. How the agreement's own text is shown where it speaks about
    projects is part 18's open decision 5; this part is not built before that is settled.
 7. **The price field takes the server's limit and the server's sentence** *(added 27

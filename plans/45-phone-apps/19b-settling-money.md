@@ -42,8 +42,12 @@ left, and a host does not have to sign in again to get hers.
   sends its proof (`src/lib/disputes/rules.ts`).
 - **Debts come in more than one kind** (`src/lib/disputes/takeback.ts`). One from a refund,
   for a payment made before the host held a published Host Agreement, is only written down
-  ("waiting") and settled by a person; one from a lost dispute is taken by the app after its
-  notice ("told"), and only that kind can be objected to. Money can also be owed *to* the
+  ("waiting") and settled by a person. One from a lost dispute, and one from a refund of a
+  payment she made under a published Host Agreement, is in the state "told" and is taken
+  by the app after its notice. **A debt can be objected to for as long as it is "told":**
+  the 14 days are the earliest moment of taking, not the end of her right to object, and
+  she can still object later if the taking was delayed or the notice's arrival is not
+  confirmed. Money can also be owed *to* the
   host, when more was taken than was owed.
 - **A collection can be under way when the lock falls:** a transfer that was sent to Stripe
   before, whose answer comes after; the helper's 12-month collection among them.
@@ -68,9 +72,13 @@ left, and a host does not have to sign in again to get hers.
 4. **What truly cannot be sent** (no working payout account, an open dispute) stays in the
    books as owed, with the reason. The founder sees these in a list on the admin pages.
    **Every** person who deletes an account gets a reference for it, of the same kind,
-   whatever they had: it is what they name when they write to support afterwards. What
-   exactly could not be sent to her, with its figures, is on the website's confirmation
-   screen and in the email she is sent, never in the app's answer: there the reference and
+   whatever they had: it is what they name when they write to support afterwards. **What
+   is known before she confirms and what is known after are two things.** Before: what is
+   ready and waiting, and what already stands in the way (no working payout account, an
+   open dispute); the website's screen shows all of that, the app's only for calls (part
+   19, decision 3). After: what was really sent, refused, or is still on its way, which
+   nobody can know at the press; that comes by email, as it happens. None of it is ever in
+   the app's answer to the press: there the reference and
    the general sentences are all there is, the same fields with the same shape for a host
    with unsent money and for a person with none (part 19, decision 3). Her payout account's details are kept until then, and not
    longer.
@@ -106,11 +114,15 @@ left, and a host does not have to sign in again to get hers.
      the notices still waiting to be sent; and the record that ties a delivery report to its
      notice, because the 14 days, and the 3 days after an answer, are counted from delivery
      (part 19c, decisions 3b and 5). Every later notice of that case goes to the address
-     kept for it, also after the address on her emptied account has been replaced.
+     kept for it, also after the address on her emptied account has been replaced. **The
+     last notice of a case is part of the case:** when a debt is settled or a dispute ends,
+     the app closes the case and queues its closing notice in one step, so the address is
+     kept until that notice has been sent or given up on, not only "while the case is open".
    - **Her objection** comes by email to support, since she can no longer sign in. It counts
      from the moment it **arrived**, not from when a person typed it in: the founder's page
      takes the day **and the time** it came (a day alone cannot tell the two sides of a
-     deadline on that day apart), and the taking is put on hold at once. If the money was taken in
+     deadline on that day apart), and the taking is put on hold at once. Whether it counts
+     is judged by the debt's state at that moment: still "told", then it counts. If the money was taken in
      between, it is given back.
    - Her payout account at Stripe is not closed while any of this is open (decision 5).
 9. **A debt, or a bank dispute, that begins after the deletion** *(added 27 November; open)*.
@@ -199,3 +211,11 @@ It goes to Astra with parts 19 and 19c before any of them is built.
 3. *An objection needs its time, not only its day; later notices need the kept address.*
    Decision 8.
 4. *The time for a bank dispute's choice is the stored one.* "What is there today".
+
+## Astra's third check (27 November 2026): "not ready", worked in
+
+1. *"What could not be sent" cannot be on a screen before the press.* Decision 4 separates
+   what is known before from what is known after.
+2. *Which debts can be objected to, and until when, was put too narrowly.* "What is there
+   today"; decision 8.
+3. *A case's closing notice is queued after the case is closed.* Decision 8, with part 19c.

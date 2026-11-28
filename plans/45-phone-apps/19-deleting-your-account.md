@@ -83,7 +83,11 @@ first: taking the request, locking the account, and deciding what happens to com
    sees "a deleted account") and a membership still inside its 14 days (decision 6a). **How
    much of that is shown depends on where she is.** On the website the screen shows all of
    it, with her own numbers. In the app it shows her own numbers only for calls (and for
-   memberships while they are on for the apps); for everything else it shows sentences that
+   memberships while they are on for the apps): the coming calls and what each costs or
+   gives back, the memberships that end, and what is ready and what is waiting of her
+   earnings from calls **as it stands at that moment**. What will really be sent, refused or
+   still be on its way afterwards is not known yet and is on no screen; it comes by email
+   (part 19b, decision 4); for everything else it shows sentences that
    every person sees alike, whatever they have: that deleting cancels no debt and stops no
    bank dispute, that some past payments can still be disputed by a customer's bank, and
    that the full list for her account is in the email she is sent and on the website's
@@ -113,14 +117,19 @@ first: taking the request, locking the account, and deciding what happens to com
      could charge one that is close. What is paid back is paid back once. The ordinary
      ending does not touch that membership before the request is finished.
    - **The member deletes their account in time, but a rule stops the 14-day way just now**
-     (their bank is looking at the month, or its payment has a problem), **and nothing is on
-     record yet.** The button's own step would refuse and write nothing, and the ordinary
-     ending would then clear the month. So the deletion itself writes down, with its
-     moment, that the member asked within the 14 days, as a case for a person at Connect;
-     that membership is left as it stands until the person has settled it; and the rest of
-     the deletion goes on.
-   - **A request that is already on record and stopped by such a rule** waits for a person
-     in the same way.
+     (their bank is looking at the month, or its payment has a problem), whether or not a
+     request is already on record. The button's own step would refuse and write nothing,
+     and the ordinary ending would then clear the month. So the deletion itself writes
+     down, together and with its moment: which month it is about, that the member asked
+     within the 14 days, and what happens to that month's coming calls. **Those calls are
+     cancelled the 14-day way here too,** by Connect and without a late charge, and shown so
+     before confirming: a member with a payment problem and a call in two hours is not
+     charged for that call as a late cancellation of his own. Money a bank has frozen stays
+     frozen for the settling. The month is left as it stands until a person at Connect has
+     settled the case, and the rest of the deletion goes on.
+   - **The same holds when a bank dispute has already ended the membership** and its current
+     month is no longer marked on it: the case is found from the month's own records, not
+     only from a membership that still shows a button.
    - **The host deletes her account.** Nothing is asked in a member's name. A request a
      member of hers has on record is kept and finished first; her other memberships end as
      decision 6 says.
@@ -128,6 +137,8 @@ first: taking the request, locking the account, and deciding what happens to com
 6b. **A paused account can delete itself** *(added 27 November; the builder's)*. Both stores
    ask that every account can be deleted. What Connect keeps about the pause is part 19c's
    table; deleting does not lift a pause, and the mark "deleted by its owner" sits beside it.
+   The pause's own mark stays on the emptied row; its reason, which is free text, does not
+   (part 19c, decision 1).
 6c. **Conversations close at the lock** *(added 27 November)*: nothing more can be written
    to or by a deleting account, through the same rule that already stops a closed one.
 6d. **A bank dispute that waits for her choice** *(added 27 November; put exactly after
@@ -140,9 +151,25 @@ first: taking the request, locking the account, and deciding what happens to com
    in to choose. So the website's confirmation screen shows each dispute that waits for her,
    with that stored deadline and what happens without a choice, and lets her choose there.
    **It is looked up again at the moment she confirms:** if a dispute has begun to wait for
-   her since the screen was drawn, nothing is locked and the screen is shown again. In the
-   app the screen says the general sentence of decision 3 and that such a choice is made on
-   the website. Deleting never changes the default.
+   her since the screen was drawn, nothing is locked and the screen is shown again. **That
+   second look is the website's.** In the app the screen before deleting says to every
+   host, in the same words, that anything Connect has asked her to answer by a deadline
+   must be answered on the website first, and she ticks that she has read it. The press
+   then goes through or fails for reasons that have nothing to do with disputes: the same
+   fields, the same screens and the same result whether a dispute has begun to wait
+   meanwhile or not, and whatever it is about. A host who deletes from the phone in that
+   moment gets the default (Connect sends its proof). Deleting never changes the default.
+7. **There is no "keep my account" afterwards.** Calls cancelled, memberships ended and a
+   photo deleted cannot be brought back. The screen says "this cannot be undone" once,
+   clearly, before the confirmation, and means it.
+8. **The work is written down step by step and finished by the helper.** If anything stops
+   halfway, the helper carries on from the last finished step until everything is done, and
+   never does a step twice.
+9. **Where it is:** "Delete my account" at the bottom of the account page, on the website and
+   in the app. The website's page has a plain address of its own that says what it is, so it
+   can be the page Google wants linked from the store listing; it asks the person to sign
+   in, and works without the app. An admin's account is not deleted this way. The founder's
+   own "close" stays as it is.
 
 ## How it is tried
 
@@ -165,9 +192,13 @@ first: taking the request, locking the account, and deciding what happens to com
   a member whose 14-day request is stopped by a bank (the deletion goes on, the request
   waits); a member inside the 14 days, with nothing on record, whose month a bank is
   looking at (the deletion writes the dated case, and the month is not cleared); a member
-  inside the 14 days with a call in two hours (cancelled the 14-day way, no late charge); a
-  dispute that begins to wait for a host between the screen and the press (shown again,
-  nothing locked); a host with a dispute waiting for her choice (the website's screen shows the
+  inside the 14 days with a call in two hours (cancelled the 14-day way, no late charge),
+  once with the way open and once with a payment problem on the same month; a member whose
+  membership a bank dispute already ended inside the 14 days; a dispute that begins to wait
+  for a host between the screen and the press (on the website: shown again, nothing locked;
+  in the app: the press and its answer are the same, field for field, as with no dispute,
+  for a dispute about a call and for one about a contribution); a stop in the middle of
+  each step of decision 8, carried on by the helper without doing any step twice; a host with a dispute waiting for her choice (the website's screen shows the
   deadline and takes the choice); and, in the app, a host whose only money, debt or dispute
   comes from a contribution or a tip: her screen is word for word that of a host with
   nothing;
@@ -238,3 +269,15 @@ Read again against the code on `main` after pull request 123. What changed in th
    which can charge.* Decision 6a: the 14-day way.
 3. *The time for a bank dispute's choice is the stored one, and can begin later.* Decision 6d,
    with a second look at the press.
+
+## Astra's third check (27 November 2026): "not ready", worked in
+
+1. *Decisions 7, 8 and 9 had been cut out by mistake in the second round's edit.* Restored,
+   word for word.
+2. *A stopped 14-day case protected the month but left its calls to the ordinary rule,* and
+   missed a membership a bank dispute had already ended. Decision 6a.
+3. *The second look at a dispute would have shown, on a phone, that something had changed.*
+   Decision 6d: that look is the website's; the app's press is the same for everyone.
+4. *The app's own figures at confirming are what stands then, not what is sent later.*
+   Decision 3.
+5. *A paused account that deletes itself:* the mark stays, the typed reason goes. Decision 6b.

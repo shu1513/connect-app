@@ -38,9 +38,11 @@ amount owed back a "take-back".
 - **Not every debt is taken by the app.** One from a *refund*, for a payment made before the
   host held a published Host Agreement (today that is every payment, since the agreements
   are drafts), is written down in the state "waiting": she is told, and a person at Connect
-  settles it with her; the app never takes it. One from a *lost bank dispute* is in the
-  state "told" and takes the way described below, whatever agreement she held. **Only a
-  debt in the state "told" can be objected to.** And money can also be owed the other way:
+  settles it with her; the app never takes it. One from a *lost bank dispute*, whatever
+  agreement she held, and one from a refund of a payment made under a published Host
+  Agreement, is in the state "told" and takes the way described below. **A debt can be
+  objected to while it is "told", and only then:** the 14 days are the earliest moment of
+  taking, not the end of her right to object. And money can also be owed the other way:
   when more was taken than turned out to be owed, the rest is hers and is given back.
 - **The notice.** The host is told by email and on the website's Messages page. Nothing is
   taken before 14 days after that email was reported as delivered (`NOTICE_MS`).

@@ -41,8 +41,12 @@ this build and a real app in the two stores, each item with who can do it.
    exist, tips. It then asks every app address as that host, as a contributor, as a follower,
    and reads what comes back; and it makes the things happen that send notifications (a new
    diary post, a contribution paid) and reads what is written for the phones: no field, no
-   line, no link and no notification that comes from those things, except the two "Other
-   earnings" amounts (part 16). *Added 27 November, and made stricter after Astra's check:*
+   line, no link and no notification that comes from those things, except what part 16, decision 5, allows on a host's
+   earnings screen: the two "Other earnings" amounts, the button that collects everything
+   ready, and the true outcome of her own press of it. The sweep plays a collection she
+   pressed herself with a contribution in it (its outcome and amount are shown, sent in
+   part and refused included) apart from one Connect or the founder started (nothing of it
+   unless her calls alone would have caused it). *Added 27 November, and made stricter after Astra's check:*
    it also makes the newer things that could carry a project's or a tip's money to a phone,
    and checks that **nothing at all** comes of them there, not even without a name: a tip
    and a contribution that Connect refunded after the host collected (no take-back in any

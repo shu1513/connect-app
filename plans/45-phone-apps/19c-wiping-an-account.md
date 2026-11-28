@@ -43,7 +43,11 @@ requests after a year.
    mark that the account is closed, and the mark "deleted by its owner" with its date (part
    19, decision 2). They are what keeps every gate shut, what stops the founder's "reopen",
    and what makes the ratings count this person as someone who left. *(Added after Astra's
-   second check.)*
+   second check.)* **A pause that was on the account stays as a mark too** (when it was
+   paused), because part 19 promises that deleting lifts no pause; its typed reason is
+   moved off the row into the record kept with "Reports about this person, pauses" in the
+   table, for as long as that line allows. After a wipe the row shows: closed, deleted by
+   its owner, paused or not, and nothing else of the person. *(Added after the third.)*
 2. **One table decides, group by group:** *erase* (the rows or the fields are removed),
    *strip* (the record stays, without anything that says who), or *keep* (for a stated reason
    and time).
@@ -104,10 +108,13 @@ requests after a year.
    it is made from is wiped** *(added 27 November, after Astra's check)*. The table erases
    names, time in calls and refund texts on different days, but the proof Connect sends a
    bank is put together from exactly those (`src/lib/disputes/evidence.ts`). So for each
-   kind of open case the least that is needed is listed (a bank dispute over a call: who the two people were, the time in the call, the refund
-   request and its answer, what was already sent to the bank; over a membership month: the
-   agreement and the month's own facts; over a contribution or a tip: the payment's facts
-   and the project's name or the call it belonged to, as the proof for each kind is built
+   kind of open case the least that is needed is listed (**for every bank dispute, whatever was paid for:** the customer's real name, email
+   address and the day the account was opened, the host's name, what each had accepted of
+   the legal documents, and the customer's earlier payments that were not disputed; **and
+   then by kind:** for a call, the time in the call, the refund request and its answer; for
+   a membership month, the agreement and the month's own facts; for a contribution or a
+   tip, the payment's facts and the project's name or the call it belonged to; and in each
+   case what was already sent to the bank, as the proof for each kind is built
    today in `src/lib/disputes/evidence.ts`; a debt: the notices, her objection, our answer,
    her address), copied into the
    case before the wipe touches its sources, and erased when the case closes. **Copies that
@@ -118,7 +125,7 @@ requests after a year.
    kept for the last email of decision 4.
 3a. **Coming back with the same email address** *(added 27 November; rewritten after Astra's
    check; open, for the founder and the lawyer)*. Decision 1 lets the real address sign up
-   again as a new, empty account. Three different things would be shed by that, and they
+   again as a new, empty account. Four different things would be shed by that, and they
    are not alike:
    - **A stop on new payments** (plan 47): while a bank dispute of theirs is open, and after
      one they won against Connect's proof. It stops only new agreements to pay; the first
@@ -147,7 +154,10 @@ requests after a year.
    goes out with its text already removed. Emails waiting for the deleted person themselves
    are cancelled, except the last one of decision 4 **and everything that belongs to an
    open case** (a debt's notice, our answer to an objection, what a bank dispute still has
-   to tell them): those are sent, to the address kept for that case. The clean-up by age
+   to tell them): those are sent, to the address kept for that case. **That includes the last notice of a
+   case:** it is queued in the same step that closes the case, so a wipe that looked only
+   for "open" cases would find the case closed and cancel its closing notice. The address
+   goes when that notice has been sent, or given up on by the sender's own rules. The clean-up by age
    leaves the same things alone while the case is open; in particular it does not clear
    the email service's number of a notice whose delivery a deadline hangs on
    (`src/lib/retention.ts` clears it today after two years).
@@ -188,11 +198,19 @@ requests after a year.
   is closed; a delivery report that arrives after the wipe still finds its notice; an
   unpaid attempt that Stripe charged after all is still there to be put right; after the
   wipe the account is still closed and still marked as deleted, the founder's "reopen"
-  refuses it, and its ratings still count as a leaver's; a debt's notice that was waiting
+  refuses it, and its ratings still count as a leaver's; an account that was paused when it
+  was deleted is still marked paused after the wipe, with its typed reason gone from the
+  row and present in the kept record; a debt settled a minute before the wipe still gets
+  its closing notice; a bank dispute over a membership month, and one over a contribution,
+  answered after the customer was wiped, carry the customer's real name and not "a deleted
+  account"; a debt's notice that was waiting
   at the wipe is sent to the kept address, and its delivery report still starts the 14
   days; a bank dispute over a membership month, and one over a contribution, opened before
   the wipe, can each be answered with full proof after it.
-- Every existing check script unchanged and green.
+- Every existing check script green, and unchanged **but for one line that is meant to
+  change:** `refunds-check` today expects the texts of a refund request that is still open
+  to be gone after a year. Decision 6 says they must stay until the request is closed. That
+  line is turned round, and a second one checks that they go once it is closed.
 
 ## Astra's second check (20 November 2026): "not ready", now worked in
 
@@ -212,8 +230,10 @@ requests after a year.
 
 The whole table: which lines must be erased, which may be kept, for how long each; the 30
 days; whether reports and pauses may be used to recognise a returning person; what outside
-companies must be asked. *Added 27 November:* the same for a stop on new payments after a
-lost bank dispute (decision 3a); whether the other person of a conversation may keep reading
+companies must be asked. *Added 27 November:* the same question for each of the four things
+of decision 3a (a stop on new payments while a bank dispute is open or after one the
+customer won, a pause, another person's block, and the histories that count toward a
+rule); whether the other person of a conversation may keep reading
 what a deleted person wrote; how long acceptances of the legal documents are kept.
 
 ## Keeping the 4.9%
@@ -264,3 +284,15 @@ goes to Astra with parts 19 and 19b before any of them is built.
 4. *Another person's block, and an open bank dispute, were missing from the question about
    coming back.* Decision 3a.
 5. *A request key is a record against a repeat, not a guard of something unsettled.* Its line.
+
+## Astra's third check (27 November 2026): "not ready", worked in
+
+1. *The proof for every kind of dispute needs the people's real details, not only a call's.*
+   Decision 3b.
+2. *A case's closing notice is queued after the case closes, and would have been cancelled.*
+   Decision 5.
+3. *What becomes of a pause on a deleted account* was said three ways. Decision 1.
+4. *"Every existing check unchanged" contradicted decision 6.* "How it is tried" names the one
+   line that changes.
+5. *The question about coming back has four things in it, not three,* and the lawyer is asked
+   about all four.

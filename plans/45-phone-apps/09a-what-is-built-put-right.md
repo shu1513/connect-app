@@ -37,8 +37,9 @@ those screens on the test phone and puts seven small things right. Nothing new i
    about a payment on Connect ... Your messages say more." The app's booking address already
    passes it on. Two things are wrong with that on a phone. On the website "messages" is the
    page where Connect's own message is; in the app, "Messages" will be the conversations
-   between two people (part 17b). And the stop looks at every payment a customer ever
-   disputed, whatever it was for: a customer whose only dispute is about a contribution or a
+   between two people (part 17b). And the stop looks at a customer's disputes whatever the payment
+   was for (those that are open, and those the customer won although Connect had sent its
+   proof, until the founder allows paying again; a bank's mere question stops nothing): a customer whose only dispute is about a contribution or a
    tip is told about "a dispute" when he tries to book an ordinary call.
 6. **What a paused or blocked person is still offered, and can still do, while the
    tidying-up runs.** A pause ends a person's waiting requests and coming calls a moment
@@ -97,19 +98,33 @@ those screens on the test phone and puts seven small things right. Nothing new i
 6. **One rule for "may these two still act", asked wherever it matters.** *(Widened after
    Astra's second check.)* Both accounts open, neither paused, no block between them. It is
    asked:
-   - before a list of requests is counted or filled, and before one request's screen is
-     answered: a request whose two people may no longer act gives the *other* person no
-     name, photo, rating, ID mark or note, and no step to take;
+   - before a list of requests is counted, grouped or filled: a request whose two people
+     may no longer act is **not in the other person's list at all**, nor in its number, as
+     if the tidying-up had already run (today the list writes the customer's name straight
+     from the row, whatever the check says);
+   - before one request's own screen is answered: if it is asked for directly in that
+     moment, the other person gets "This request is no longer available.", with "Report"
+     and "Block" still there under labels that name nobody;
    - before the app's answers for a booking and for a call offer a step;
    - **in the steps themselves where their own gate is weaker:** saving a card for a
-     request, and the check before a call's money is held (which also learns to refuse when
-     the other account was closed).
+     request; the check before a call's money is held (which also learns to refuse when the
+     other account was closed); and going into a call's room, which today asks about the
+     person coming in and about a block, not about the other person's pause or closure.
+     (The one call a deleting person may finish, part 19, decision 2, is the stated
+     exception at the room's door.)
+   - **A host's private note about a customer is hers,** and the website lets a paused host
+     go on editing it on purpose. That stays; in the app she reaches it from Contacts (part
+     17), not from a request whose details are being withheld.
    What the paused person may still do with their own things stays as the website has it
    (take a request back, cancel, look at past calls and receipts, "Report", "Block"), and so
    do the steps that only read or tidy up.
-7. **The app's last step of signing up says what is coming.** Its answer gains the announced
-   versions (which document, from which day, the summary, a link to read it), shown above
-   the button as on the website. What is accepted today is still today's version and
+7. **The app's last step of signing up says what is coming, in words of its own.** Its answer
+   gains the announced versions: which document, from which day, whether it is one the
+   person accepts or one they are only told about, and a link to read it. **Not the
+   summary:** on the website that is free text written for each version, and a version that
+   changes the terms about contributions or tips would put those on the sign-up screen. The
+   app's sentence is fixed ("From 12 January a new version of the Payment Terms applies.
+   Read it."); the summary is on the website's page behind the link. What is accepted today is still today's version and
    nothing else. The link opens the website, as the step's other document links do. (How
    legal text is shown inside the app is part 18's open decision 5; a link out does not wait
    for it.)
@@ -129,12 +144,14 @@ those screens on the test phone and puts seven small things right. Nothing new i
     for one about a contribution: the app's answer is the same in both, word for word and
     field for field, and holds neither "bank" nor "dispute"; the website's own page keeps
     its sentence;
-  - a customer paused a moment ago, before the tidying-up: his request is in the host's
-    list without any of his details and without a step, and a paused host's list holds no
-    customer's details; a customer whose host was paused a moment ago cannot save a card
+  - a customer paused a moment ago, before the tidying-up: his request is not in the
+    host's list or its number, and asked for directly it answers "no longer available"
+    with no name in any field; a paused host's list holds no customer's details; nobody
+    goes into a room whose other person was paused or closed a moment ago; a customer whose host was paused a moment ago cannot save a card
     for that request; a call's money is not held when the other account was closed;
-  - the app's last step of signing up while a new version of a document is announced: the
-    notice is in the answer, and accepting records today's version.
+  - the app's last step of signing up while a new version of a document is announced, with
+    a summary that speaks of contributions: the notice is in the answer, the summary's
+    words are not, and accepting records today's version.
 - The app's own tests and types; the placeholder screen's test no longer expects the line.
 - On the Android test phone, with pictures: the walk of decision 1; a paused account's home
   screen; a blocked pair's booking.
@@ -157,3 +174,12 @@ with real things behind them, so the next one is caught by a check and not by a 
    steps could still be taken during the tidying-up. "What is there today", point 6;
    decision 6.
 3. *Nobody owned the notice of a coming document version at sign-up.* Point 7; decision 7.
+
+## Astra's third check (27 November 2026): "not ready", worked in
+
+1. *Two parts said two things about a request that may no longer be acted on.* Decision 6: it
+   leaves the other person's list and count; its own screen answers "no longer available".
+2. *Two more steps had a weaker gate:* going into a room, and a host's note. Decision 6.
+3. *A version's summary is free text and can speak of contributions.* Decision 7: the app's
+   notice has fixed words.
+4. *Which disputes stop new payments* was put too widely. "What is there today", point 5.

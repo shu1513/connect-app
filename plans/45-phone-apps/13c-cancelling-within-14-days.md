@@ -88,7 +88,9 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
    once and for good, coming calls are cancelled, and what stays paid for (time that was
    used, and a call that was charged under the booking's terms, such as one cancelled late
    or missed), with the rest going back to the card. The sentences are the server's, whole;
-   the app shortens none of them. Where the month was only held and never taken, nothing is
+   the app shortens none of them. That includes the case of a call that had already begun
+   when the button was pressed and whose charge is not known yet: the server's sentence says
+   that it is still open and what happens once the amount is known, and the app shows it. Where the month was only held and never taken, nothing is
    "paid back": the hold is let go, and the sentence says that, as the website's does. Two buttons: "Cancel within 14 days" and "Keep my membership".
 7. **After pressing, the app reads the membership again, whatever came back.** A refusal is
    shown as the sentence the server sent. If the answer was lost on the way and the membership
@@ -100,7 +102,7 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
    stays paid for is in the email; the app does not work it out again. The cancelled calls
    show as cancelled in the calls list (part 08).
 9. **No notification of its own** (part 12): the person pressed it themselves. The host
-   learns of it as of any ending: by the email an ending sends her. Her list of members
+   learns of it by the email that the ending of a membership with a member in it sends her. Her list of members
    holds no ended memberships, on the website or in the app (part 13b).
 10. **The founder's form stays on the website.**
 

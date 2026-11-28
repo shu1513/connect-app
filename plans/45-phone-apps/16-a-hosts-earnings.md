@@ -70,21 +70,35 @@ in `src/lib/payments/collect.ts`:
 4. **Not possible?** The app says which reason the server gave and leads to the payout
    account (part 14b) only when that is the reason.
 5. **Where the exception for "Other earnings" ends** *(added 27 November; put exactly after
-   Astra's two checks)*. It covers three things and no more: the two amounts (ready and
-   waiting), the one button that collects everything that is ready, and what became of a
-   press of that button (sent, in part, refused, not known yet), because a button whose
-   outcome is hidden is a broken button. Everything else on this screen is worked out from
-   calls alone (and memberships, while they are on for the apps):
-   - **A collection Connect started** has a sentence in the app only when her earnings from
-     calls would have made it happen **by themselves**: they alone were 12 months
-     uncollected, and they alone were more than the least amount. If an old contribution
-     made it due, or a tip lifted a small call share over the least amount, the app says
-     nothing of the collection: the amounts simply change. The same test decides the
-     notification (part 12, decision 2a).
-   - **Figures about a past collection** (what was sent, what is still being checked, the
-     charge, what was not sent) are shown only for a collection she pressed herself, as its
-     outcome; for one Connect started, only what can be worked out from the call shares in
-     it.
+   Astra's three checks)*. It covers three things and no more: the two amounts (ready and
+   waiting), the one button that collects everything that is ready, and what became of **her
+   own press** of that button (sent, in part, refused, not known yet, with its amount),
+   because a button whose outcome is hidden is a broken button. "Her own press" means a
+   collection she started herself. One Connect started for her after 12 months, and the
+   final one the founder can make for a closed host, are not hers in this sense (the record
+   names who started each). Everything else on this screen is worked out as if only her
+   calls existed (and her memberships, while they are on for the apps):
+   - **A collection she did not start** has a sentence in the app, and a notification (part
+     12, decision 2a), only when her calls alone would have caused it. That is asked with
+     the helper's real rule, applied to the calls' own history as it stood when the
+     collection was made: 12 months since her last collection *of call earnings* that went
+     through, or, if there was none, since her oldest call share became ready; and call
+     shares that reach the least amount by themselves. A call share that became ready
+     yesterday beside a contribution a year old does not pass; neither does a small call
+     share that only a tip lifts over the least amount.
+   - **A figure about such a collection is shown only if it is both true of what was really
+     sent and what the calls alone would have given.** The charge of a collection is taken
+     from its largest share, so with a contribution in it even the call's own line can
+     differ from what it would have been alone; then the figure is left out, not corrected.
+   - **"You can collect again from ..."** follows the last collection of any kind, and that
+     stays the rule for the button. But the app does not name a moment, or give a reason,
+     that exists only because of a collection it does not show: the button is simply not
+     offered, with "Collecting is not possible right now. Please try again later."
+   - **The same neutral sentence** is used while a message from Stripe about a bank dispute
+     is waiting to be read (it stops everyone's collecting for some minutes, and can be about
+     anyone's payment of any kind): the app does not say "a disputed charge".
+   - Reasons that are hers to act on are still said plainly: her payout account is not
+     ready, or a refund request for a call waits for her answer.
    Nothing in the app starts, stops or delays a collection by Connect.
 6. **Money owed back is part 16b,** built in the same pull request as this part or in the
    next. If this part is merged first, the app's earnings answer says one plain sentence
@@ -109,8 +123,14 @@ in `src/lib/payments/collect.ts`:
   with a refund request not answered; a host with contribution money ready and waiting: the
   totals are right, both lines say only "Other earnings", and no project name is anywhere in
   the answer; memberships on and off for the apps; a collection the helper started that
-  held a call's share (its sentence, and no "press again"), and one made only of tips (no
-  sentence, the two amounts changed); a host with money owed back for a call while part 16b
+  her calls alone would have caused (its sentence, and no "press again"); one made only of
+  tips, one where a contribution a year old made it due beside a call share from yesterday,
+  and one where a tip lifted a small call share over the least amount (no sentence, no
+  figure, no "collect again from", the two amounts changed); a collection she pressed
+  herself with a contribution in it, sent in part (its true outcome and amount are shown);
+  a collection the founder made for her while her account was closed, after it was opened
+  again (treated as one she did not start); a waiting message about someone else's bank
+  dispute (the neutral sentence); a host with money owed back for a call while part 16b
   is not built (the plain sentence, and nothing more), and a host whose only debt is about
   a contribution (no sentence); no address of the app answers with a statement, and the
   line about the statement is the same for a host with only calls and a host with only tips.
@@ -162,3 +182,13 @@ This plan is read against the code once more on the day it is built.
    asks whether the calls alone would have caused it, and says where the exception ends.
 2. *Two summaries still said the opposite of the decisions* ("nothing is sent automatically",
    and the website's caption). Corrected.
+
+## Astra's third check (27 November 2026): "not ready", worked in
+
+1. *"The calls alone" was tested the wrong way:* the helper counts from her last collection
+   that went through, and from her oldest ready share only if there was none. Decision 5
+   applies that rule to the calls' own history.
+2. *Three more ways a hidden collection could show:* a charge carried by a larger share, the
+   moment she may collect again, and the sentence about a disputed charge. Decision 5.
+3. *"Her own press" needed a meaning,* since Connect and the founder can start a collection
+   too. Decision 5.

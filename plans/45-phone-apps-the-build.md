@@ -274,8 +274,9 @@ from the right day.
 - The app's last step of signing up does not say that a new version of a document is coming
   (the website's does).
 
-**The rule that Astra's check sharpened.** "Other earnings" is allowed as two amounts on a
-host's earnings screen (part 16) and nowhere else. Nothing may appear on a phone *only
+**The rule that Astra's checks sharpened.** "Other earnings" is allowed on a host's earnings
+screen as three things (part 16, decision 5): two amounts, the button that collects
+everything that is ready, and the true outcome of her own press of it. Nowhere else. Nothing may appear on a phone *only
 because of* a contribution or a tip, with or without a name: no entry of money owed back, no
 count, no notification, no collection sentence, no line on the screen before deleting an
 account. The website and the emails keep everything. Where a call is present but is not the
@@ -332,6 +333,19 @@ days whom a bank stops, money owed *to* a host, the notices and the time of an o
 the lock that the wipe itself must not empty, proof for disputes over memberships and
 contributions, and another person's block (parts 19, 19b, 19c). Each is answered in its
 part under "Astra's second check".
+
+**Astra's third check, the same day: "not ready", sixteen points and three smaller.** Twelve
+points of the second check were found answered. One of the sixteen was the builder's own
+slip: an edit of the second round had cut three older decisions out of part 19; they are
+restored word for word. The others: on the earnings screen, how "the calls alone would have
+caused it" is really asked, and three more ways a hidden collection could show (part 16,
+decision 5); a request that may no longer be acted on leaves the other person's list
+altogether, and two more steps had a weaker gate (part 09a, decision 6); a document
+version's free-text summary must not reach the sign-up screen (part 09a, decision 7); and,
+for deleting an account, the calls of a stopped 14-day case, a second look that must not
+show on a phone, what is known before and after the press, which debts can be objected to
+and until when, a case's closing notice, the people's real details in every kind of proof,
+and what becomes of a pause (parts 19, 19b, 19c).
 
 **What stays as it was.** Each part is still read against the code on the day it is built, and
 its plan put right once more if the code has moved. Parts 13c, 14b, 16b, 19, 19b and 19c go

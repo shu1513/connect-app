@@ -31,8 +31,9 @@ as evidence for a refund; asking for more time; and the text chat.
   asked and the new way and price are shown to be pressed again. The host can accept only
   once the money is ready, and only inside the time allowed.
 - **More time and a bank dispute** (plan 47, decision 9): added time paid by card is a new
-  payment. A customer whose bank has an open dispute about a Connect payment, or who lost one
-  after Connect's proof and has not been allowed to pay again, cannot start one
+  payment. A customer whose bank has an open dispute about a Connect payment, or who won one
+  although Connect had sent its proof and has not been allowed to pay again since, cannot
+  start one
   (`whyNoNewPayment` in `src/lib/disputes/paying.ts`, asked inside the step that writes the
   request in `src/lib/extend/extend.ts`). The request is refused with the server's own
   sentence. More time taken from a membership's month is not stopped.
