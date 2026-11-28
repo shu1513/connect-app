@@ -3,7 +3,7 @@
  */
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
-import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, lte, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { queueEmail } from "@/lib/email";
 import { SUPPORT_EMAIL } from "@/lib/terms";
@@ -86,16 +86,16 @@ export async function closeAccount(input: {
  * `since` is the moment the account was closed or paused, when that was not just now (the helper finishing
  * an interrupted pause): a call that had not started at that moment is still cancelled for free.
  */
-export async function endRequestsAndCallsOf(userId: string, now: Date, since: Date = now): Promise<number> {
+export async function endRequestsAndCallsOf(userId: string, now: Date, since: Date = now, madeBy?: Date): Promise<number> {
   let requestsEnded = true;
   try {
-    await endWaitingRequestsOf(userId, { asHost: true, asCustomer: true }, now);
+    await endWaitingRequestsOf(userId, { asHost: true, asCustomer: true }, now, madeBy);
   } catch (error) {
     requestsEnded = false;
     console.error(`[accounts] could not end the waiting requests of closed or paused account ${userId}`, error);
   }
   try {
-    const callsNotEnded = await endCallsOf(userId, now, since);
+    const callsNotEnded = await endCallsOf(userId, now, since, madeBy);
     return requestsEnded ? callsNotEnded : -1;
   } catch (error) {
     console.error(`[accounts] could not look up the calls of closed or paused account ${userId}`, error);
@@ -109,7 +109,7 @@ export async function endRequestsAndCallsOf(userId: string, now: Date, since: Da
  * closed person is put out and their entry pass stops working; the call is
  * then settled by the usual rule for the time that counted.
  */
-async function endCallsOf(userId: string, now: Date, since: Date): Promise<number> {
+async function endCallsOf(userId: string, now: Date, since: Date, madeBy?: Date): Promise<number> {
   const open = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.calls)
@@ -120,6 +120,9 @@ async function endCallsOf(userId: string, now: Date, since: Date): Promise<numbe
         isNull(schema.calls.cancelledAt),
         isNull(schema.calls.closedAt),
         gt(schema.calls.endsAt, now),
+        // Only calls that were there when the account was paused (plans/53, decision 10): one booked after a
+        // pause was lifted is the person's to keep, also when this runs a moment late.
+        madeBy ? lte(schema.calls.createdAt, madeBy) : undefined,
       ),
     );
   let notEnded = 0;

@@ -8,7 +8,7 @@
  * Part 1b adds the people who ask for an ending or a pause here (the two stops and their undoing,
  * "Cancel now", the host's own "End membership", the offer of less time).
  */
-import { and, eq, gt, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { whyNoNewPayment } from "@/lib/disputes/paying";
 import { db, schema } from "@/db";
 import type { Membership } from "@/db/schema";
@@ -17,7 +17,7 @@ import { cancelCall } from "@/lib/payments/cancel";
 import { MoneyError, type Tx } from "@/lib/payments/operations";
 import { stripe } from "@/lib/payments/stripe";
 import { abandonMonth, giveUpInStep, letHoldGo } from "./charge";
-import { queueLessTimeOutcomeEmail, queueRenewalBackEmail, queueRenewalStoppedEmail } from "./emails";
+import { ACCOUNT_PAUSE, queueLessTimeOutcomeEmail, queueRenewalBackEmail, queueRenewalStoppedEmail } from "./emails";
 import { endInvitation, lockPeople, mustBeFreeToAgree, mustBeOpen } from "./join";
 import { lockCalendar, lockForMonth, lockMembership, lockMonth, type LockedMonth } from "./locks";
 import { finishIfSettled, owePayBack, setDispute } from "./months";
@@ -30,6 +30,23 @@ export { endMembership, pauseMembership } from "./state";
 
 const months = schema.membershipMonths;
 
+/** Paused because one of its two accounts was paused (plans/53): settled like an ending, and it can be resumed. */
+const pausedWithAccount = (membership: Pick<Membership, "status" | "pausedReason">) => membership.status === "paused" && membership.pausedReason === ACCOUNT_PAUSE;
+/** A membership that stopped before its time and is tidied up after: ended, or paused with an account. */
+const stoppedAtOnce = (membership: Pick<Membership, "status" | "pausedReason">) => membership.status === "ended" || pausedWithAccount(membership);
+
+/**
+ * The moment a membership stopped at once: when it ended, or when it was paused with an account,
+ * whichever came first (a membership paused that way and ended later stopped at the pause). Null
+ * for one that did not stop like that.
+ */
+function stoppedAt(membership: Pick<Membership, "status" | "pausedReason" | "pausedAt" | "endedAt">): Date | null {
+  const paused = (membership.status === "paused" || membership.status === "ended") && membership.pausedReason === ACCOUNT_PAUSE ? membership.pausedAt : null;
+  const ended = membership.status === "ended" ? membership.endedAt : null;
+  if (paused && ended) return paused < ended ? paused : ended;
+  return paused ?? ended;
+}
+
 /**
  * THE one place in the clean-up that cancels a membership's upcoming member calls (the rulebook's
  * "How the parts connect"). Part two fills it. In part one there are no member calls, so there is
@@ -39,19 +56,19 @@ const months = schema.membershipMonths;
  * alone, and must never touch a call of a month that began while it was under way. The clean-up after an ending
  * leaves it out: then every coming call of the membership goes.
  */
-export async function cancelUpcomingMemberCalls(membershipId: string, now: Date, onlyMonthId?: string): Promise<boolean> {
+export async function cancelUpcomingMemberCalls(membershipId: string, now: Date, onlyMonthId?: string, reason = "the membership ended", upToPeriod?: number): Promise<boolean> {
   const upcoming = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.payments)
     .innerJoin(months, eq(months.id, schema.payments.monthId))
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .where(and(eq(months.membershipId, membershipId), onlyMonthId ? eq(months.id, onlyMonthId) : undefined, eq(schema.payments.kind, "member_call"), isNull(schema.payments.extensionId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
+    .where(and(eq(months.membershipId, membershipId), onlyMonthId ? eq(months.id, onlyMonthId) : undefined, upToPeriod === undefined ? undefined : lte(months.period, upToPeriod), eq(schema.payments.kind, "member_call"), isNull(schema.payments.extensionId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
   let noneLeft = true;
   for (const { call, payment } of upcoming) {
     try {
       // As Connect's cancellation: the money comes back, and with the membership ended it is owed to the card.
       // (Money of a month that is disputed stays set aside until the dispute is won.)
-      await cancelCall({ call, payment, by: "admin", now, reason: "the membership ended" });
+      await cancelCall({ call, payment, by: "admin", now, reason });
     } catch (error) {
       // A call that started meanwhile is under way: it is left alone and settles in the usual way.
       if (error instanceof MoneyError) continue;
@@ -63,53 +80,66 @@ export async function cancelUpcomingMemberCalls(membershipId: string, now: Date,
 }
 
 /**
- * A membership that was ended before a month's end: that month's free money is owed back to the
- * card, once, and nothing of it expires. A membership ended only after the month's end changes
- * nothing for that month. The same test is used by the clean-up and by the closing of a month, so
- * the result is the same whichever gets there first. A frozen month is left as it stands.
+ * A membership that stopped at once before a month's end (it ended, or it was paused with an
+ * account): that month's free money is owed back to the card, once, and nothing of it expires.
+ * One that stopped only after the month's end changes nothing for that month. The same test is
+ * used by the clean-up and by the closing of a month, so the result is the same whichever gets
+ * there first. A frozen month is left as it stands. (One pay-back for a month, whatever stopped
+ * the membership: paused with an account and ended afterwards is still one.)
  */
 export async function owedAfterEnding(tx: Tx, locked: LockedMonth): Promise<void> {
   const { membership, month } = locked;
-  if (membership.status !== "ended" || !membership.endedAt || !month.endsAt || membership.endedAt >= month.endsAt) return;
+  const stopped = stoppedAt(membership);
+  if (!stopped || !month.endsAt || stopped >= month.endsAt) return;
   if (month.status !== "running" || isFrozen(month) || month.freeCents < 1) return;
-  await owePayBack(tx, month, { amountCents: month.freeCents, sourceKey: `ending:${month.id}`, reason: "Your membership ended, so the time you had not used is paid back." });
+  const reason = membership.status === "ended" ? "Your membership ended, so the time you had not used is paid back." : "Your membership was paused because one of the two accounts was paused, so the time you had not used is paid back.";
+  await owePayBack(tx, month, { amountCents: month.freeCents, sourceKey: `ending:${month.id}`, reason });
 }
 
 /**
- * The clean-up after an ending, safe to run as often as needed: an open payment is cancelled or
- * its hold let go; upcoming member calls are cancelled; free money is owed back. A call under way
- * and money still set aside are left to settle in the usual way. Returns whether it is all done.
+ * The clean-up after an ending, or after a pause with an account, safe to run as often as needed:
+ * an open payment is cancelled or its hold let go; upcoming member calls are cancelled; free
+ * money is owed back. A call under way and money still set aside are left to settle in the usual
+ * way. Returns whether it is all done.
  */
 export async function cleanUpEnding(membershipId: string, now: Date = new Date()): Promise<boolean> {
   const [membership] = await db.select().from(schema.memberships).where(eq(schema.memberships.id, membershipId));
-  if (!membership || membership.status !== "ended" || membership.cleanupDoneAt) return true;
+  if (!membership || !stoppedAtOnce(membership) || membership.cleanupDoneAt) return true;
+  const paused = pausedWithAccount(membership);
+  // An ended membership is over: everything of it is tidied up. A paused one can be resumed, and then has a new
+  // period with a month and calls of its own. So after a pause only what belongs to the period that was paused is
+  // touched: a clean-up that runs late, beside a resume, must never give up the new month or cancel a new call.
+  const ofThisStop = paused ? lte(months.period, membership.period) : undefined;
 
-  const open = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"])));
-  for (const month of open) await abandonMonth(month.id, "ending", now);
+  const open = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"]), ofThisStop));
+  for (const month of open) await abandonMonth(month.id, paused ? "account_paused" : "ending", now);
 
-  const callsDone = await cancelUpcomingMemberCalls(membershipId, now);
+  const callsDone = await cancelUpcomingMemberCalls(membershipId, now, undefined, paused ? "the membership was paused" : "the membership ended", paused ? membership.period : undefined);
 
-  const running = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), eq(months.status, "running")));
+  const running = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), eq(months.status, "running"), ofThisStop));
   for (const month of running) {
     await db.transaction(async (tx) => owedAfterEnding(tx, await lockForMonth(tx, month.id)));
   }
 
   return db.transaction(async (tx) => {
     const locked = await lockMembership(tx, membershipId);
-    if (locked.cleanupDoneAt) return true;
-    const [stillOpen] = await tx.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"]))).limit(1);
+    if (locked.cleanupDoneAt || !stoppedAtOnce(locked)) return true;
+    // Only the stop this clean-up was begun for is marked as done: not a later pause of the same membership, which
+    // has its own clean-up to come.
+    if (pausedWithAccount(locked) !== paused || (paused && (locked.period !== membership.period || locked.pausedAt?.getTime() !== membership.pausedAt?.getTime()))) return false;
+    const [stillOpen] = await tx.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"]), ofThisStop)).limit(1);
     if (stillOpen || !callsDone) return false;
     await tx.update(schema.memberships).set({ cleanupDoneAt: now, updatedAt: now }).where(eq(schema.memberships.id, membershipId));
     return true;
   });
 }
 
-/** Ended memberships whose clean-up is not done, for the helper. */
+/** Memberships that ended, or were paused with an account, and whose clean-up is not done: for the helper. */
 export async function runEndings(now: Date): Promise<void> {
   const waiting = await db
     .select({ id: schema.memberships.id })
     .from(schema.memberships)
-    .where(and(eq(schema.memberships.status, "ended"), isNull(schema.memberships.cleanupDoneAt)))
+    .where(and(or(eq(schema.memberships.status, "ended"), and(eq(schema.memberships.status, "paused"), eq(schema.memberships.pausedReason, ACCOUNT_PAUSE))), isNull(schema.memberships.cleanupDoneAt)))
     .limit(50);
   for (const membership of waiting) {
     await cleanUpEnding(membership.id, now).catch((error) => console.error(`[membership] could not finish the clean-up of ended membership ${membership.id}; will retry`, error));

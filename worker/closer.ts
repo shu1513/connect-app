@@ -139,9 +139,8 @@ async function main() {
     // About every 10 minutes: accounts whose reports or ratings have reached the line for a pause by the app itself
     // (plans/52). Not waited for: it reads much and may pause accounts, and must never hold up the money work of the
     // next passes. One round at a time.
-    // SWITCHED OFF unless AUTO_PAUSE=on is set where the helper runs: a pause ends the account's memberships for
-    // good, and the founder wants them paused instead before a machine may do this (plans/52, decision 11).
-    if (process.env.AUTO_PAUSE === "on" && passes % 120 === 0 && autoPauseRound === null) {
+    // Switched on with plans/53: a pause no longer ends an account's memberships, it pauses them.
+    if (passes % 120 === 0 && autoPauseRound === null) {
       autoPauseRound = runAutoPauses(now)
         .then(() => undefined)
         .catch((error) => console.error("[auto-pause] the round failed; will retry", error))

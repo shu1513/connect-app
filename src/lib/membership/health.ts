@@ -7,6 +7,7 @@
  * one database step, so "a month past its end that is not closed" covers both.
  */
 import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, gt } from "drizzle-orm";
+import { ACCOUNT_PAUSE } from "./emails";
 import { db, schema } from "@/db";
 
 const months = schema.membershipMonths;
@@ -52,6 +53,13 @@ export async function membershipHealthProblems(now: Date): Promise<string[]> {
     .where(and(eq(schema.memberships.status, "ended"), isNull(schema.memberships.cleanupDoneAt), lt(schema.memberships.endedAt, new Date(now.getTime() - ENDING_LATE_MS))))
     .limit(1);
   if (ending) problems.push("an ended membership has not been cleaned up after 10 minutes");
+  // The same for a membership that was paused with an account (plans/53): its member waits for their money, and cannot resume before it.
+  const [pausing] = await db
+    .select({ id: schema.memberships.id })
+    .from(schema.memberships)
+    .where(and(eq(schema.memberships.status, "paused"), eq(schema.memberships.pausedReason, ACCOUNT_PAUSE), isNull(schema.memberships.cleanupDoneAt), lt(schema.memberships.pausedAt, new Date(now.getTime() - ENDING_LATE_MS))))
+    .limit(1);
+  if (pausing) problems.push("a membership paused with an account has not been cleaned up after 10 minutes");
 
   if (await any(isNotNull(months.problem))) problems.push("a membership month needs the founder (see the admin page)");
   return problems;

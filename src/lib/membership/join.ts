@@ -19,7 +19,7 @@ import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
 import { membershipsOnFor } from "@/lib/safety/switches";
 import { writeDownMonth } from "./charge";
-import { queueInvitationOverEmail, queueInvitedEmail } from "./emails";
+import { ACCOUNT_PAUSE, queueInvitationOverEmail, queueInvitedEmail } from "./emails";
 import { lockCalendar, lockMembership } from "./locks";
 import { roomLeft } from "./room";
 import { afterTheWait, CARD_STEP_MS, INVITATION_MS, INVITATIONS_PER_PERSON, INVITATIONS_WINDOW_MS, MembershipError, timeWords } from "./rules";
@@ -276,6 +276,9 @@ export async function resume(input: { customerId: string; membershipId: string; 
     const membership = await lockMembership(tx, membershipId);
     const now = afterTheWait(input.now);
     if (membership.status !== "paused") throw new MembershipError(membership.status === "ended" ? "This membership has ended. Coming back needs a new invitation from the host." : "This membership is not paused.");
+    // Paused with an account (plans/53): the month that was paid for is settled first (calls cancelled, unused time
+    // owed back). A new month must not start before that, or what is owed back could be taken for expired.
+    if (membership.pausedReason === ACCOUNT_PAUSE && !membership.cleanupDoneAt) throw new MembershipError("This membership is still being settled after its pause. Please try again in a few minutes.");
     // What the person agrees to is the membership the page showed them, never one the host changed in the meantime.
     if (offer.version !== input.offerVersion) throw new MembershipError("The host changed the membership while this page was open. Please look at it again before you resume.");
     const room = await roomLeft(tx, found.hostId, now, membershipId);

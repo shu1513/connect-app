@@ -326,10 +326,11 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
 
       <h2 className="mt-10 text-lg font-semibold">Paused accounts ({paused.length})</h2>
       <p className="mt-1 text-sm opacity-70">
-        Switched off for now (it waits until memberships are paused, not ended, with an account): an account is paused by the app itself when {AUTO_PAUSE.reporters} different people who had a paid call with it report it within {AUTO_PAUSE.withinDays} days (and they are at
+        An account is paused by the app itself when {AUTO_PAUSE.reporters} different people who had a paid call with it report it within {AUTO_PAUSE.withinDays} days (and they are at
         least 1 in {AUTO_PAUSE.oneIn} of the people it had paid calls with in that time), or when its average rating from paid calls is {AUTO_PAUSE.lowAverage.toFixed(1)} or lower from{" "}
-        {AUTO_PAUSE.minRaters} or more people, at least {AUTO_PAUSE.warnDays} days after a warning email. Lifting a pause is a fresh start: reports and ratings from before no longer count
-        toward a pause by the app.
+        {AUTO_PAUSE.minRaters} or more people, at least {AUTO_PAUSE.warnDays} days after a warning email. A pause, by hand or by the app, pauses the account&apos;s memberships: each
+        member is paid back the time they had not used, and can resume once the pause is lifted. Lifting a pause is a fresh start: reports and ratings from before no longer count toward
+        a pause by the app.
       </p>
       {paused.length > 0 && (
         <ul className="mt-2 space-y-1 text-sm">

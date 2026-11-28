@@ -37,6 +37,7 @@ const ENDED_HOW: Record<string, string> = {
   cancel_now: "the member chose \"Cancel now\"",
   given_up: "not paid in 7 days, or cancelled while its payment was open",
   ending: "the membership ended",
+  account_paused: "the membership was paused with one of the two accounts",
   card_step: "the card step ran out",
   no_room: "no room in the host's hours",
   hold_lost: "the bank let the hold go",

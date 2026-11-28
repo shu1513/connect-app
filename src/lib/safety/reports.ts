@@ -3,7 +3,8 @@
  * pause an account, lift a pause. (Suspending a host and closing an account
  * already exist and are used from the same page.)
  */
-import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
+import { ACCOUNT_PAUSE, queueCanResumeEmail } from "@/lib/membership/emails";
+import { cleanUpEndedMemberships, pauseMembershipsOf } from "@/lib/membership/state";
 import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
 import { and, desc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
@@ -342,8 +343,9 @@ async function pause(input: {
       }
       return "already_paused" as const;
     }
-    // Their memberships, as a host and as a member, end at once and for good, in this same step.
-    endedMemberships = await endMembershipsOf(tx, person.id, { by: "connect", reason: "one of the two accounts was paused" }, new Date());
+    // Their memberships, as a host and as a member, are paused in this same step (plans/53): not ended, so that
+    // lifting the pause lets each member resume. (An invitation nobody accepted yet ends, as it always did.)
+    endedMemberships = await pauseMembershipsOf(tx, person.id, new Date());
     // So do their contributions, as a host and as a contributor; what was only held is let go below.
     givenUpPayments = await endContributionsOf(tx, person.id, "paused", new Date());
     if (input.tellPerson !== false) await queueEmail(tx, {
@@ -360,10 +362,23 @@ async function pause(input: {
     return "paused" as const;
   });
   if (done !== "paused") return done;
+  // The pause is saved. Everything that was made up to this moment is ended below, and nothing made after it:
+  // from here on nothing new can be made for a paused account, so what comes later can only come after a lift.
+  // (Taken now, after the step, and not before it: the step may have waited, and a request made during that wait
+  // must not slip through.)
+  const madeBy = new Date();
   // The account is paused from here on, whatever happens next. First what keeps people safe (requests and
-  // calls), then the money of the memberships that ended with it. If the server stops before this is done, the
-  // helper does it: the requests and calls with finishPausesAndClosures, the money with its usual rounds.
-  const callsNotEnded = await endRequestsAndCallsOf(person.id, new Date());
+  // calls), then the money of the memberships that were paused with it. If the server stops before this is done,
+  // the helper does it: the requests and calls with finishPausesAndClosures, the money with its usual rounds.
+  //
+  // Looked at once more first: if a person has lifted the pause in this very moment (and the account is not
+  // closed), nothing of theirs is ended any more. What they ask for from then on is theirs to keep (plans/53,
+  // decision 10). The memberships' month is settled all the same: they were paused, and stay so until resumed.
+  const [still] = await db.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, person.id));
+  // And only what was there when the account was paused is ended: a request or a call made after a lift is left
+  // alone also if the lift falls between this look and the ending itself.
+  const now = new Date();
+  const callsNotEnded = still?.pausedAt || still?.closedAt ? await endRequestsAndCallsOf(person.id, now, now, madeBy) : 0;
   await cleanUpEndedMemberships(endedMemberships, new Date());
   await letGoAll(givenUpPayments, new Date());
   return { callsNotEnded };
@@ -518,6 +533,18 @@ export async function liftPause(input: { adminId: string; userId: string; since?
       .returning({ id: schema.user.id });
     if (lifted.length === 0) return false;
     await recordAdminAction({ adminId: input.adminId, action: "pause lifted", targetUserId: input.userId }, tx);
+    // Memberships that were paused with this account can be resumed again (plans/53): each member is told, where
+    // the other of the two accounts is in use as well. Resuming stays the member's own step.
+    const at = new Date();
+    const waiting = await tx
+      .select()
+      .from(schema.memberships)
+      .where(and(eq(schema.memberships.status, "paused"), eq(schema.memberships.pausedReason, ACCOUNT_PAUSE), or(eq(schema.memberships.hostId, input.userId), eq(schema.memberships.customerId, input.userId))));
+    for (const membership of waiting) {
+      const otherId = membership.hostId === input.userId ? membership.customerId : membership.hostId;
+      const [other] = await tx.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, otherId));
+      if (other && !other.pausedAt && !other.closedAt) await queueCanResumeEmail(tx, membership, at);
+    }
     return true;
   });
 }
