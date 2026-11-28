@@ -74,7 +74,7 @@ export async function Diary(props: { handle: string; projectId?: string; query: 
       {own && (
         <p className="mt-8 rounded border border-neutral-300 p-4 text-sm" data-own-line={own.is}>
           <Link href={`/contributions/${own.contributionId}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
-            {own.is === "monthly" ? `You contribute ${formatMoney(own.amountCents)} a month` : "Finish contributing"}
+            {own.is === "monthly" ? (own.paused ? `Your ${formatMoney(own.amountCents)} a month is paused` : `You contribute ${formatMoney(own.amountCents)} a month`) : "Finish contributing"}
           </Link>
         </p>
       )}

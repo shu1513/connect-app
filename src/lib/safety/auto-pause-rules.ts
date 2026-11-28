@@ -2,7 +2,7 @@
  * When the app pauses an account by itself (plans/52-automatic-pause.md): the numbers, the plain
  * logic and the sentences. No database. Every number is here and nowhere else.
  *
- * A pause stops an account's calls, pauses its memberships and ends its monthly contributions, so the lines are
+ * A pause stops an account's calls and pauses its memberships and monthly contributions, so the lines are
  * high on purpose: they are meant to be reached by an account many different, real customers
  * complain about, and not by one angry person or by two who work together.
  */
@@ -52,7 +52,7 @@ export function warnedLongEnough(warnedAt: Date | null, now: Date): boolean {
 }
 
 const roleWords = (as: "host" | "customer") => (as === "host" ? "as a host" : "as a customer");
-const BEING_ENDED = "Their waiting requests are being ended and their calls that have not started cancelled, at no charge; if one could not be ended, a second email says so. Their memberships are paused (each member can resume once the pause is lifted), and their monthly contributions have ended.";
+const BEING_ENDED = "Their waiting requests are being ended and their calls that have not started cancelled, at no charge; if one could not be ended, a second email says so. Their memberships are paused, and so are the monthly contributions that had begun: each member can resume once the pause is lifted, and those contributions carry on by themselves then. (A contribution still at its first card step, and a single payment that was not taken yet, have ended.)";
 
 /**
  * The sentences. `reason` is what the paused page shows the person and what the founder's list
@@ -87,6 +87,6 @@ export const AUTO_PAUSE_WORDS = {
       `The ratings of ${person.name} (${person.email}) reached the line for an automatic pause, but the account was paused already, for another reason. Nothing was changed. Please keep it in mind before lifting that pause:\n\n${listUrl}`,
     warnSubject: "Your ratings on Connect are low",
     warnText: (name: string, as: "host" | "customer", support: string) =>
-      `Hi ${name},\n\nYour average rating ${roleWords(as)} on Connect, counting paid calls only, is ${AUTO_PAUSE.warnAverage.toFixed(1)} or lower.\n\nWe are telling you because an account whose average is ${AUTO_PAUSE.lowAverage.toFixed(1)} or lower from ${AUTO_PAUSE.minRaters} or more people is paused automatically, no sooner than ${AUTO_PAUSE.warnDays} days from now. A paused account cannot book, host or join calls; its memberships are paused and its monthly contributions end.\n\nA rating starts to count a week after the call, and each person counts once. Your account page shows your average from the most recent people who rated you, after paid and free calls alike, so it can be a different number. If you have a question, write to ${support}.`,
+      `Hi ${name},\n\nYour average rating ${roleWords(as)} on Connect, counting paid calls only, is ${AUTO_PAUSE.warnAverage.toFixed(1)} or lower.\n\nWe are telling you because an account whose average is ${AUTO_PAUSE.lowAverage.toFixed(1)} or lower from ${AUTO_PAUSE.minRaters} or more people is paused automatically, no sooner than ${AUTO_PAUSE.warnDays} days from now. A paused account cannot book, host or join calls, and its memberships and running monthly contributions are paused.\n\nA rating starts to count a week after the call, and each person counts once. Your account page shows your average from the most recent people who rated you, after paid and free calls alike, so it can be a different number. If you have a question, write to ${support}.`,
   },
 } as const;

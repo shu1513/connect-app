@@ -498,6 +498,13 @@
       "when": 1795829287681,
       "tag": "0070_customer_rating_warned",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795835602644,
+      "tag": "0071_contribution_account_paused",
+      "breakpoints": true
     }
   ]
 }

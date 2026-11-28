@@ -294,6 +294,7 @@ async function ContributionsPart({ hostId, project, earlierId, canChange }: { ho
                 <strong>{name}</strong>: {formatMoney(contribution.amountCents)}
                 {contribution.kind === "monthly" ? " every month" : ", once"}, since <LocalTime iso={contribution.createdAt.toISOString()} />.
                 {contribution.kind === "monthly" && contribution.status === "ended" ? " This monthly contribution has ended." : ""}
+                {contribution.kind === "monthly" && contribution.status === "running" && contribution.accountPausedAt ? " Paused, because one of the two accounts was paused; it carries on when that is over." : ""}
               </p>
               <ul className="mt-2 space-y-2">
                 {[...payments].reverse().map((row) => {

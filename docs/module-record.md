@@ -6531,6 +6531,44 @@ with a membership paused this way). The helper running the automatic round by it
 **Before real people use it** (the founder's): the lawyer's answers in `docs/for-the-lawyer.md`,
 sections 26 and 27; a real support address.
 
+## A paused account pauses its monthly contributions (plan 54, 27 November 2026)
+
+**What it is.** The founder: "should monthly contributions be paused too instead of ended?",
+then "Yes, pause them too" (`plans/54-contributions-paused-with-an-account.md`). Until now a
+paused account ended every contribution it had. Now a monthly contribution that has begun
+waits: it is marked with the moment of the pause (`contributions.account_paused_at`, migration
+0071), a payment of it that was not taken is given up and its hold let go, and no month is
+written while the mark stands (`src/lib/contributions/account-pause.ts`, `monthly.ts`). When
+the pause is lifted, in the same step, the months whose day passed are skipped for good, the
+mark is cleared, and the contribution is charged again by itself from its next day; the
+contributor is told at the pause and at the lift, each time with the way to stop. A
+contribution made once, a tip, and a monthly one still at its first card step end as before.
+A closed account, a block, a suspended page, the end of the project and a bank dispute still
+end a contribution.
+
+It works like the founder's projects switch (plans/25, choice 13), with a mark of its own; a
+month is written only when neither mark stands.
+
+**Whose decisions.** The founder's: paused, not ended, and carrying on by itself after the lift
+(the builder's suggestion, accepted). The builder's: which contributions, the skipped months,
+who is told what, the helper's two nets.
+
+**Reviews.** Astra (Codex, effort high): "not ready", 12 points; 9 taken, 3 not, with reasons at
+the end of the plan. CodeRabbit: see the pull request.
+
+**Checks.** The automatic tests, lint and types. `scripts/contribution-check.ts`, journey 15,
+against Stripe's test area: paused not ended, the hold let go and the taken month untouched, a
+single payment ended, the emails' words, no month while paused, the lift with a skipped month,
+the next month held again with the saved card, a host's pause with the real lift, both accounts
+paused, stopping while paused, the helper's two nets, and both marks together. The whole
+contribution check, `safety-check`, `auto-pause-check` and the membership journeys about a
+paused account were run after Astra's points.
+
+**What was not tried.** The pages in a browser.
+
+**For the lawyer** (`docs/for-the-lawyer.md`, section 27): charging again after a pause without a
+new yes from the contributor.
+
 ## After a pause with an account, a member comes back at their old price (plan 55, 27 November 2026)
 
 **What it is.** Resuming a paused membership has always given the member the host's membership as
