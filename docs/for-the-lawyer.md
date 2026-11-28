@@ -148,6 +148,17 @@ company yet.
   adds: the phone's address for notifications, what a notification shows on a locked screen,
   and the camera and microphone on the phone. Both stores ask for a form saying what the app
   collects; it has to match the privacy page.
+- **Messages in the phone apps** (new, plan 45, part 17b; a plan only, not built). The apps
+  would show the same messages as the website, by the same rules (section 8). Two things are
+  new. First, a phone would be told "You have a new message." through Apple's and Google's
+  notification services (and the company that passes notifications on to them); the
+  notification carries no name and no word of the message, only two numbers made up by
+  Connect (the notification's own, and one that lets a newer alert replace an older one for
+  the same conversation on that phone). Must the privacy page name this? Second, Apple asks an app in which
+  people write to each other for "a method for filtering objectionable material from being
+  posted". Connect has reporting, blocking, limits and the founder's look at reported
+  messages, but no filter on what is written. Is there anything in the law (not only in
+  Apple's rules) that would require one for messages between two adults?
 - **Two versions of the privacy and rules pages from one source** (new, plan 45, part 18;
   not built). The apps do not have projects, so the apps' version would leave out the parts
   that are only about projects and add what an app collects. The terms a person accepts stay
