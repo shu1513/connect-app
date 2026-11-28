@@ -181,7 +181,11 @@ export async function queueNothingChargedEmail(tx: Tx, contribution: Contributio
     text:
       `Hi ${giver.name},\n\nThe ${money(payment.amountCents)} that was held on your card for ${hostName}'s project has been let go. Nothing was charged. ${whyLetGo(payment.endedHow, hostName)}\n\n` +
       `Your bank may still show the hold for a few days before it disappears.\n\n` +
-      (goesOn ? `Your monthly contribution goes on: the next payment is on its usual day. You can stop it here: ${contributionPage(contribution)}\n\n` : "") +
+      (goesOn
+        ? payment.endedHow === "account_paused" || contribution.accountPausedAt
+          ? `Your monthly contribution is paused, not ended: it carries on by itself when that pause is over. You can stop it here: ${contributionPage(contribution)}\n\n`
+          : `Your monthly contribution goes on: the next payment is on its usual day. You can stop it here: ${contributionPage(contribution)}\n\n`
+        : "") +
       `${footer}\n`,
   });
 }
@@ -242,24 +246,32 @@ export async function queueAccountPausedEmail(tx: Tx, contribution: Contribution
     subject: `Your monthly contribution to ${hostName}'s project is paused`,
     text:
       `Hi ${giver.name},\n\nYour monthly contribution of ${money(contribution.amountCents)} to ${hostName}'s project "${projectName}" is paused, because one of the two accounts was paused.\n\n` +
-      `Nothing is held or taken while it is paused. A payment that was only held is let go. Money that was already taken is not returned by this.\n\n` +
-      `When that pause is over, your contribution carries on by itself from the next month, and the months in between are never charged. We write to you before that happens. You can stop it at any time, also now: ${appUrl()}/contributions/${contribution.id}\n\n${footer}\n`,
+      `No new payment is started while it is paused. A payment that was only held is let go (if one was being made at that very moment, it is let go or paid back in full). Money that was already taken before is not returned by this.\n\n` +
+      `When that pause is over, your contribution carries on by itself, and the months in between are never charged. We write to you when that happens; a monthly payment is first only held and taken three days later, so there is time to stop it. You can stop it at any time, also now: ${appUrl()}/contributions/${contribution.id}\n\n${footer}\n`,
   });
 }
 
-/** The pause is over: the contribution carries on by itself (plans/54). `next`: the day of the next payment. */
-export async function queueCarriesOnEmail(tx: Tx, contribution: Contribution, next: Date | null, at: Date): Promise<void> {
+/**
+ * The pause is over: the contribution carries on by itself (plans/54). `next`: the day of the next
+ * payment; "now" when a month is due already and can be held at once; "waits" when the founder's
+ * switch does not cover the host at the moment, so nothing is held until that is over too.
+ */
+export async function queueCarriesOnEmail(tx: Tx, contribution: Contribution, next: Date | "now" | "waits", at: Date): Promise<void> {
   const parts = await partsOf(tx, contribution);
   if (!parts) return;
   const { giver, hostName, projectName } = parts;
+  const what =
+    next === "waits"
+      ? "Contributions to this project are not being taken at the moment for another reason, so nothing is held until that is over as well."
+      : `${next === "now" ? "The next payment can be held on your card from today." : `The next payment is held on your card on ${whenFor(giver, next)}.`} It is first only held, and taken three days later: until then you can cancel it and pay nothing.`;
   await queueEmail(tx, {
     to: giver.email,
     key: `contribution-carries-on:${contribution.id}:${at.getTime()}`,
     subject: `Your monthly contribution to ${hostName}'s project carries on`,
     text:
       `Hi ${giver.name},\n\nYour monthly contribution of ${money(contribution.amountCents)} to ${hostName}'s project "${projectName}" was paused because one of the two accounts was paused. That pause is over, so your contribution carries on.\n\n` +
-      `The months that passed while it was paused are not charged, now or later. ${next ? `The next payment is held on your card on ${whenFor(giver, next)}.` : "The next payment is held on your card on its usual day."}\n\n` +
-      `If you do not want that, stop it here before then: ${appUrl()}/contributions/${contribution.id}\n\n${footer}\n`,
+      `The months that passed while it was paused are not charged, now or later. ${what}\n\n` +
+      `If you do not want it to carry on, stop it here: ${appUrl()}/contributions/${contribution.id}\n\n${footer}\n`,
   });
 }
 

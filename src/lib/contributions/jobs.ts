@@ -21,6 +21,7 @@ import { removeRetiredCards } from "./cards";
 import { giveUp, giveUpIfWaiting, intentFor, letGo, lookAndRecord, syncPayment, takePayment, tryHold } from "./charge";
 import { runDisputeLooks } from "./dispute";
 import { endContribution } from "./ending";
+import { carryOnWhereNobodyIsPaused } from "./account-pause";
 import { writeDuePayments } from "./monthly";
 import { runRefunds } from "./refund";
 
@@ -174,11 +175,18 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
     await db.select({ id: pays.id }).from(pays).where(and(eq(pays.status, "to_pay"), open, lte(pays.giveUpAt, now))).limit(BATCH),
     async (id) => {
       const payment = await syncPayment(id, now);
-      if (payment.status === "to_pay" && !payment.endedHow && !payment.problem) await endContribution(payment.contributionId, "given_up", now);
+      if (payment.status !== "to_pay" || payment.endedHow || payment.problem) return;
+      // Read again right before ending: a contribution that waits for a paused account since a moment ago has had
+      // this payment given up by that pause, and is kept (plans/54). It must not be ended on what was read before.
+      const [fresh] = await db.select({ endedHow: pays.endedHow, waits: schema.contributions.accountPausedAt }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(eq(pays.id, id));
+      if (!fresh || fresh.endedHow || fresh.waits) return;
+      await endContribution(payment.contributionId, "given_up", now);
     },
   );
 
   // 8. Monthly payments that are due: each is written down once, to be tried with the saved card on the next round.
+  //    First the net behind a lifted pause: a contribution that still waits though nobody is paused carries on.
+  await carryOnWhereNobodyIsPaused(now).catch((error) => console.error("[contributions] letting contributions carry on after lifted pauses failed; will retry", error));
   await writeDuePayments(now);
 
   // 9. Refunds that are owed. 10. Disputes still open (asked once an hour), and retired cards nothing needs.

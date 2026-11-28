@@ -103,8 +103,8 @@ export default async function ContributionPage(props: PageProps<"/contributions/
 
       {contribution.status === "running" && contribution.accountPausedAt && (
         <p className="mt-4 rounded border border-neutral-400 p-3 text-sm" data-account-paused>
-          This monthly contribution is paused, because one of the two accounts was paused. Nothing is held or taken while it is paused. When that pause is over it carries on by itself from the next month,
-          and the months in between are never charged; we write to you before that. You can stop it at any time.
+          This monthly contribution is paused, because one of the two accounts was paused. No new payment is started while it is paused. When that pause is over it carries on by itself, and the months in
+          between are never charged; we write to you when that happens. You can stop it at any time.
         </p>
       )}
 

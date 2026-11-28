@@ -9,12 +9,13 @@
  *                      or the founder. For a monthly contribution that month is skipped and the
  *                      contribution goes on; letting go is not stopping.
  */
-import { and, asc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, sql, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { isId } from "@/lib/projects/projects";
 import { recordAdminAction } from "@/lib/safety/audit";
 import { projectsOnFor } from "@/lib/safety/switches";
 import { giveUpInStep, letGo, writeDownPayment } from "./charge";
+import { makeWait } from "./account-pause";
 import { endContribution, endInStep, letGoAll, whyMustEnd } from "./ending";
 import { lockContribution, lockForPayment, lockPair, lockSwitchForWriting } from "./locks";
 import { ContributionError, dueMonths } from "./rules";
@@ -68,8 +69,11 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
         // that pauses the account marks it; this is the net behind that step, and it sets the mark that step
         // should have set, so the contribution waits like the others and does not come up here again and again.
         if (over === "paused") {
-          await tx.update(schema.contributions).set({ accountPausedAt: now, updatedAt: now }).where(eq(schema.contributions.id, contribution.id));
-          return [];
+          // Marked with the moment the account was paused, not with this one: a month whose day fell in between
+          // passed during the pause, and must not be charged after the lift. What is open is given up as well.
+          const people = await tx.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(or(eq(schema.user.id, contribution.hostId), eq(schema.user.id, contribution.contributorId)));
+          const since = people.map((person) => person.pausedAt).filter((at): at is Date => at !== null).sort((a, b) => a.getTime() - b.getTime())[0] ?? now;
+          return makeWait(tx, contribution, since, now);
         }
         if (over) return endInStep(tx, contribution, over, now);
         // Nothing new is started while the switch does not cover her. The step that saves the switch marks her
