@@ -71,7 +71,7 @@ stand-in, and no notification leaves this Mac.
    switch, one line per conversation, never urgent). **Never:** anything about
    contributions, tips or the diary, emails to followers, admin and sign-in emails.
 2a. **"Connect has written to you."** *(added 27 November, rewritten after Astra's check; the
-   builder's, and one for the founder to confirm)* Some messages "From Connect" also make
+   builder's proposal, **confirmed by the founder the same day: yes**)* Some messages "From Connect" also make
    one notification for each of the person's phones, written in the same database step as
    the message and its email. It says only that sentence.
    - **Which ones: a short list of causes, each for one kind of receiver, and nothing else.**
