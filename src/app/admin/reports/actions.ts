@@ -67,8 +67,10 @@ export async function pauseAction(formData: FormData) {
 
 export async function liftPauseAction(formData: FormData) {
   const admin = await requireAdmin();
-  await liftPause({ adminId: admin.id, userId: String(formData.get("userId") ?? "") });
-  back("The pause is lifted.");
+  // The pause the page showed, by its moment: a page left open cannot lift a later pause of the same account.
+  const since = new Date(String(formData.get("since") ?? ""));
+  const lifted = Number.isNaN(since.getTime()) ? false : await liftPause({ adminId: admin.id, userId: String(formData.get("userId") ?? ""), since });
+  back(lifted ? "The pause is lifted." : "Nothing was lifted: that pause is no longer there. The list below shows how things stand now.");
 }
 
 export async function switchesAction(formData: FormData) {

@@ -10,8 +10,15 @@ export const RATING = {
   windowDays: 7,
   /** Both people must have been in the call together at least this long. */
   minTogetherSeconds: 120,
-  /** Ratings count toward an average in whole groups of this many, each from a different person, so it never changes because of one person alone. */
+  /** An average is shown once this many different people's ratings count (plans/52, decision 1): fewer are too few to say anything. */
+  minPeople: 5,
+  /** After those first people, ratings count in whole groups of this many, each from a different person, so an average never changes because of one person alone. */
   groupSize: 3,
+  /**
+   * An average is worked out from the most recent people only, at most this many (plans/52, decision 2a): it says how
+   * someone is now. People, not days: a window in days would take the average away from anyone who takes few calls.
+   */
+  lastPeople: 50,
 } as const;
 
 /** The last moment a call can be rated, and the moment its ratings start to count toward the averages. */
@@ -68,11 +75,16 @@ export type CountedRating = { raterId: string; stars: number; raterClosed: boole
  * ones whose time to rate is over, in the order their calls ended.
  *
  * Each person counts once: their first rating stands, so someone who calls
- * often cannot be picked out. Those are taken in whole groups of 3 (the first
- * 3 people, the next 3, ...), so what is shown never moves because of one
- * person. A group is fixed once it is formed: if an account in it is closed,
- * that whole group is left out while it is closed, and is never refilled with
- * a later rating (which would give that later rating away).
+ * often cannot be picked out. Those are taken in whole groups: the first 5
+ * people, then the next 3, the next 3, ..., so nothing is shown from fewer
+ * than 5 people and what is shown never moves because of one person. A group
+ * is fixed once it is formed: if an account in it is closed, that whole group
+ * is left out while it is closed, and is never refilled with a later rating
+ * (which would give that later rating away).
+ *
+ * Of those groups only the most recent count, as many whole groups as hold at
+ * most 50 people: an older group leaves as a whole when a newer one no longer
+ * fits beside it. If fewer than 5 people's ratings are left, nothing is shown.
  */
 export function shownAverage(ratings: CountedRating[]): ShownAverage | null {
   const seen = new Set<string>();
@@ -81,15 +93,19 @@ export function shownAverage(ratings: CountedRating[]): ShownAverage | null {
     seen.add(rating.raterId);
     return true;
   });
+  const groups: CountedRating[][] = [];
+  let size: number = RATING.minPeople;
+  for (let start = 0; start + size <= once.length; start += size, size = RATING.groupSize) {
+    const group = once.slice(start, start + size);
+    if (!group.some((rating) => rating.raterClosed)) groups.push(group);
+  }
   let sum = 0;
   let count = 0;
-  for (let start = 0; start + RATING.groupSize <= once.length; start += RATING.groupSize) {
-    const group = once.slice(start, start + RATING.groupSize);
-    if (group.some((rating) => rating.raterClosed)) continue;
-    sum += group.reduce((total, rating) => total + rating.stars, 0);
-    count += group.length;
+  for (let i = groups.length - 1; i >= 0 && count + groups[i].length <= RATING.lastPeople; i--) {
+    sum += groups[i].reduce((total, rating) => total + rating.stars, 0);
+    count += groups[i].length;
   }
-  if (count === 0) return null;
+  if (count < RATING.minPeople) return null;
   return { average: Math.round((sum / count) * 10) / 10, count };
 }
 

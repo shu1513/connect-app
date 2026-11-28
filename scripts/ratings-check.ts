@@ -189,70 +189,71 @@ async function main() {
       // Averages are looked at "next week", when today's calls have had their 7 days.
       const nextWeek = new Date(now.getTime() + 7 * DAY + MINUTE);
       const kai = await host("kai", "Kai Average", `rt${RUN}kai`);
-      const fans = await Promise.all(["f1", "f2", "f3", "f4"].map(person));
+      const fans = await Promise.all(["f1", "f2", "f3", "f4", "f5", "f6"].map(person));
       check("a host nobody has rated is New", (await hostAverage(kai.id, nextWeek)) === "New");
-      // Three calls, one after the other.
-      const c1 = await call({ hostId: kai.id, customerId: fans[0].id, endedMinutesAgo: 30 });
-      const c2 = await call({ hostId: kai.id, customerId: fans[1].id, endedMinutesAgo: 29 });
-      const c3 = await call({ hostId: kai.id, customerId: fans[2].id, endedMinutesAgo: 28 });
-      for (const [c, fan] of [[c1, fans[0]], [c2, fans[1]], [c3, fans[2]]] as const) {
-        await R.rateCall({ callId: c.id, raterId: fan.id, stars: 5, now });
-        await R.rateCall({ callId: c.id, raterId: kai.id, stars: 4, now });
+      // Five calls, one after the other.
+      const first: Array<Awaited<ReturnType<typeof call>>> = [];
+      for (let i = 0; i < 5; i++) first.push(await call({ hostId: kai.id, customerId: fans[i].id, endedMinutesAgo: 30 - i }));
+      for (let i = 0; i < 5; i++) {
+        await R.rateCall({ callId: first[i].id, raterId: fans[i].id, stars: 5, now });
+        await R.rateCall({ callId: first[i].id, raterId: kai.id, stars: 4, now });
       }
-      check("both people have rated all three calls, but nothing counts before the 7 days are over", (await hostAverage(kai.id)) === "New" && (await hostAverage(kai.id, new Date(c1.endsAt.getTime() + 7 * DAY - 1000))) === "New");
-      check("when the first two calls' 7 days are over: still New (it takes 3 people)", (await hostAverage(kai.id, new Date(c2.endsAt.getTime() + 7 * DAY))) === "New");
-      check("when the third's are over, the average appears", (await hostAverage(kai.id, new Date(c3.endsAt.getTime() + 7 * DAY))) === "5.0 from 3 ratings");
-      const unanswered = await call({ hostId: kai.id, customerId: fans[3].id, endedMinutesAgo: 20 });
-      await R.rateCall({ callId: unanswered.id, raterId: fans[3].id, stars: 1, now });
-      check("a fourth rating, of 1 star, changes nothing that is shown: one rating can never be read off", (await hostAverage(kai.id, nextWeek)) === "5.0 from 3 ratings");
+      check("both people have rated all five calls, but nothing counts before the 7 days are over", (await hostAverage(kai.id)) === "New" && (await hostAverage(kai.id, new Date(first[0].endsAt.getTime() + 7 * DAY - 1000))) === "New");
+      check("when the first four calls' 7 days are over: still New (it takes 5 people)", (await hostAverage(kai.id, new Date(first[3].endsAt.getTime() + 7 * DAY))) === "New");
+      check("when the fifth's are over, the average appears", (await hostAverage(kai.id, new Date(first[4].endsAt.getTime() + 7 * DAY))) === "5.0 from 5 ratings");
+      const unanswered = await call({ hostId: kai.id, customerId: fans[5].id, endedMinutesAgo: 20 });
+      await R.rateCall({ callId: unanswered.id, raterId: fans[5].id, stars: 1, now });
+      check("a sixth rating, of 1 star, changes nothing that is shown: one rating can never be read off", (await hostAverage(kai.id, nextWeek)) === "5.0 from 5 ratings");
       check("and it makes no difference that the host never rated that call back", (await R.myRating(unanswered.id, kai.id)) === null);
       for (const fan of [fans[0], fans[1]]) {
         const c = await call({ hostId: kai.id, customerId: fan.id, endedMinutesAgo: 15 });
         await R.rateCall({ callId: c.id, raterId: fan.id, stars: 1, now });
       }
-      check("two of the first three rate a later call 1 star: nothing moves, each person counts once", (await hostAverage(kai.id, nextWeek)) === "5.0 from 3 ratings", await hostAverage(kai.id, nextWeek));
-      for (const fan of await Promise.all(["f5", "f6"].map(person))) {
+      check("two of the first five rate a later call 1 star: nothing moves, each person counts once", (await hostAverage(kai.id, nextWeek)) === "5.0 from 5 ratings", await hostAverage(kai.id, nextWeek));
+      for (const fan of await Promise.all(["f7", "f8"].map(person))) {
         const c = await call({ hostId: kai.id, customerId: fan.id, endedMinutesAgo: 9 });
         await R.rateCall({ callId: c.id, raterId: fan.id, stars: 1, now });
       }
-      check("with six people the shown average moves, three people at a time", (await hostAverage(kai.id, nextWeek)) === "3.0 from 6 ratings", await hostAverage(kai.id, nextWeek));
+      check("with eight people the shown average moves, three people at a time", (await hostAverage(kai.id, nextWeek)) === "3.5 from 8 ratings", await hostAverage(kai.id, nextWeek));
 
       check("each customer has been rated by one host: New to other hosts", (await customerAverage(fans[2].id, nextWeek)) === "New");
       const regular = await person("regular");
-      for (const h of [kai, hana, await host("lee", "Lee Third", `rt${RUN}lee`)]) {
+      const fiveHosts = [kai, hana, await host("lee", "Lee Third", `rt${RUN}lee`), await host("moe", "Moe Fourth", `rt${RUN}moe`), await host("ned", "Ned Fifth", `rt${RUN}ned`)];
+      for (const [i, h] of fiveHosts.entries()) {
         const c = await call({ hostId: h.id, customerId: regular.id, endedMinutesAgo: 5 });
         await R.rateCall({ callId: c.id, raterId: h.id, stars: 4, now });
         await R.rateCall({ callId: c.id, raterId: regular.id, stars: 5, now });
+        if (i === 3) check("a customer rated by four hosts is still New", (await customerAverage(regular.id, nextWeek)) === "New");
       }
-      check("a customer rated by three hosts has a customer average, separate from any host average", (await customerAverage(regular.id, nextWeek)) === "4.0 from 3 ratings" && (await hostAverage(regular.id, nextWeek)) === "New");
+      check("a customer rated by five hosts has a customer average, separate from any host average", (await customerAverage(regular.id, nextWeek)) === "4.0 from 5 ratings" && (await hostAverage(regular.id, nextWeek)) === "New");
 
       const one = await host("solo", "Solo Friend", `rt${RUN}solo`);
       const friend = await person("friend");
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 6; i++) {
         const c = await call({ hostId: one.id, customerId: friend.id, endedMinutesAgo: 10 + i * 40 });
         await R.rateCall({ callId: c.id, raterId: friend.id, stars: 5, now });
       }
-      check("four 5-star ratings from one friend do not make an average: it takes 3 different people", (await hostAverage(one.id, nextWeek)) === "New");
+      check("six 5-star ratings from one friend do not make an average: it takes 5 different people", (await hostAverage(one.id, nextWeek)) === "New");
 
       const zed = await host("zed", "Zed Closed", `rt${RUN}zed`);
-      for (const fan of [fans[0], fans[1], fans[2]]) {
+      for (const fan of fans.slice(0, 5)) {
         const c = await call({ hostId: zed.id, customerId: fan.id, endedMinutesAgo: 12 });
         await R.rateCall({ callId: c.id, raterId: fan.id, stars: 5, now });
       }
-      check("three people's ratings make an average", (await hostAverage(zed.id, nextWeek)) === "5.0 from 3 ratings");
+      check("five people's ratings make an average", (await hostAverage(zed.id, nextWeek)) === "5.0 from 5 ratings");
       await db.update(schema.user).set({ closedAt: now }).where(eq(schema.user.id, fans[2].id));
       check("ratings given by an account the founder closed stop counting", (await hostAverage(zed.id, nextWeek)) === "New", await hostAverage(zed.id, nextWeek));
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, fans[2].id));
-      check("and count again if the account is reopened", (await hostAverage(zed.id, nextWeek)) === "5.0 from 3 ratings");
-      const fourth = await call({ hostId: zed.id, customerId: fans[3].id, endedMinutesAgo: 11 });
-      await R.rateCall({ callId: fourth.id, raterId: fans[3].id, stars: 1, now });
+      check("and count again if the account is reopened", (await hostAverage(zed.id, nextWeek)) === "5.0 from 5 ratings");
+      const sixth = await call({ hostId: zed.id, customerId: fans[5].id, endedMinutesAgo: 11 });
+      await R.rateCall({ callId: sixth.id, raterId: fans[5].id, stars: 1, now });
       await db.update(schema.user).set({ closedAt: now }).where(eq(schema.user.id, fans[0].id));
-      check("closing one of the three does not pull a fourth person's rating into view", (await hostAverage(zed.id, nextWeek)) === "New", await hostAverage(zed.id, nextWeek));
+      check("closing one of the five does not pull a sixth person's rating into view", (await hostAverage(zed.id, nextWeek)) === "New", await hostAverage(zed.id, nextWeek));
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, fans[0].id));
 
-      // Seven people's ratings of Kai now count (5,5,5,1,1,1 and the regular's 5, whose call ended last): six are shown.
+      // Nine people's ratings of Kai now count (five of 5 stars, three of 1 star, and the regular's 5, whose call ended last): eight are shown.
       const many = await R.averagesFor([kai.id, one.id, hana.id], "host", nextWeek);
-      check("several people's averages come from one question to the database, each right", averageText(many.get(kai.id) ?? null) === "3.0 from 6 ratings" && many.get(one.id) === null && many.get(hana.id) === null);
+      check("several people's averages come from one question to the database, each right", averageText(many.get(kai.id) ?? null) === "3.5 from 8 ratings" && many.get(one.id) === null && many.get(hana.id) === null);
       const waiting = await call({ hostId: kai.id, customerId: fans[3].id, endedMinutesAgo: 8 });
       const toRate = await R.callsToRate(fans[3].id, now);
       check("the home page lists a call waiting for this person's rating, and not ones already rated", toRate.length === 1 && toRate[0].callId === waiting.id && toRate[0].otherName === "Kai Average", String(toRate.length));
