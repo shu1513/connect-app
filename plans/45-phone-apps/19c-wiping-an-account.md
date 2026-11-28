@@ -83,7 +83,7 @@ requests after a year.
    | A project, its posts and pictures | the name, description, posts and pictures erased (a picture held for a report is kept with it). If a contribution to it was ever paid, or an attempt at one is not yet settled at Stripe, an empty shell of the project stays, because the money record must point to something; while a bank dispute over such a payment is open, what its proof needs is set aside first (decision 3b) | |
    | Contributions | paid ones kept as money records, with their agreement and date; an unpaid attempt is erased **only once its outcome at Stripe is settled** (an attempt given up here can still have been charged there). *(Changed after Astra's check.)* | |
    | The founder's record of actions on this account | keep what was done, when and by whom. **A typed reason copied into it** (the reason of a pause is) is kept only as long as the line "Reports about this person, pauses" allows, then emptied there too. *(Changed after Astra's fourth check.)* | The founder's own accountability; the typed words are about the person |
-   | *Added 27 November.* Messages between a host and a customer (plan 49): the conversations, what this person wrote, their switch for one host | the conversation is closed at the lock, and from that moment the other person sees "a deleted account" in place of the name (the reader looks names up, so the name is hidden there at once, before the wipe); this person's own messages are erased with the wipe; the other person keeps what they wrote themselves until the twelve months every message has | What someone wrote is theirs. Whether the other person may keep reading it is **for the lawyer**; the builder's first value is no |
+   | *Added 27 November.* Messages between a host and a customer (plan 49): the conversations, what this person wrote, their switch for one host | the conversation is closed at the lock, and from that moment the other person sees "a deleted account" in place of the name (the stored name only changes at the wipe, so the reader must not show whatever name it finds: it checks the mark "deleted by its owner" and shows "a deleted account" from the lock on); this person's own messages are erased with the wipe; the other person keeps what they wrote themselves until the twelve months every message has | What someone wrote is theirs. Whether the other person may keep reading it is **for the lawyer**; the builder's first value is no |
    | *Added.* Messages kept for a report (`report_conversations`) | keep with that report, for as long as the report is kept | The report's evidence |
    | *Added.* Messages "From Connect" to this person | as "Emails written to this person" above: the text is erased, that one was sent stays | |
    | *Added.* The record that a notice email arrived (plan 46, part 3a), and what ties a delivery report to its email | keep with the fact that the email was sent. **While a debt of hers is open, also everything its deadlines hang on:** the notices still to be sent, and the email service's number for each one, without which a delivery or a bounce cannot be matched | A deadline was counted from it, and the next one will be |
@@ -125,6 +125,16 @@ requests after a year.
    people that name this person (one of the team's own messages holds a customer's name and
    email address). So are subjects and links that still identify someone, and the address
    kept for the last email of decision 4.
+   **A bank dispute that only arrives after the wipe** *(added after CodeRabbit's review)*:
+   the proof builder reads the customer's name and email address from the account's row,
+   and after a wipe that row says "A deleted account" and a made-up address. So the plan
+   must say which it is to be, and it is the lawyer's question with part 19b, decision 9:
+   either the real name and address are kept, apart and for this use only, for as long as a
+   bank can still dispute a payment; or the proof for such a dispute is sent without them,
+   saying that the account was deleted at its owner's wish. The builder's first value is
+   the second (nothing is kept "just in case"). **The wipe is not built before this is
+   answered,** and whichever it is, the proof never sends the placeholder as if it were a
+   name.
 3a. **Coming back with the same email address** *(added 27 November; rewritten after Astra's
    check; open, for the founder and the lawyer)*. Decision 1 lets the real address sign up
    again as a new, empty account. Four different things would be shed by that, and they

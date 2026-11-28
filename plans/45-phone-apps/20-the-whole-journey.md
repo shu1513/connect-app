@@ -89,8 +89,8 @@ You asked for every feature. These are the differences that remain:
   everything about pauses and reports.
 - **On the website and in email only** *(added 27 November)*: a bank dispute's own page, with
   the host's choice ("Fight it" or "Give the money back", in at most 24 hours), and the messages
-  "From Connect". The app's phone only says "Connect has written to you." (part 12, decision
-  2a). A part of its own for these was proposed (16c) and is not decided. Also the yearly
+  "From Connect". If the founder decides for it, the phone says "Connect has written to you." for
+  a few kinds of them (part 12, decision 2a); if not, the phone says nothing. A part of its own for these was proposed (16c) and is not decided. Also the yearly
   statement, whole (on the website it can be printed and taken as a file), and everything
   about money owed back for a contribution or a tip.
 - **Not in this build:** signing in with Google (on iPhone it would have to come with a second

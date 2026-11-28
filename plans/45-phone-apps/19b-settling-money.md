@@ -135,7 +135,8 @@ left, and a host does not have to sign in again to get hers.
    The payment's record is kept, so the app can still work out what she would owe. But there
    is nobody left to tell and, once her payout account is closed, nothing to take it from.
    The builder's first answer: Connect carries it, the books say so with its reason, and the
-   founder sees it in the list of decision 4. So that deleting is not a way out of a refund
+   founder sees it in the list of decision 4. (What the proof for such a late dispute may
+   still say about a wiped person is asked with it: part 19c, decision 3b.) So that deleting is not a way out of a refund
    that is plainly coming, the confirmation screen tells **every** host, in the same words,
    that payments made in the past can still be disputed by a customer's bank, and the
    lawyer is asked whether a payout account's closing may wait for that time. The sentence

@@ -97,8 +97,9 @@ in `src/lib/payments/collect.ts`:
 6. **Money owed back is part 16b,** built in the same pull request as this part or in the
    next. If this part is merged first, the app's earnings answer says one plain sentence
    whenever such a list would not be empty **for money owed back about a call** (or about a
-   membership, while they are on for the apps): "There is news about a past call payment. The details are in your
-   email, and on your earnings page on the website." (The first wording said "you owe money
+   membership, while they are on for the apps): "There is news about one of your past payments. The details are in your
+   email, and on your earnings page on the website." (It does not say "call": money owed
+   back for a membership month has no call.) (The first wording said "you owe money
    back, or money was taken back"; an entry that was called off before anything was taken
    would have made that untrue.) A debt about a contribution or a tip
    makes no sentence and no entry (part 16b, decision 9).
@@ -166,7 +167,9 @@ This plan is read against the code once more on the day it is built.
 1. *A statement with months, a tips-fee column and a split by kind is far more than two
    amounts.* Decision 7 now leaves it on the website.
 2. *A debt, and a collection, can exist only because of a tip or a contribution.* Decisions 5
-   and 6 show nothing for those.
+   and 6 show nothing for those. **(Superseded for collections by the fourth check:** a
+   collection of nothing but other earnings is shown, as a collection of "Other earnings";
+   decision 5. For a debt about a contribution or a tip it still holds.)
 3. *Three descriptions were wrong:* the website's caption (it is right already), what stops a
    collection while a bank dispute's message waits, and how the 12 months are counted. "What
    is there today"; decision 2 no longer changes the website.

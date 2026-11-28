@@ -159,7 +159,10 @@ the end of `plans/46-part-3-money-owed.md`, "A gap closed afterwards"):
   again at the later press.
 - The helper finishes such a request by itself, so the member need not press again at all.
 - `ownFourteenDays` keeps answering "open" while such a request is not finished, with the day
-  it counts from, so the button stays on the screen.
+  it counts from, so the button stays on the screen. The exception: while a bank's
+  question or a problem with the payment stops the request, there is no button; the screen
+  says that the request is on record and what stops it, and it waits for a person at
+  Connect.
 - The founder's Memberships page lists what is not finished and what stops it.
 
 **For this part, when it is built:** nothing more to settle. The app shows the button whenever

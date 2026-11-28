@@ -104,7 +104,9 @@ those screens on the test phone and puts seven small things right. Nothing new i
      from the row, whatever the check says);
    - before one request's own screen is answered: if it is asked for directly in that
      moment, the other person gets "This request is no longer available.", with "Report"
-     and "Block" still there under labels that name nobody;
+     and "Block" still there under labels that name nobody, **for a request that was
+     sent**. One that is still at the card step has neither button today, and its block
+     step refuses; that stays so, and its screen shows the sentence alone;
    - before the app's answers for a booking and for a call offer a step;
    - **in the steps themselves where their own gate is weaker:** saving a card for a
      request; the check before a call's money is held (which also learns to refuse when the
