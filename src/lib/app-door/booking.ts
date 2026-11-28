@@ -133,9 +133,11 @@ async function hostPart(found: RequestPage, paused: boolean): Promise<NonNullabl
     // Whether she may keep a note about this person is decided where notes are kept; here it is only shown, and
     // never beside "nothing may be said about them" (the two are asked at slightly different moments).
     note: known && found.note?.allowed ? { title: WAITING_WORDS.noteTitle(name), hint: WAITING_WORDS.noteHint, text: found.note.text, max: NOTE_MAX, save: WAITING_WORDS.noteSave, notSaved: WAITING_WORDS.noteNotSaved } : null,
-    // Accepting is refused to a host whose own account is paused, so it is not offered to her. Declining is not
-    // refused (it only tidies up), so she is still offered that.
-    answer: booking.stage === "waiting" ? { ...answerFor(booking), ...(paused ? { accept: null } : {}) } : null,
+    // Accepting is refused to a host whose own account is paused, so it is not offered to her. Declining a booked
+    // request is not refused (it only tidies up), so she is still offered that. For a call asked for "now" she is
+    // offered nothing: it is answered on "Available now", which a paused account cannot use, and whose list no
+    // longer has the request.
+    answer: booking.stage !== "waiting" || (paused && booking.source === "now") ? null : { ...answerFor(booking), ...(paused ? { accept: null } : {}) },
   };
 }
 

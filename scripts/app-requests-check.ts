@@ -173,6 +173,11 @@ async function main() {
   const busyOf = async (userId: string) => db.select().from(schema.busyEntries).where(eq(schema.busyEntries.userId, userId));
   const emailsTo = async (to: string, subjectPart: string) => (await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, to), like(schema.emailOutbox.subject, `%${subjectPart}%`)))).length;
   const everyRequest = (body: AppRequests | null) => body?.groups.flatMap((group) => group.requests) ?? [];
+  /** Whether this host's list was really read, and none of these requests is on it. (A list that could not be read proves nothing.) */
+  const notOnList = async (jar: Jar, ...ids: string[]) => {
+    const { reply, body } = await list(jar);
+    return reply.status === 200 && body !== null && !everyRequest(body).some((request) => ids.includes(request.id));
+  };
 
   try {
     const hana = await asHost(await newPerson("hana"), "hana", `Hana Answers ${RUN}`);
@@ -215,8 +220,8 @@ async function main() {
       await db.insert(schema.blocks).values({ blockerId: ben.id, blockedId: hana.id });
       const left = await list(hana.jar);
       const after = everyRequest(left.body);
-      check("a request of a customer whose account is closed is not on the host's list, and nowhere in the answer", !after.some((request) => request.id === cyAsk.id) && !left.reply.text.includes(cy.name) && !left.reply.text.includes(cyAsk.id), left.reply.text.slice(0, 160));
-      check("nor is one across a block, whoever blocked whom", !after.some((request) => request.id === benAsk.id) && !left.reply.text.includes(ben.name) && !left.reply.text.includes(benAsk.id));
+      check("a request of a customer whose account is closed is not on the host's list, and nowhere in the answer", left.reply.status === 200 && left.body !== null && !after.some((request) => request.id === cyAsk.id) && !left.reply.text.includes(cy.name) && !left.reply.text.includes(cyAsk.id), left.reply.text.slice(0, 160));
+      check("nor is one across a block, whoever blocked whom", left.reply.status === 200 && left.body !== null && !after.some((request) => request.id === benAsk.id) && !left.reply.text.includes(ben.name) && !left.reply.text.includes(benAsk.id));
       check("the list's number and its groups count only the others: a time two people asked for is now one person's", left.body?.title === "Requests for calls (2)" && left.body.groups.length === 2 && left.body.groups[0].requests.length === 1 && left.body.groups[0].many === null, `${left.body?.title} ${left.body?.groups.length}`);
       check("everyone else is shown as before", after.find((request) => request.id === annAsk.id)?.words === "About my garden." && after.find((request) => request.id === annAsk.id)?.name === ann.name);
       // One such request, asked for directly: "no longer available", with no name in any field.
@@ -236,7 +241,7 @@ async function main() {
       // A customer paused a moment ago, before the tidying-up (the pause is written straight into the database).
       await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cy.id));
       const during = await list(hana.jar);
-      check("a customer paused a moment ago: his request is not in the host's list or its number", !everyRequest(during.body).some((request) => request.id === cyAsk.id) && during.body?.title === "Requests for calls (3)" && !during.reply.text.includes(cy.name), `${during.body?.title}`);
+      check("a customer paused a moment ago: his request is not in the host's list or its number", during.reply.status === 200 && during.body !== null && !everyRequest(during.body).some((request) => request.id === cyAsk.id) && during.body?.title === "Requests for calls (3)" && !during.reply.text.includes(cy.name), `${during.body?.title}`);
       const pausedPage = await requestPage(cyAsk.id, hana.jar);
       check("asked for directly it answers \"no longer available\", with no name in any field", nameless(pausedPage.reply, cy.name), pausedPage.reply.text.slice(0, 240));
       const webDuring = await asBrowser("/host/requests", { jar: hana.jar });
@@ -278,7 +283,7 @@ async function main() {
       check("a request still at its card step does not exist for the host, in the same words as somebody else's", refusal(gone.reply) === "not_found" && gone.reply.text === (await requestPage(annAsk.id, other.jar)).reply.text);
       check("nor does a member's booking that never became a call", refusal((await requestPage(unmade.id, hana.jar)).reply) === "not_found");
       check("and none of her steps reach them", refusal(await step(draft.id, "accept", hana.jar)) === "not_found" && refusal(await step(draft.id, "decline", hana.jar)) === "not_found" && refusal(await step(unmade.id, "accept", hana.jar)) === "not_found" && refusal(await step(draft.id, "block", hana.jar)) === "not_found" && refusal(await step(draft.id, "note", hana.jar, { text: "x", shown: null })) === "not_found" && (await row(draft.id)).stage === "card");
-      check("they are not on her list either", !everyRequest((await list(hana.jar)).body).some((request) => request.id === draft.id || request.id === unmade.id));
+      check("they are not on her list either", await notOnList(hana.jar, draft.id, unmade.id));
     }
 
     // ----------------------------------------------------------------------
@@ -361,7 +366,13 @@ async function main() {
       const onList = everyRequest((await list(hana.jar)).body).find((request) => request.id === instant.id);
       const instantPage = (await requestPage(instant.id, hana.jar)).body;
       check("a call asked for right now is on the list as that kind, and its page says where it is answered", onList?.kind === "now" && onList.answer.elsewhere === "A request for a call right now is answered on your Available now page." && instantPage?.host?.answer?.kind === "now" && instantPage.host.answer.elsewhere === "A request for a call right now is answered on your Available now page.");
-      check("and neither answer is taken for it here", sentence(await step(instant.id, "accept", hana.jar)) === "A request for a call right now is answered on your Available now page." && sentence(await step(instant.id, "decline", hana.jar)) === sentence(await step(instant.id, "accept", hana.jar)) && (await row(instant.id)).stage === "waiting");
+      // A host whose own account is paused is offered nothing for it: "Available now" is not hers to use while
+      // paused, and its list no longer has the request. (For a booked request she is still offered declining.)
+      await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, hana.id));
+      const pausedInstant = (await requestPage(instant.id, hana.jar)).body;
+      await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, hana.id));
+      check("a paused host is not sent to her Available now page for it: its page offers her no answer at all", pausedInstant !== null && pausedInstant.role === "host" && pausedInstant.host?.customerName === eve.name && pausedInstant.host.answer === null && !JSON.stringify(pausedInstant).includes("Available now"), JSON.stringify(pausedInstant?.host).slice(0, 200));
+            check("and neither answer is taken for it here", sentence(await step(instant.id, "accept", hana.jar)) === "A request for a call right now is answered on your Available now page." && sentence(await step(instant.id, "decline", hana.jar)) === sentence(await step(instant.id, "accept", hana.jar)) && (await row(instant.id)).stage === "waiting");
       await db.delete(schema.bookings).where(inArray(schema.bookings.id, [paid.id, instant.id]));
     }
 
@@ -378,7 +389,7 @@ async function main() {
       let refusedAgain = "";
       await ask(cy, hana.id, next()).catch((error: Error) => (refusedAgain = error.message));
       check("for seven days that customer cannot ask her again, as on the website", refusedAgain === "This host is not taking requests from you at the moment.", refusedAgain);
-      check("the list no longer has it", !everyRequest((await list(hana.jar)).body).some((request) => request.id === cyAsk.id));
+      check("the list no longer has it", await notOnList(hana.jar, cyAsk.id));
     }
 
     // ----------------------------------------------------------------------
@@ -424,8 +435,9 @@ async function main() {
       check("from then on her page of it says nothing about them, not even the name", page.host?.known === false && page.host.words === null && page.host.note === null && page.host.customerName === "" && page.title === "A request for a call" && !done.text.includes(cust.name), done.text.slice(0, 200));
       check("it says that the request is no longer available (not that it was not answered in time), and does not offer to block again", page.stageWords === "This request is no longer available." && page.block === null && page.report === "Report this person", `${page.stageWords} ${JSON.stringify(page.block)}`);
       const web = await asBrowser(`/bookings/${custAsk.id}`, { jar: hana.jar });
-      check("the website's page says the same sentence", web.status === 200 && web.text.includes("This request has ended.") && !web.text.includes("not answered in time"), `${web.status}`);
-      check("and it is off her list", !everyRequest((await list(hana.jar)).body).some((request) => request.id === custAsk.id));
+      // (On purpose not the app's sentence: the website's page keeps its own, "This request has ended."; the app says "This request is no longer available.")
+      check("the website's page keeps its own sentence, \"This request has ended.\" (not that it was not answered in time)", web.status === 200 && web.text.includes("This request has ended.") && !web.text.includes("not answered in time"), `${web.status}`);
+      check("and it is off her list", await notOnList(hana.jar, custAsk.id));
       const again = await step(custAsk.id, "block", hana.jar);
       check("blocking again changes nothing and is answered the same way", again.status === 200 && (await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, hana.id), eq(schema.blocks.blockedId, cust.id)))).length === 1);
       // The customer of a request can block its host the same way.

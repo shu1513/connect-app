@@ -351,6 +351,8 @@ async function main() {
       // between the two: the app's sentence, under "Block" and in the question before it, never names a contribution,
       // and names a membership only while memberships are on for the apps. The website's page keeps its sentence.
       {
+        // The switches as they are, read before anything is made: they are put back at the end.
+        const before = await switches();
         // The three rows in one step: either all of them are there, or (should one be refused) none is left behind.
         const { membership, project, monthly } = await db.transaction(async (tx) => {
           const [membership] = await tx.insert(schema.memberships).values({ hostId: host.id, customerId: cust.id, status: "active", since: now }).returning();
@@ -358,7 +360,6 @@ async function main() {
           const [monthly] = await tx.insert(schema.contributions).values({ projectId: project.id, hostId: host.id, contributorId: cust.id, kind: "monthly", amountCents: 1000, status: "running", requestKey: randomUUID() }).returning();
           return { membership, project, monthly };
         });
-        const before = await switches();
         const blockOf = async () => ((await asApp(`/api/app/calls/${id}/ended`, { jar: cust.jar })).json as AppEndedScreen | null)?.block;
         try {
           // Memberships are switched on for everyone for this case, whatever the switch was (off for everyone is off
@@ -376,10 +377,14 @@ async function main() {
           const webEnded = await asBrowser(`/calls/${id}/ended`, { jar: cust.jar });
           check("the website's own page keeps its sentence, with the membership and the monthly contribution", webEnded.status === 200 && webEnded.text.includes("any membership or monthly contribution between you ends"), `${webEnded.status}`);
         } finally {
-          await setSwitches({ memberships: before.memberships, appMemberships: before.appMemberships });
-          await db.delete(schema.contributions).where(eq(schema.contributions.id, monthly.id));
-          await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
-          await db.delete(schema.memberships).where(eq(schema.memberships.id, membership.id));
+          // The rows go whatever becomes of putting the switches back.
+          try {
+            await setSwitches({ memberships: before.memberships, appMemberships: before.appMemberships });
+          } finally {
+            await db.delete(schema.contributions).where(eq(schema.contributions.id, monthly.id));
+            await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+            await db.delete(schema.memberships).where(eq(schema.memberships.id, membership.id));
+          }
         }
       }
       const hostScreen = (await asApp(`/api/app/calls/${id}/ended`, { jar: host.jar })).json as AppEndedScreen | null;

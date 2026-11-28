@@ -1,4 +1,4 @@
-import { clockLine, isBlocked, isEnded, isEndedScreen, isLive, isPass, isReportForm, isReportSent, isRoom, laterEnd, notTheMoment, reportPlace, ROOM_WORD_NAMES } from "./room-rules";
+import { clockLine, isBlocked, isEnded, isEndedScreen, isLive, isPass, isReportForm, isReportSent, isRoom, laterEnd, notTheMoment, readRoomAgainAfterLoss, readRoomAgainAfterRefusal, reportPlace, ROOM_WORD_NAMES } from "./room-rules";
 
 const ID = "3f2c1b7a-9d4e-4f6a-8b1c-2d3e4f5a6b7c";
 const words = Object.fromEntries(ROOM_WORD_NAMES.map((name) => [name, `${name} words`]));
@@ -165,5 +165,21 @@ describe("whether it is the moment for the call's own screen", () => {
     expect(notTheMoment({ ...at, ready: false, now: endsAt, live: going })).toBe(false);
     // Before the screen has asked anything, a call that was over when it was opened belongs to the call's page.
     expect(notTheMoment({ ...at, ready: false, now: endsAt })).toBe(true);
+  });
+});
+
+describe("when the room is read again before the camera check is offered", () => {
+  it("after a lost connection: not for a call that has really ended, otherwise always", () => {
+    // Put out of the room while the call goes on (a paused account, say): the old "ready" is not believed.
+    expect(readRoomAgainAfterLoss({ cancelled: false, safetyEnded: false })).toBe(true);
+    // Ended for both with the button, or cancelled: the screen says "ended" itself, as before.
+    expect(readRoomAgainAfterLoss({ cancelled: false, safetyEnded: true })).toBe(false);
+    expect(readRoomAgainAfterLoss({ cancelled: true, safetyEnded: false })).toBe(false);
+  });
+
+  it("after a refused \"Join\": for the call's own reasons and for a paused account, not for anything else", () => {
+    expect(readRoomAgainAfterRefusal("not_valid")).toBe(true);
+    expect(readRoomAgainAfterRefusal("paused")).toBe(true);
+    for (const code of ["switched_off", "not_signed_in", "update_needed", "welcome_needed", "confirm_email", "unreachable", "not_found"]) expect(readRoomAgainAfterRefusal(code)).toBe(false);
   });
 });

@@ -369,7 +369,8 @@ export type AppPart = string | { bold: string } | { time: string };
  * before it accepts (a touch by mistake would make a commitment). "now": a call asked for right
  * away, which is answered where such calls arrive, not with these buttons; `elsewhere` says where.
  * `accept` is null when accepting is not offered and declining still is: for a host whose own
- * account is paused, on a request's own page.
+ * account is paused, on a booked request's own page. (For a call asked for "now" such a host
+ * gets no answer at all.)
  */
 export type AppAnswer = { kind: "booked" | "now"; accept: string | null; decline: string; sure: AppPart[]; yes: string; no: string; elsewhere: string | null };
 

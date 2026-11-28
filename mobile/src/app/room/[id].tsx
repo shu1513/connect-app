@@ -10,7 +10,7 @@ import { sameId } from "@/lib/book-rules";
 import { PLAIN_HTTP_ALLOWED } from "@/lib/config";
 import { useWatch } from "@/lib/here";
 import { useOpening } from "@/lib/opening";
-import { clockLine, isEnded, isLive, isPass, isRoom, laterEnd, notTheMoment } from "@/lib/room-rules";
+import { clockLine, isEnded, isLive, isPass, isRoom, laterEnd, notTheMoment, readRoomAgainAfterLoss, readRoomAgainAfterRefusal } from "@/lib/room-rules";
 import { InCall } from "@/room/in-call";
 import { Lobby } from "@/room/lobby";
 import { BackLink, Button, Card, Loading, Notice, Page, Words } from "@/ui/pieces";
@@ -137,16 +137,21 @@ function OneRoom({ id }: { id: string }) {
     setEndsAt(end);
   }, []);
 
-  /** What the screen needs before anyone enters. */
-  const load = useCallback(async () => {
+  /**
+   * What the screen needs before anyone enters. Gives back whether Connect answered (with the room, or with a
+   * refusal that the screen now shows): false only when it could not be reached, and what the screen holds about
+   * the room is therefore as old as it was.
+   */
+  const load = useCallback(async (): Promise<boolean> => {
     if (!id) {
       setGone(true);
-      return;
+      return true;
     }
     const mine = ++newest.current;
     const askedAt = performance.now();
     const answer = await ask<AppRoom>(`${path}/room`);
-    if (mine !== newest.current) return;
+    // (Overtaken by a newer reading: that one decides.)
+    if (mine !== newest.current) return true;
     if (answer.ok && isRoom(answer.data) && answer.data.id === id) {
       setRoom(answer.data);
       setClock(answer.data.serverNow, performance.now(), askedAt);
@@ -165,7 +170,9 @@ function OneRoom({ id }: { id: string }) {
     } else {
       setGone(false);
       setProblem(answer.ok ? UNREACHABLE : answer.message);
+      return false;
     }
+    return true;
   }, [id, path, setClock, followEnd, askOpening]);
 
   // While the screen is in front. Leaving it, by any way, leaves the call: nobody is on camera with another screen in front.
@@ -250,6 +257,21 @@ function OneRoom({ id }: { id: string }) {
     })();
   }, [timeUp, endsAt, refresh]);
 
+  /**
+   * Reads the room again before the camera check is offered (once more): what the screen read when it was opened
+   * may no longer be true. Until the answer is there nothing is offered; if Connect cannot be reached, only asking
+   * again is. Gives back whether the room was read.
+   */
+  const readRoomAgain = useCallback(async (): Promise<boolean> => {
+    const during = visit.current;
+    markChecking("asking");
+    const read = await load();
+    // The person left this screen meanwhile: the visit they are on reads the room for itself.
+    if (!front.current || during !== visit.current) return false;
+    markChecking(read ? "no" : "failed");
+    return read;
+  }, [load, markChecking]);
+
   /** Asks for an entry pass, and enters with what was chosen. */
   async function join() {
     if (joiningNow.current) return;
@@ -288,6 +310,9 @@ function OneRoom({ id }: { id: string }) {
       // Refused, in the server's own sentence (not open yet, over, not paid, calls paused across Connect, a paused account).
       setNotice(answer.message);
       if (answer.code !== "not_valid" && answer.code !== "switched_off" && answer.code !== "paused") void askOpening();
+      // The room is no longer open to this person as the screen believes: it is read again before "Join" is offered
+      // once more (it may no longer be ready, or no longer be this person's to read).
+      if (readRoomAgainAfterRefusal(answer.code)) void readRoomAgain();
     } else {
       setNotice(answer.ok ? UNREACHABLE : answer.message);
     }
@@ -305,9 +330,13 @@ function OneRoom({ id }: { id: string }) {
       markChecking("failed");
       return;
     }
-    markChecking("no");
+    // A call that has really ended is said by the screen itself, as before. Otherwise the room is read again first:
+    // this person may have been put out of it while the call goes on, and the old "ready" says nothing about now.
+    if (readRoomAgainAfterLoss(answer)) {
+      if (!(await readRoomAgain())) return;
+    } else markChecking("no");
     if (room) setNotice(room.words.disconnected);
-  }, [refresh, room, markChecking]);
+  }, [refresh, room, markChecking, readRoomAgain]);
   useEffect(() => {
     whereItStands.current = askWhereItStands;
   }, [askWhereItStands]);

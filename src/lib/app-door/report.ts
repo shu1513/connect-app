@@ -39,14 +39,17 @@ export async function reportFormFor(person: { id: string }, place: AppReportPlac
 }
 
 /**
- * Whether the app takes a report from this place. From a request only once it was really sent, or
- * became a call: the test by which the request's page offers "Report" and "Block"
- * (`mayBlockThrough`). A report also blocks, and a request that stopped at its card step never
- * reached the host: neither of the two has anything of the other's through it. (A request that is
- * nobody's, or somebody else's, is left to the report itself, which says "not found".)
+ * Whether the app takes a report from this place. From a request only if it is this person's and
+ * was really sent, or became a call: the test by which the request's page offers "Report" and
+ * "Block" (`mayBlockThrough`). A report also blocks, and a request that stopped at its card step
+ * never reached the host: neither of the two has anything of the other's through it.
+ *
+ * A request that does not exist, one that is somebody else's and one that was never sent are all
+ * refused here, before anything else about the report is looked at, so that the three get the
+ * very same answer and cannot be told apart.
  */
 export async function appMayReportFrom(person: { id: string }, place: AppReportPlace, placeId: string): Promise<boolean> {
   if (place !== "booking") return true;
   const found = await bookingFor(placeId, person.id);
-  return !found || mayBlockThrough(found.booking);
+  return found !== null && mayBlockThrough(found.booking);
 }

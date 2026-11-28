@@ -339,3 +339,37 @@ scripts, all passing).
 the hole of point 3 too (it offers "Report" for a request that ran out at its card step, and the
 report is taken). Anyone can report a host from her public page as well, so it gives nothing
 that is not there already; it was not changed in this part.
+
+## Astra's second look at the code (28 November 2026): "not ready", narrower, worked in
+
+Three points to fix and five smaller ones. Corrected by the terminal Claude from a third brief;
+lint, types, tests and twelve check scripts pass, and the one changed screen was walked on the
+Android test phone.
+
+**Taken:**
+
+1. *A pause that lands between the helper's two looks used up the hold's only try,* and the
+   customer could later be told that his card had failed. The refusal for the pair rule is now
+   its own kind (`MayNotActError`), and on that refusal only the helper takes its claim back,
+   so the next pass tries again. `booking-check` plays it (section 11b): no try used and no card
+   email while the pause lasts, exactly one real try after it is lifted.
+2. *The phone could show the camera check and "Join" again with an old "ready"* after someone
+   was put out of a call that was still under way. After a lost connection, and after a refused
+   "Join", the room is read again first. Seen on the test phone: a customer paused while in a
+   call reads "Your account is paused." with "Try again" and "Back".
+3. *The app's report address answered differently for a request that was never sent and for
+   one that does not exist.* Both, and somebody else's, now get the same refusal.
+4. *A paused host was sent to "Available now" for an instant request.* She gets no answer to
+   give for an instant request; booked requests keep "decline only".
+5. *Check scripts:* fixtures removed in a `finally` of their own; the card check requires the
+   real card object; the original request is sent again with the same key while the host is
+   paused; "is not on her list" requires a list that was really read.
+
+**Not taken:** asking the website's per-host membership setting for the sentence about
+blocking. "Any membership between you ends" is true when there is none; whether the word may
+appear in the app is the apps' switch.
+
+**A thing about the test setup, not the code:** on the second walk "Join" answered only after
+15 seconds and the phone said "Cannot reach Connect." The test customer had 39 leftover calls
+from the check scripts still marked as open, and entering a call first takes a person out of
+every other one. With those marked closed, entering took a moment, as before.

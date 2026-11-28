@@ -41,8 +41,9 @@ export async function POST(request: Request) {
   const given = (sent !== null && typeof sent === "object" ? sent : {}) as { place?: unknown; id?: unknown; reason?: unknown; text?: unknown };
   if (!isPlace(given.place) || !isPlaceId(given.place, given.id) || typeof given.reason !== "string" || (given.text !== undefined && typeof given.text !== "string")) return refuse("not_valid");
   try {
-    // A request that never reached the host (it stopped at its card step) is no place to report from: answered as a
-    // request that is not this person's. The same test as the "Report" link on the request's page.
+    // A request that never reached the host (it stopped at its card step) is no place to report from: answered
+    // exactly as a request that does not exist, or is not this person's, and before the form's own checks, so the
+    // three cannot be told apart. The same test as the "Report" link on the request's page.
     if (!(await appMayReportFrom(asked.person!, given.place, given.id))) return refuse("not_valid", REQUEST_NOT_FOUND);
     const { notice } = await sendReportFor(asked.person!.id, { context: given.place, contextId: given.id, reason: given.reason, text: typeof given.text === "string" ? given.text : "" }, new Date());
     const body: AppReportSent = { notice };

@@ -8,7 +8,7 @@ import type { Call, Payment } from "@/db/schema";
 import { mayStillAct } from "@/lib/safety/may-act";
 import { applyCaptured, applyReleased, type CaptureParams } from "./actions";
 import type Stripe from "stripe";
-import { lockPayment, MoneyError, OutcomeUnknownError, runMoneyOperation, type Tx } from "./operations";
+import { lockPayment, MayNotActError, MoneyError, OutcomeUnknownError, runMoneyOperation, type Tx } from "./operations";
 import { cardPayment } from "./own";
 import { bookedTotalCents, DEFAULT_FEE_TERMS } from "./pricing";
 import { holdExpiry, payWindow } from "./rules";
@@ -98,8 +98,9 @@ async function holdIntentFor(input: {
   if (payment.status !== "awaiting_payment") throw new MoneyError("This call can no longer be paid for.");
   if (call.safetyEndedAt) throw new MoneyError("This call was ended, so it can no longer be paid for.");
   // Both accounts open, neither paused, no block between them (plans/45-phone-apps/09a, decision 6): no money is
-  // held for a call whose other person's account was closed a moment ago either.
-  if (!(await mayStillAct(call.hostId, call.customerId))) throw new MoneyError("This call can no longer be paid for.");
+  // held for a call whose other person's account was closed a moment ago either. Refused before anything is asked
+  // of Stripe, and as a refusal of its own kind: it is not a card that failed.
+  if (!(await mayStillAct(call.hostId, call.customerId))) throw new MayNotActError("This call can no longer be paid for.");
   if (await tooLateToHold(db, payment, now)) {
     throw new MoneyError(payment.extensionId ? "This request for more time is no longer open." : "The time to pay for this call has passed.");
   }

@@ -765,10 +765,11 @@ async function main() {
       const sentToo = await send(self.handle, await okSummary(self.handle, selfTimes[17], guest.jar), guest.jar);
       const declineId = (sentToo.json as AppBookSent | null)?.id ?? "";
       if (!declineId) throw new Error(`The second request for part 8 could not be made: ${sentToo.status} ${sentToo.text.slice(0, 160)}`);
-      /** Whether a request's page was really read, and offers the card step. (A reading that failed offers nothing.) */
+      /** Whether this very request's page was really read, and offers the card step with its button. (A reading that failed, or of something else, offers nothing.) */
       const offersCard = async (bookingId: string, jar: Jar) => {
         const page = (await requestPage(bookingId, jar)).body;
-        return page !== null && page.card !== null;
+        const card = page?.card ?? null;
+        return page !== null && page.id === bookingId && page.stage === "card" && card !== null && typeof card === "object" && card.button === "Save card and send request" && typeof card.title === "string" && card.title !== "";
       };
       const setPaused = (userId: string, on: boolean) => db.update(schema.user).set({ pausedAt: on ? new Date() : null }).where(eq(schema.user.id, userId));
       /** A page whose details are withheld: the one sentence, a heading that names nobody, no step, and none of the other person's names anywhere in the answer. */
@@ -835,7 +836,8 @@ async function main() {
       check("with the block gone the request reads as before, for both", (await requestPage(id, guest.jar)).body?.title === `Your request to ${self.displayName}` && (await requestPage(id, second.jar)).body?.host?.customerName === guest.name);
 
       // A paid request at its card step, and its host paused a moment ago: no card is saved for it.
-      const paidSent = await send(noor.handle, await okSummary(noor.handle, nextPaid(), guest.jar), guest.jar);
+      const paidSummary = await okSummary(noor.handle, nextPaid(), guest.jar);
+      const paidSent = await send(noor.handle, paidSummary, guest.jar);
       const cardId = (paidSent.json as AppBookSent | null)?.id ?? "";
       check("(a paid request stands at its card step, and offers the card)", (await offersCard(cardId, guest.jar)) && (await row(cardId))?.stage === "card", `${paidSent.status} ${paidSent.text.slice(0, 120)}`);
       await setPaused(noor.id, true);
@@ -847,6 +849,24 @@ async function main() {
         refusal(noCard) === "not_valid" && sentence(noCard) === GONE && (await B.cardStepOf({ bookingId: cardId, customer: { id: guest.id, name: guest.name, email: guest.email }, now: new Date() })) === null && refusal(await step(cardId, "block", guest.jar)) === "not_found" && (await row(cardId)).stage === "card",
         `${noCard.status} ${sentence(noCard)}`,
       );
+      // The ORIGINAL request sent again with the same key while the host is paused (the first answer was lost on the
+      // way, say): the same request comes back, with no card secret, and no card step is made at Stripe for it. So
+      // that this can be seen, the request's card step is taken off its row for the moment (as if Stripe had not
+      // answered when the request was made), and put back afterwards.
+      {
+        const stepId = (await row(cardId)).stripeSetupIntentId;
+        await db.update(schema.bookings).set({ stripeSetupIntentId: null }).where(eq(schema.bookings.id, cardId));
+        try {
+          const again = await send(noor.handle, paidSummary, guest.jar);
+          check("the same request sent again from the app while the host is paused: the same request comes back, and nothing but its id", again.status === 200 && (again.json as AppBookSent | null)?.id === cardId && keys(again.json) === "id", `${again.status} ${again.text.slice(0, 160)}`);
+          // The function behind the address, as it runs when a sending finds the request already made.
+          const retried = await B.askForCall({ customer: { id: guest.id, name: guest.name, email: guest.email }, hostId: noor.id, startsAt: new Date(paidSummary.startsAt), lengthMinutes: paidSummary.minutes, note: "", requestKey: paidSummary.requestKey, agreedToCardTerms: true, seen: { pricePer15Cents: paidSummary.seen.price, freeCancelMinutes: paidSummary.seen.freeCancel, cardTermsVersion: paidSummary.cardTermsVersion }, fromApp: true, now: new Date() });
+          const afterRetry = await row(cardId);
+          check("and the step behind it hands out no card secret and makes no card step at Stripe", retried.booking.id === cardId && retried.clientSecret === null && afterRetry.stripeSetupIntentId === null && afterRetry.stage === "card" && (await db.select().from(schema.bookings).where(eq(schema.bookings.requestKey, paidSummary.requestKey))).length === 1, `${retried.booking.id === cardId} ${String(retried.clientSecret)} ${String(afterRetry.stripeSetupIntentId)}`);
+        } finally {
+          await db.update(schema.bookings).set({ stripeSetupIntentId: stepId }).where(eq(schema.bookings.id, cardId));
+        }
+      }
       await setPaused(noor.id, false);
       check("(with the pause lifted the card step is offered again)", await offersCard(cardId, guest.jar));
       await setPaused(guest.id, true);
@@ -868,6 +888,18 @@ async function main() {
         const written = await db.select().from(schema.reports).where(eq(schema.reports.reporterId, guest.id));
         const blocksMade = await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, guest.id), eq(schema.blocks.blockedId, noor.id)));
         check("and a report sent from it all the same is refused: nothing is written down, and nobody is blocked", refusal(reported) === "not_valid" && sentence(reported) === "Request not found." && written.length === 0 && blocksMade.length === 0, `${reported.status} ${reported.text.slice(0, 160)}`);
+        // A request that does not exist, one that is somebody else's and one that was never sent get the very same
+        // answer, before anything else about the report is looked at: the three cannot be told apart.
+        const sameRefusal = async (bookingId: string, reason: string) => {
+          const reply = await asApp("/api/app/report", { jar: guest.jar, body: { place: "booking", id: bookingId, reason, text: "" } });
+          return reply.status === reported.status && reply.text === reported.text;
+        };
+        check(
+          "a request that does not exist, and one that is somebody else's, are answered exactly as the one never sent, whatever else was sent with it",
+          (await sameRefusal(randomUUID(), REPORT_REASONS[0].key)) && (await sameRefusal(freeId, REPORT_REASONS[0].key)) && (await sameRefusal(randomUUID(), "no such reason")) && (await sameRefusal(freeId, "no such reason")) && (await sameRefusal(ranOut.id, "no such reason")),
+        );
+        const fromSent = await asApp("/api/app/report", { jar: guest.jar, body: { place: "booking", id, reason: "no such reason", text: "" } });
+        check("a report from a request that was sent still reaches the form's own checks", refusal(fromSent) === "not_valid" && sentence(fromSent) === "Choose a reason." && (await db.select().from(schema.reports).where(eq(schema.reports.reporterId, guest.id))).length === 0, `${fromSent.status} ${sentence(fromSent)}`);
         // (Should that ever fail, what it made is taken away again, so the rest of this run and its clean-up are not in its way.)
         await db.delete(schema.reports).where(eq(schema.reports.reporterId, guest.id));
         await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, guest.id), eq(schema.blocks.blockedId, noor.id)));
