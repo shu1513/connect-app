@@ -181,7 +181,7 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 | 15 | A host's hours and rules | The calendar settings |
 | 16 | A host's earnings | "Collect earnings" |
 | 16b | Money a host owes back (added 26 November, after plan 46 part 3a) | The list, one amount's screen, "I think this is wrong" |
-| 16c | A bank dispute's own page (decided by the founder on 27 November; its plan is still to be written) | A host answers a bank dispute from the app |
+| 16c | A bank dispute's own screen (decided by the founder on 27 November) | A host answers a bank dispute from the app |
 | 17 | Contacts, invitations, the Following page | The rest of both roles' lists |
 | 17b | Messages between a host and a customer (added 27 November, after plan 49) | Two people write to each other, one on a phone |
 | 18 | The account page, blocking, the legal pages, paused accounts | Settings |
@@ -192,8 +192,8 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 
 Thirty-two parts (13c and 16b were added later, by the builder of plan 46; 17b was added on
 27 November by the builder of plan 49, and needs only parts 01 to 09; 09a was added the same
-day, when the plans were brought up to date; 16c was decided by the founder that day and
-has no plan yet). Order: 01 to 03 first, because everything stands on them. Then the
+day, when the plans were brought up to date; 16c was decided by the founder that day,
+and its plan was written the same evening). Order: 01 to 03 first, because everything stands on them. Then the
 customer's journey to a finished call (04 to 10b), then the rest. Part 11 comes before part
 12 and works without it (in the app, "available now" then follows the website's rule); the
 locked-phone rule comes alive only when part 12 is switched on. A part can be merged while
@@ -318,8 +318,8 @@ so.**
    you.", for a short list of causes (a bank dispute over a call that waits for the host's
    choice, money owed back for a call, a collection Connect started).
 2. *A bank dispute's own page in the apps.* **Decided by the founder on 27 November 2026:
-   yes.** It is part 16c. Its plan is not written yet; it is written, and checked by Astra,
-   before it is built, and it comes after parts 16 and 16b. By the rule for the apps it
+   yes.** It is part 16c (`plans/45-phone-apps/16c-a-bank-disputes-page.md`, written and
+   checked by Astra that evening), and it comes after parts 16 and 16b. By the rule for the apps it
    covers a dispute over a call (and over a membership, while those are on for the apps); a
    dispute over a contribution or a tip stays on the website and in email.
 3. *Part 17b's four choices that are only its builder's:* "Messages" as a fifth place at the

@@ -97,7 +97,12 @@ amount owed back a "take-back".
    app shows a fixed sentence in their place, "The reason is in the email we sent you, and
    on the website.", and keeps everything else: the figures, the decision, the deadlines,
    the right to object. On this screen that is the team's reason for
-   the refund and its answer to her objection. Her own objection is hers and is shown.
+   the refund and its answer to her objection. Her own objection is hers and is shown, **when
+   she wrote it herself.** When she objected by email, a person at Connect types a note of
+   it into the same place (`holdDebt`); those are the team's words, and the website shows
+   them under "What you wrote". The app shows such a note as "We have your objection, sent
+   by email." and not the typed words. (The record of who held the take-back tells the two
+   apart.)
 5. **Two addresses:** read one take-back, and object to it. Somebody else's and one that does
    not exist look the same.
 6. **The objection.** The box is shown only when the server says an objection is possible.
@@ -174,7 +179,7 @@ a project may appear.
   when the bank's deadline is near) to choose "Fight it" or "Give the money back" (plan 47),
   and that choice is on the website only. It is more urgent than
   anything here, and bigger. Proposed as a part of its own (16c). **The founder decided on
-  27 November 2026: yes.** Its plan is written before it is built.
+  27 November 2026: yes.** It is part 16c.
 - **The Messages screen** in the apps (plan 49 says "phone apps later").
 - **Someone who is no longer a host** has no earnings screen in the app. They have the email
   and the website.
