@@ -6086,19 +6086,29 @@ contributor could then get the money twice.
   that charge's refunds. A refund that is there is booked once. Only if it is not there is
   the refund owed again;
 - after 23 hours, when nothing can be repeated, "not on Stripe's list" only counts after 24
-  hours. Until then the refund stays open and is looked at again.
+  hours. Until then the refund stays open and is looked at again;
+- and as a last safeguard: before a refund is ever sent a second time, the app looks at
+  Stripe's list for the first sending. If it is there after all, it is booked and nothing
+  is sent. (Added after Astra's review: it covers two helpers working at the same moment,
+  and the Stripe library quietly sending a request twice.)
 
 Nothing else behaves differently. No change to the database.
 
 **How it was checked.** Type check, lint, 1,162 automatic tests. A new journey in
-`scripts/contribution-check.ts` (12 checks, real refunds in Stripe's test area, with the
+`scripts/contribution-check.ts` (17 checks, real refunds in Stripe's test area, with the
 script answering in Stripe's place only where the test area cannot be made to refuse). The
 main case was first run against the old code, where it failed as feared: the contributor got
 5.00 twice. With the new code the contributor gets it once. The whole script with `--payouts`, and the
 call's own `owed-check` and `refunds-check`, were run again and pass.
 
+**Astra's review** said "merge after fixes", with eight points: four taken (among them the
+last safeguard above), four left and written down with the reason
+(`plans/50-part-1-gifts-owed-back.md`, at the end). The ones left were so before this change
+and are the same for calls.
+
 **What the checks cannot cover.** A real lost answer from Stripe and a real refusal of a
-repeat: both are made up by the script, in the place where Stripe's answer comes in.
+repeat: both are made up by the script, in the place where Stripe's answer comes in. Two
+helpers really working at the same moment: the script sets up the state they would leave.
 
 **Left for later.** A membership's pay-back has the same weakness in its follow-up
 (`src/lib/membership/recover.ts`). It was not asked for here and is proposed as its own fix.

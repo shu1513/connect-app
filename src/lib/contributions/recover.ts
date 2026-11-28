@@ -14,7 +14,9 @@
  *   - a clear "no" to a repeat proves nothing about the first request. Stripe's complete list of
  *     the charge's refunds settles it: a refund that carries this line and this attempt is booked;
  *   - once nothing can be repeated, "not on Stripe's list" is final only when the search began
- *     24 hours after the try was written down. Until then the try stays open.
+ *     24 hours after the try was written down. Until then the try stays open;
+ *   - and before anything is repeated for a try after the first, Stripe's list is searched for a
+ *     refund of an earlier try (refund.ts, earlierTryAtStripe): that one is booked instead.
  *
  * It always finds out what became of the action, also for a payment that was given up meanwhile:
  * a taking that went through is recorded (and owed back if it should not have happened), and a
@@ -24,14 +26,14 @@
 import type { schema } from "@/db";
 import { cancelAtStripe, confirmSavedCard, LABEL_SAFE_MS } from "@/lib/membership/charge";
 import { captureAtStripe } from "@/lib/payments/actions";
-import { failOwnedOperation, finishOwnedOperation, SEARCH_WITHIN_MS, SETTLED_AFTER_MS } from "@/lib/payments/operations";
+import { failOwnedOperation, finishOwnedOperation, SETTLED_AFTER_MS } from "@/lib/payments/operations";
 import { isDefiniteRefusal, lookUp, stripe, stripeErrorMessage } from "@/lib/payments/stripe";
 import { eq } from "drizzle-orm";
 import { db, schema as tables } from "@/db";
 import { takingOnFor } from "@/lib/safety/switches";
 import { applyLetGo, applyTaken, freshNow, giveUp, paymentById, syncPayment } from "./charge";
 import { paymentOwner } from "./locks";
-import { applyRefundOutcome, outcomeStatus, refundAtStripe, type RefundOutcome, type RefundParams } from "./refund";
+import { applyRefundOutcome, earlierTryAtStripe, isTry, outcomeStatus, refundAtStripe, refundOnStripesList, type RefundOutcome, type RefundParams } from "./refund";
 import { mayTake } from "./rules";
 
 export async function recoverContributionOperation(operation: typeof schema.moneyOperations.$inferSelect, now: Date): Promise<void> {
@@ -112,7 +114,11 @@ export async function recoverContributionOperation(operation: typeof schema.mone
       // picked up here (it found the refund, or a clear "no"). Then nothing is sent from this older look.
       const [stillOpen] = await db.select({ status: tables.moneyOperations.status }).from(tables.moneyOperations).where(eq(tables.moneyOperations.id, operation.id));
       if (stillOpen?.status !== "started") return;
-      if (canRepeat()) {
+      // A try after the first: if Stripe has a refund of an earlier try of this line that is not over, that one is
+      // the line's refund. It is booked as this try's outcome, and nothing is repeated.
+      refund = await earlierTryAtStripe(params as RefundParams);
+      if (refund) console.error(`[contributions] refund ${params.refundId}: Stripe already has refund ${refund.id} of an earlier try, which had been recorded as not made. It is booked, and try ${params.attempt} is not repeated.`);
+      if (!refund && canRepeat()) {
         try {
           const replayed = await refundAtStripe(params as RefundParams, operation.label);
           // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
@@ -130,25 +136,15 @@ export async function recoverContributionOperation(operation: typeof schema.mone
         // last repeat could no longer be on its way can say that the refund does not exist.
         settled = Date.now() - operation.createdAt.getTime() >= SETTLED_AFTER_MS;
         // Every page, and the line and the attempt together: a payment can have several refunds on its one charge.
-        // And within a limit of time, each page and the whole of it: a search that is not finished proves nothing,
-        // and is made again on the next pass.
-        const until = Date.now() + SEARCH_WITHIN_MS;
-        await lookUp(async () => {
-          for await (const candidate of stripe().refunds.list({ payment_intent: params.intentId, limit: 100 }, { timeout: SEARCH_WITHIN_MS })) {
-            if (candidate.metadata?.refundId === params.refundId && candidate.metadata?.attempt === String(params.attempt)) {
-              refund = candidate;
-              break;
-            }
-            if (Date.now() > until) throw new Error("the search through this charge's refunds took too long");
-          }
-          // (Also when the last page came late and held nothing: a search that ran past its time proves nothing.)
-          if (!refund && Date.now() > until) throw new Error("the search through this charge's refunds took too long");
-        });
+        // And within a limit of time: a search that is not finished proves nothing, and is made again on the next pass.
+        refund = await refundOnStripesList(params.intentId, isTry(params as RefundParams));
       }
       // Nothing found, and no "no" to a repeat of this look's own: that is only final once no repeat can still be on
       // its way. Another helper may have sent one just before the last moment for repeats; until that one has had
       // its time, the try stays open and is looked at again. (A "no" to this look's own repeat with nothing on the
-      // list is final at once: the one who wrote the try down has a last moment for sending it, long past by now.)
+      // list is final at once, as a call's is: the one who wrote the try down has a last moment for sending it,
+      // long past by now. Should another helper's repeat of the same moment still be paid after this "no", the new
+      // try finds that refund on Stripe's list an hour from now and books it instead of sending: earlierTryAtStripe.)
       if (!refund && refusal === null && !settled) {
         console.log(`[contributions] unfinished refund on contribution payment ${paymentId}: not found at Stripe yet, and a repeat may still be on its way; looked at again`);
         return;
