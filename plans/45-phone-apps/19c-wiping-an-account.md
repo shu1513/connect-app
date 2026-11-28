@@ -39,7 +39,11 @@ requests after a year.
    different for every deletion, that no email can reach (so the real address can sign up
    again one day); passwords, sign-ins and one-time links are removed; every other field is
    emptied, or given a harmless value where the database insists on one. The other person of
-   a past call sees "a deleted account".
+   a past call sees "a deleted account". **Two fields of the row are never emptied:** the
+   mark that the account is closed, and the mark "deleted by its owner" with its date (part
+   19, decision 2). They are what keeps every gate shut, what stops the founder's "reopen",
+   and what makes the ratings count this person as someone who left. *(Added after Astra's
+   second check.)*
 2. **One table decides, group by group:** *erase* (the rows or the fields are removed),
    *strip* (the record stays, without anything that says who), or *keep* (for a stated reason
    and time).
@@ -72,7 +76,7 @@ requests after a year.
    | Stripe: the customer record and saved cards; the payout account | cards and the customer record removed at Stripe; the payout account is closed at Stripe when Stripe allows it (part 19b) | |
    | Raw copies of what Stripe and LiveKit sent | erase after the time needed to settle money (a setting) | They repeat personal details |
    | Memberships, months, agreements, invitations | paid months kept as money records; invitations never accepted erased; the agreement kept, with its date, while the money records are | |
-   | A project, its posts and pictures | the name, description, posts and pictures erased (a picture held for a report is kept with it). If a contribution to it was ever paid, an empty shell of the project stays, because the money record must point to something | |
+   | A project, its posts and pictures | the name, description, posts and pictures erased (a picture held for a report is kept with it). If a contribution to it was ever paid, or an attempt at one is not yet settled at Stripe, an empty shell of the project stays, because the money record must point to something; while a bank dispute over such a payment is open, what its proof needs is set aside first (decision 3b) | |
    | Contributions | paid ones kept as money records, with their agreement and date; an unpaid attempt is erased **only once its outcome at Stripe is settled** (an attempt given up here can still have been charged there). *(Changed after Astra's check.)* | |
    | The founder's record of actions on this account | keep | The founder's own accountability |
    | *Added 27 November.* Messages between a host and a customer (plan 49): the conversations, what this person wrote, their switch for one host | the conversation is closed at the lock, and from that moment the other person sees "a deleted account" in place of the name (the reader looks names up, so the name is hidden there at once, before the wipe); this person's own messages are erased with the wipe; the other person keeps what they wrote themselves until the twelve months every message has | What someone wrote is theirs. Whether the other person may keep reading it is **for the lawyer**; the builder's first value is no |
@@ -84,7 +88,7 @@ requests after a year.
    | *Added.* A request to cancel a membership within 14 days | finished first (part 19, decision 6a); then kept with that membership's money records | |
    | *Added.* Tips given and received | paid ones kept as money records, like contributions; an unpaid attempt erased only once its outcome at Stripe is settled | |
    | *Added.* A refund or a pay-back to a card that is owed, on its way or stuck | keep, with what is needed to finish it, until it is paid or a person has closed it. A named open case | Money that is someone's |
-   | *Added.* Request keys that were used (the customer, the key, the time) | erase once the request they guarded is settled, and at the latest with the wipe's own time limit | They name the customer; while a request is unsettled they stop it from being made twice |
+   | *Added.* Request keys that were used (the customer, the key, the time), among them the record that a key made **no** booking | erase with the wipe: the account can never send anything again (its lock is permanent, decision 1), so nothing is left that a kept key could stop | They name the customer. They exist so that a request sent late cannot be made twice, or made after it was found not to exist |
    | *Added.* A warning about ratings, a pause the app made, the date of a "fresh start" | keep with "Reports about this person, pauses" above | Safety |
 
 3. **When:** as soon as parts 19 and 19b are finished for this person, and **in any case no
@@ -100,9 +104,12 @@ requests after a year.
    it is made from is wiped** *(added 27 November, after Astra's check)*. The table erases
    names, time in calls and refund texts on different days, but the proof Connect sends a
    bank is put together from exactly those (`src/lib/disputes/evidence.ts`). So for each
-   kind of open case the least that is needed is listed (a bank dispute: who the two people
-   were, the time in the call, the refund request and its answer, what was already sent to
-   the bank; a debt: the notices, her objection, our answer, her address), copied into the
+   kind of open case the least that is needed is listed (a bank dispute over a call: who the two people were, the time in the call, the refund
+   request and its answer, what was already sent to the bank; over a membership month: the
+   agreement and the month's own facts; over a contribution or a tip: the payment's facts
+   and the project's name or the call it belonged to, as the proof for each kind is built
+   today in `src/lib/disputes/evidence.ts`; a debt: the notices, her objection, our answer,
+   her address), copied into the
    case before the wipe touches its sources, and erased when the case closes. **Copies that
    live elsewhere are covered by the same closing:** what was sent to the bank, the texts of
    an objection and its answer, words quoted in a report, and messages written to *other*
@@ -113,10 +120,14 @@ requests after a year.
    check; open, for the founder and the lawyer)*. Decision 1 lets the real address sign up
    again as a new, empty account. Three different things would be shed by that, and they
    are not alike:
-   - **A stop on new payments** after a lost bank dispute (plan 47). It stops only new
-     agreements to pay, and the founder can lift it for that person.
+   - **A stop on new payments** (plan 47): while a bank dispute of theirs is open, and after
+     one they won against Connect's proof. It stops only new agreements to pay; the first
+     ends with the dispute, the second can be lifted by the founder.
    - **A pause of the account.** It stops booking, hosting and joining calls, pauses
      memberships, and is lifted by a person on the team.
+   - **A block another person made against them.** It stands between two accounts, so a new
+     account with the same address is outside it. This one is not Connect's restriction but
+     another person's wish not to be reached, and is asked about on its own.
    - **Histories that count toward a rule:** reports and low ratings toward a pause by the
      app (plan 52), and a customer's recent calls toward the guard of "End call now" (plan
      51). Both start again from nothing under a new account.
@@ -134,7 +145,12 @@ requests after a year.
    notice that person needs. So the wipe waits until each such email has been sent, or has
    been given up on by the sender's own rules, and only then erases its text. No email ever
    goes out with its text already removed. Emails waiting for the deleted person themselves
-   are cancelled, except the last one of decision 4.
+   are cancelled, except the last one of decision 4 **and everything that belongs to an
+   open case** (a debt's notice, our answer to an objection, what a bank dispute still has
+   to tell them): those are sent, to the address kept for that case. The clean-up by age
+   leaves the same things alone while the case is open; in particular it does not clear
+   the email service's number of a notice whose delivery a deadline hangs on
+   (`src/lib/retention.ts` clears it today after two years).
 6. **The yearly clean-up of refund texts is put right on the way.** Today it clears the texts
    of every refund request older than a year, one that is still open included, and a check
    script expects that. An open request, or one whose bank dispute is open, must keep its
@@ -170,7 +186,12 @@ requests after a year.
   person's stars can be worked out from the change); a bank dispute opened before the wipe
   can still be answered with full proof after it, and that proof is gone once the dispute
   is closed; a delivery report that arrives after the wipe still finds its notice; an
-  unpaid attempt that Stripe charged after all is still there to be put right.
+  unpaid attempt that Stripe charged after all is still there to be put right; after the
+  wipe the account is still closed and still marked as deleted, the founder's "reopen"
+  refuses it, and its ratings still count as a leaver's; a debt's notice that was waiting
+  at the wipe is sent to the kept address, and its delivery report still starts the 14
+  days; a bank dispute over a membership month, and one over a contribution, opened before
+  the wipe, can each be answered with full proof after it.
 - Every existing check script unchanged and green.
 
 ## Astra's second check (20 November 2026): "not ready", now worked in
@@ -232,3 +253,14 @@ goes to Astra with parts 19 and 19b before any of them is built.
    rewritten and left open.
 8. *When does the other person of a conversation stop seeing the name?* The table: at the
    lock.
+
+## Astra's second check (27 November 2026): "not ready", worked in
+
+1. *Decision 5 cancelled the very notices an open debt needs, and the clean-up by age would
+   clear what ties a delivery to its notice.* Decision 5.
+2. *The wipe would have emptied the lock itself.* Decision 1: two fields stay.
+3. *The proof for a dispute differs by what was paid for.* Decision 3b names each kind; the
+   project's line in the table.
+4. *Another person's block, and an open bank dispute, were missing from the question about
+   coming back.* Decision 3a.
+5. *A request key is a record against a repeat, not a guard of something unsettled.* Its line.

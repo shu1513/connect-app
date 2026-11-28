@@ -115,6 +115,10 @@ amount owed back a "take-back".
      one take-back of the signed-in host, never with "the dispute's" debts as a group.
    - In the list, one that is over (taken, settled, called off) is told apart from money
      that is owed now, in words and in order: what is owed comes first.
+   - **Money that is still owed to her** (more was taken than was owed, or a dispute was
+     decided for her after all) stays in the list until she has really received it, however
+     old the take-back it belongs to: the "latest ten" is a limit for what is over, never
+     for what is open in either direction.
 10. **Notifications (a proposal for part 12's list):** two more events, the notice of a
     take-back and our answer to an objection. On a locked screen they say only "Connect has
     written to you about your earnings". A notification is never the notice itself: the 14

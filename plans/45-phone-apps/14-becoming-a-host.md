@@ -33,7 +33,10 @@ website.
 - **A top price** (plan 48): no host can set a price above the highest allowed, which is the
   same for everyone unless the founder gave her a higher one (`topPriceOf`,
   `hostPriceProblem`). If the founder lowers her top price below her price, her price drops
-  at once and she is told by email.
+  at once and she is told by email. Her own form refuses a regular price below a price a
+  member of hers is paying.
+- **The ordinary form for changing her profile** also carries "business or private", so an
+  approved host can change that answer there at any time.
 - **Changing** (`saveProfile`): a new display name on an approved profile goes for approval
   again; a declined profile can be sent again; `setHidden` hides her page.
 - **Social accounts** entered by hand: `addSocial`, a code to put in the bio that runs out
@@ -77,10 +80,12 @@ website.
    showed, and is told "these documents have changed, please read them again" when that
    version is no longer the current one. The box for a host who still owes one of the two
    answers, and the notice of a coming version, are at the top of the app's Hosting screen
-   with the server's words. How the agreement's own text is shown where it speaks about
+   with the server's words. The app's form for changing a profile carries "business or
+   private" too, as the website's does. How the agreement's own text is shown where it speaks about
    projects is part 18's open decision 5; this part is not built before that is settled.
 7. **The price field takes the server's limit and the server's sentence** *(added 27
-   November)*. The app knows no highest price of its own.
+   November)*, for a price above her top price and for one below a member's price. The app
+   knows no limit of its own.
 
 ## How it is tried
 
@@ -117,3 +122,8 @@ plan was written (20 November), after Astra's check of the first update.
 2. *A top price per host* (plan 48). "What is there today"; decision 7.
 
 This plan is read against the code once more on the day it is built.
+
+## Astra's second check (27 November 2026), worked in
+
+1. *"Business or private" can also be changed on the ordinary form, and a price cannot go
+   below a member's price.* "What is there today"; decisions 6 and 7.

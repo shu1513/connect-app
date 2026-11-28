@@ -13,7 +13,10 @@ A host sets her membership offer, sees her members, and looks after them, from t
 `src/app/host/membership/`, `membership.tsx` and `membership-actions.ts`:
 
 - **The offer** (`offerOfHost`): her price for 15 minutes and the minutes a month includes,
-  her offer on or off. How many members she can take is worked out from her hours and what
+  her offer on or off. Since plan 48 a whole month can cost at most a fixed amount
+  (`MEMBERSHIP.maxMonthCents` in `src/lib/membership/rules.ts`); an offer above it is
+  refused with the server's sentence, and so is a change to her regular price that would
+  put it below a member's price. How many members she can take is worked out from her hours and what
   she has already promised. **Changing it shows first what the change does**
   (`previewOfferChange`): whose price will fall, which invitations end, and who keeps the
   terms they have. Saving is `saveMembershipAction`.
@@ -27,7 +30,9 @@ A host sets her membership offer, sees her members, and looks after them, from t
   resumes themselves, if and when that is possible (part 13 says when).
 - **Her list holds no ended memberships** (`membersOfHost` leaves them out). So a membership
   cancelled within 14 days (plan 46, part 3c), like any other that ended, is simply no
-  longer in her list; she learns of it from the email every ending sends her.
+  longer in her list; she learns of it from the email that the ending of a membership with
+  a member in it sends her. (An invitation nobody accepted, and a first joining that was
+  never paid, end without one.)
 - **After she has collected a member's call, she cannot give its time back** (plan 50, part
   2): only Connect can, from the founder's pages. She then owes her share back, which is
   part 16b's screen.
@@ -80,3 +85,9 @@ Read again against the code on `main` after pull request 123. What changed in th
    the refusal is part 10b's, the debt is part 16b's.
 
 This plan is read against the code once more on the day it is built.
+
+## Astra's checks of this update (27 November 2026), worked in
+
+1. *Her list holds no ended memberships.* "What is there today"; decision 4.
+2. *Not every ending sends her an email,* and *a month has a highest price.* "What is there
+   today".

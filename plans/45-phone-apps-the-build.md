@@ -12,7 +12,7 @@ It replaces two decisions of plan 39 (a small app; built after the website is li
 keeps the rest of plan 39, which is still the place to read *why* each store rule matters.
 **On 27 November 2026 every part that is not built yet (09b to 20) was read against the code
 again,** after 26 pull requests (98 to 123) had been merged since part 09, and brought up to
-date; Astra checked that update ("not ready", 29 points, all answered). The account is in
+date; Astra checked that update twice (the account of both checks is below). The account is in
 "Brought up to date on 27 November 2026" below.
 Each part below has its own detailed plan in `plans/45-phone-apps/`, checked by Astra before it
 is built.
@@ -166,7 +166,7 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 | 07 | A host's requests: accept, decline, block | The call exists |
 | 08 | A call's page: paying, the countdown, cancelling; past calls | The money is held; the room opens |
 | 09 | The call: entering, talking, leaving, "end and report", the report form | Two people talk |
-| 09a | Before going on: what is already built, put right (added 27 November) | Plan 51's screens walked on the phone; six small faults gone |
+| 09a | Before going on: what is already built, put right (added 27 November) | Plan 51's screens walked on the phone; seven small faults gone |
 | 09b | During the call: a locked phone, connection grades, more time, the chat | A longer call |
 | 09c | The connection check before a call | A warning when the connection is poor |
 | 10 | After a call: the results, the receipt, rating, following, the note | The page after a call, both sides |
@@ -268,13 +268,22 @@ from the right day.
 - The placeholder Account screen prints the switches, the word "Tips" among them.
 - A refusal for a bank dispute points to "your messages", which in the app will be the
   conversations between people.
-- A paused or blocked person can be offered a step that will only be refused.
+- A paused or blocked person can be offered a step that will only be refused; a paused
+  customer's details still show in a host's list for a moment; and two steps can still be
+  taken in that moment.
+- The app's last step of signing up does not say that a new version of a document is coming
+  (the website's does).
 
 **The rule that Astra's check sharpened.** "Other earnings" is allowed as two amounts on a
 host's earnings screen (part 16) and nowhere else. Nothing may appear on a phone *only
 because of* a contribution or a tip, with or without a name: no entry of money owed back, no
 count, no notification, no collection sentence, no line on the screen before deleting an
-account. The website and the emails keep everything.
+account. The website and the emails keep everything. Where a call is present but is not the
+cause (an old contribution makes a collection due; a customer's only bank dispute is about
+a contribution), the phone behaves as if only the call were there. **The rule is about what
+a phone shows and says.** It does not undo a consequence that holds for a whole account,
+such as the stop on new payments after a bank dispute: that stays, in words that name no
+cause.
 
 **For the founder to decide** (nothing waits for these until the part in question is built):
 
@@ -310,6 +319,19 @@ is the founder's plan of 20 November (plan 44, decision 18): born off, and turne
 after a store has said yes. What was taken from that point: nothing prints the switch on a
 screen (part 09a, decision 4), and part 20 proves that with the apps' switch off the
 website's own tip switch changes nothing on a phone.
+
+**Astra's second check, the same day: "not ready" again, narrower.** Thirteen points to fix
+and eight smaller ones; seven points of the first check were found fully answered, the
+refusal of the tips switch among them. What it added: a refusal that says "a bank dispute"
+can itself come from a contribution (part 09a, decision 5); one call share in a collection
+does not show why the collection happened (part 16, decision 5); the list of booked
+requests never asked about a pause, and two steps could still be taken while a pause was
+being tidied up (part 09a, decision 6); the notice of a coming document version at sign-up
+had no owner (part 09a, decision 7); and, for deleting an account, a member inside the 14
+days whom a bank stops, money owed *to* a host, the notices and the time of an objection,
+the lock that the wipe itself must not empty, proof for disputes over memberships and
+contributions, and another person's block (parts 19, 19b, 19c). Each is answered in its
+part under "Astra's second check".
 
 **What stays as it was.** Each part is still read against the code on the day it is built, and
 its plan put right once more if the code has moved. Parts 13c, 14b, 16b, 19, 19b and 19c go

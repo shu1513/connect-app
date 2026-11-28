@@ -11,7 +11,7 @@ on the day it is built.
 
 Parts 01 to 09 are built. While the build was paused, the website changed, and one of those
 changes ("End call now") also changed the app, without a phone to try it on. This part walks
-those screens on the test phone and puts six small things right. Nothing new is added.
+those screens on the test phone and puts seven small things right. Nothing new is added.
 
 ## What is there today (read in the code)
 
@@ -32,17 +32,35 @@ those screens on the test phone and puts six small things right. Nothing new is 
    said when the app opened: "Memberships: ... Tips: off. Available now: ..."
    (`mobile/src/app/(tabs)/account.tsx`). The word "Tips" is on every phone, signed in or
    not.
-5. **A refusal because of a bank dispute ends "Your messages say more."**
-   (`STOPPED_WHILE_OPEN` in `src/lib/disputes/paying.ts`). The app's booking address already
-   passes it on. On the website "messages" is the page where Connect's own message is. In
-   the app, "Messages" will be the conversations between two people (part 17b), where that
-   message is not.
-6. **What a paused or blocked person is still offered while the tidying-up runs** (Astra's
-   reading, to be read again before it is touched): the app's answer for a booking offers the
-   steps that fit its stage, and the answer for a call offers the card step and the way in,
-   without asking once more whether the two may still act (`src/lib/app-door/booking.ts`,
-   `calls.ts`). The addresses that *do* something have the stronger gate, so nothing wrong
-   can be done; but a button can be shown that will only be refused.
+5. **A refusal because of a bank dispute says so, and points to "your messages".**
+   `STOPPED_WHILE_OPEN` in `src/lib/disputes/paying.ts` reads "Your bank has an open dispute
+   about a payment on Connect ... Your messages say more." The app's booking address already
+   passes it on. Two things are wrong with that on a phone. On the website "messages" is the
+   page where Connect's own message is; in the app, "Messages" will be the conversations
+   between two people (part 17b). And the stop looks at every payment a customer ever
+   disputed, whatever it was for: a customer whose only dispute is about a contribution or a
+   tip is told about "a dispute" when he tries to book an ordinary call.
+6. **What a paused or blocked person is still offered, and can still do, while the
+   tidying-up runs.** A pause ends a person's waiting requests and coming calls a moment
+   later, not in the same step. Until then:
+   - the app's answer for a booking offers the steps that fit its stage, and the answer for
+     a call offers the card step and the way in, without asking whether the two may still
+     act (`src/lib/app-door/booking.ts`, `calls.ts`);
+   - the list of requests a host sees, and one request's own screen, show a customer's
+     name, rating, ID mark and note after asking only whether that customer's account is
+     *closed* and whether there is a block (`openAndUnblocked` in
+     `src/lib/people/contacts.ts`): a *paused* customer still shows, and a paused host can
+     still open the list;
+   - most addresses that do something refuse a paused person, **but not all:** a customer
+     can still reach the step that saves a card for a request while the host's pause waits
+     for its tidying-up (`src/lib/booking/bookings.ts`), and the check before a call's money
+     is held asks about pauses and blocks but not whether the other account was closed
+     (`src/lib/payments/hold.ts`).
+7. **The last step of signing up does not say that a new version of a document is coming.**
+   The website's page does, above the button: from which day, what changes, and a link to
+   read it, also for the two documents a person is told about and does not accept
+   (`src/app/welcome/page.tsx`). The app's address sends only the documents in force today
+   (`src/app/api/app/welcome/route.ts`). Plan 46 left this to the phone build by name.
 
 ## Decisions (the builder's)
 
@@ -67,15 +85,34 @@ those screens on the test phone and puts six small things right. Nothing new is 
    off, and turned on only after a store has said that a tip after a one-to-one call may be
    paid outside its own payment. While it is off, nothing about a tip is shown or accepted,
    and that is what part 20's sweep checks.
-5. **The bank-dispute refusal names the right place in the app.** For the apps the last
-   sentence reads "The message about it is in your email, and on your Messages page on the
-   website." The website keeps "Your messages say more." Both come from one function. The
-   sentence a *host* is shown when her customer is the one who is stopped stays neutral, as
-   it is.
-6. **What is offered follows what may be done.** After reading the code again: the app's
-   answers for a booking and for a call offer a step only if the address behind it would
-   take it from this person now (not paused, not closed, no block between the two). Past
-   calls, receipts, "Report" and "Block" stay, as the website leaves them to a paused person.
+5. **In the app, the refusal names no bank and no dispute.** *(Rewritten after Astra's second
+   check.)* Whatever the dispute was about, the app's sentence is the same: "You cannot
+   start anything new that costs money on Connect right now. Connect has written to you
+   about it: the message is in your email, and on your Messages page on the website." The
+   website keeps its own sentence. One function gives both. **The stop itself is not
+   changed:** it is the website's rule (plan 47) and holds for the whole account, so a
+   customer who disputed a contribution cannot book a call in the app either; the app only
+   does not say why. The sentence a *host* is shown when her customer is the one who is
+   stopped stays neutral, as it is.
+6. **One rule for "may these two still act", asked wherever it matters.** *(Widened after
+   Astra's second check.)* Both accounts open, neither paused, no block between them. It is
+   asked:
+   - before a list of requests is counted or filled, and before one request's screen is
+     answered: a request whose two people may no longer act gives the *other* person no
+     name, photo, rating, ID mark or note, and no step to take;
+   - before the app's answers for a booking and for a call offer a step;
+   - **in the steps themselves where their own gate is weaker:** saving a card for a
+     request, and the check before a call's money is held (which also learns to refuse when
+     the other account was closed).
+   What the paused person may still do with their own things stays as the website has it
+   (take a request back, cancel, look at past calls and receipts, "Report", "Block"), and so
+   do the steps that only read or tidy up.
+7. **The app's last step of signing up says what is coming.** Its answer gains the announced
+   versions (which document, from which day, the summary, a link to read it), shown above
+   the button as on the website. What is accepted today is still today's version and
+   nothing else. The link opens the website, as the step's other document links do. (How
+   legal text is shown inside the app is part 18's open decision 5; a link out does not wait
+   for it.)
 
 ## How it is tried
 
@@ -88,8 +125,16 @@ those screens on the test phone and puts six small things right. Nothing new is 
     diary post: the typed words are nowhere in the answer;
   - a booking and a call read by a paused person, and by each of a blocked pair: no step is
     offered that the address behind it would refuse; "Report" and "Block" are still there;
-  - a booking refused because of a bank dispute: the app's sentence names email and the
-    website; the website's own page keeps its sentence.
+  - a booking refused because of a bank dispute, once for a dispute about a call and once
+    for one about a contribution: the app's answer is the same in both, word for word and
+    field for field, and holds neither "bank" nor "dispute"; the website's own page keeps
+    its sentence;
+  - a customer paused a moment ago, before the tidying-up: his request is in the host's
+    list without any of his details and without a step, and a paused host's list holds no
+    customer's details; a customer whose host was paused a moment ago cannot save a card
+    for that request; a call's money is not held when the other account was closed;
+  - the app's last step of signing up while a new version of a document is announced: the
+    notice is in the answer, and accepting records today's version.
 - The app's own tests and types; the placeholder screen's test no longer expects the line.
 - On the Android test phone, with pictures: the walk of decision 1; a paused account's home
   screen; a blocked pair's booking.
@@ -100,6 +145,15 @@ A real call between two phones, and an iPhone. Listed in part 20.
 
 ## Keeping the 4.9%
 
-This part exists for it: two of the six points are words about a project that reached a
-phone. From here on part 20's sweep reads every answer of every app address for such words,
+This part exists for it: three of the seven points are words about a project, or because of
+one, that reached a phone. From here on part 20's sweep reads every answer of every app address for such words,
 with real things behind them, so the next one is caught by a check and not by a reader.
+
+## Astra's second check (27 November 2026): "not ready", worked in
+
+1. *A refusal that says "a bank dispute" can itself come from a contribution.* Decision 5: the
+   app's sentence names no cause.
+2. *The list of booked requests did not have the protection this plan meant to copy,* and two
+   steps could still be taken during the tidying-up. "What is there today", point 6;
+   decision 6.
+3. *Nobody owned the notice of a coming document version at sign-up.* Point 7; decision 7.

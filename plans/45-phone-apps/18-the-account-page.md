@@ -117,9 +117,15 @@ describe projects.
 
 ## For the lawyer (added to `docs/for-the-lawyer.md` with this part)
 
-The privacy and rules pages will exist in a website version and an apps version from one
-source; the apps' version leaves out the parts about projects and adds what an app collects.
-Is that acceptable, and what must the apps' version say?
+*(Rewritten on 27 November; the first version assumed an apps' version with the parts about
+projects left out.)* The legal documents speak about projects, contributions and tips, in
+sections of their own and inside paragraphs about other things. The apps must show nothing
+of those features. A person's acceptance names one document in one version. How can the
+documents be shown in the apps so that both hold: the apps' rule, and a truthful account of
+which document and version was accepted? The lawyer is given the three places where the app
+already leads to legal text (the last step of signing up, the ID check, the report form) and
+the mixed passages themselves. And: what must the apps additionally say about what an app
+collects (the phone's notification address, the camera and microphone)?
 
 ## Astra's check (20 November 2026): "ready with changes", worked in
 

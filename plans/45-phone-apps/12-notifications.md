@@ -76,7 +76,9 @@ stand-in, and no notification leaves this Mac.
    - **Which ones: a short list of causes, each for one kind of receiver, and nothing else.**
      For a host: a bank dispute over a call's payment that waits for her choice; the notice
      of money she owes back for a call, and our answer to her objection; a collection Connect
-     started for her. For a customer: that his report after ending a call did not change its
+     started for her, **when her earnings from calls would have made it happen by
+     themselves** (part 16, decision 5: if a contribution or a tip is what made it due, or
+     what lifted it over the least amount, it makes no notification). For a customer: that his report after ending a call did not change its
      charge (plan 51's guard). A membership counts as a call here only while memberships
      are on for the apps.
    - **Never:** anything whose cause is a contribution or a tip, even though the sentence
@@ -92,15 +94,19 @@ stand-in, and no notification leaves this Mac.
      these messages (part 17b, "Not in this part"). The one exception: once part 16b is
      built, a message about money owed back for a call opens that part's screen.
    - *Why at all:* two of these have a deadline. A host's time to choose how a bank dispute
-     is answered is short (at most 24 hours, and less when the bank's own deadline is near;
-     if she does not choose, Connect sends its proof), and she has 14 days to object to
+     is answered is short (at most 24 hours from the moment she is asked, less when the
+     bank's own deadline is near, and sometimes she is not asked at all; if she is asked and
+     does not choose, Connect sends its proof), and she has 14 days to object to
      money taken back.
    - **A notification never counts as "the notice arrived".** Only the email's delivery
-     report starts the 14 days, as today; the time for a bank dispute's choice runs from the
-     moment the dispute arrived, whatever was delivered.
+     report starts the 14 days, as today; the time for a bank dispute's choice is the one
+     the server has stored for it (`askUntil`), which starts when she is asked, can start
+     afresh when the bank's question turns into a dispute, and does not wait for anything to
+     be delivered.
 2b. **Emails that stay emails only** *(added 27 November; the builder's)*: an account paused,
    by a person or by the app, and the warning about low ratings. The app shows the paused
-   screen with its reason as soon as it is opened (part 18), and a locked screen is no place
+   screen as soon as it is opened, in the words part 09a, decision 3, gives it (never the
+   stored reason; part 18), and a locked screen is no place
    for either. Of the emails about a membership paused with an account, only the one that
    asks something of the member (the way to resume, sent when both accounts are open again)
    belongs to the kind "a membership needing the member" above, and only while memberships
@@ -210,3 +216,10 @@ This plan is read against the code once more on the day it is built.
    arrival). Decision 2a says each.
 3. *An email that only informs is not "a membership needing the member",* and the middle
    position of the switch must stay silent about paying. Decision 2b.
+
+## Astra's second check (27 November 2026), worked in
+
+1. *A collection can contain a call and still happen only because of a contribution.* Decision
+   2a: only when the calls alone would have caused it.
+2. *The time for a bank dispute's choice starts when she is asked, and is stored.* Decision 2a.
+3. *"The paused screen with its reason"* said the opposite of part 09a. Decision 2b.

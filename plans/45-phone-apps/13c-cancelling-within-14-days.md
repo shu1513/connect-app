@@ -59,8 +59,10 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
 - **The founder's form** for a request that came in writing is on the admin page. Website only.
 - **A paused membership has no button** (`fourteenDayCase` answers "paused"). Since plan 53
   that includes a membership paused with one of the two accounts inside its first 14 days:
-  the pause has already cancelled the coming calls and paid the unused time back to the
-  card, which is what the button would have done. One that is resumed afterwards counts as
+  the pause cancels the coming calls and pays the unused time back to the card, which is
+  what the button would have done. (That tidying-up can still be running when the screen
+  is read, and a month a bank is disputing stays frozen; the screen says what the server
+  says of the money, never "paid back" before it is.) One that is resumed afterwards counts as
   resumed, and has no button either.
 
 ## Decisions (the builder's; any can be changed)
@@ -86,7 +88,8 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
    once and for good, coming calls are cancelled, and what stays paid for (time that was
    used, and a call that was charged under the booking's terms, such as one cancelled late
    or missed), with the rest going back to the card. The sentences are the server's, whole;
-   the app shortens none of them. Two buttons: "Cancel within 14 days" and "Keep my membership".
+   the app shortens none of them. Where the month was only held and never taken, nothing is
+   "paid back": the hold is let go, and the sentence says that, as the website's does. Two buttons: "Cancel within 14 days" and "Keep my membership".
 7. **After pressing, the app reads the membership again, whatever came back.** A refusal is
    shown as the sentence the server sent. If the answer was lost on the way and the membership
    has ended, the app shows that it ended, not an error. If a call could not be cancelled just
@@ -180,3 +183,10 @@ last day, a request on record, and the sentence for what stops it. What was adde
 
 Still to do before it is built: Astra's check, and one more read against the code of that
 day.
+
+## Astra's checks of this update (27 November 2026), worked in
+
+1. *What stays paid for is more than "used time".* Decision 6: the server's sentences, whole,
+   with the case of a month that was only held.
+2. *The host does not read the ending in her list.* Decision 9.
+3. *A pause does not mean the money is already back.* "What is there today".

@@ -42,7 +42,8 @@ earned, the rating, the follow box, the host's note, and the buttons that lead o
 - **Following:** Follow, Unfollow or "Don't follow" (a call that took place makes the
   customer follow by itself, plan 30), and the offer to be told when she is online.
 - **The host's private note** about the customer (`NoteForm`), **Report**, **Block**,
-  **"Book another call"** (hidden only after the earlier button), and, since plan 49,
+  **"Book another call"** (for the customer, while the host's page can be asked and no block
+  stands between the two; never after the earlier button), and, since plan 49,
   **"Write to [name]"** (`src/components/write-to.tsx`), shown to the two people of a call
   that was not cancelled and not ended with the earlier button, while messages are switched
   on.

@@ -40,9 +40,10 @@ saves a card and waits; the host accepts; a minute later they talk.
 - **A paused account** (by a person, or since plans 52 and 53 by the app itself): its status
   goes off, its waiting requests end and its coming calls are cancelled at no charge, by the
   tidying-up that a pause already had. **That tidying-up comes a moment after the pause.**
-  Until it has run, a request is still marked "waiting"; the list of booked requests already
-  asks once more whether both people are open and not blocked before it shows one
-  (`src/lib/booking/waiting-list.ts`), and the list of instant requests does not
+  Until it has run, a request is still marked "waiting". The list of booked requests asks,
+  before it shows a customer's details, whether that customer's account is closed and
+  whether there is a block (`openAndUnblocked`, used by `src/lib/booking/waiting-list.ts`);
+  it does not ask about a pause. The list of instant requests asks none of it
   (`src/lib/booking/now.ts`).
 - **What is loose today:** a request that runs out (`endUnanswered`) leaves the status on; a
   request is not tied to the period it was asked in, so a host who switches off and on again
@@ -85,15 +86,20 @@ saves a card and waits; the host accepts; a minute later they talk.
 5. **The apps' "available now" switch** (part 01) takes the host's switch and the customer's
    button out of the app together.
 5a. **A request is shown, with its customer's photo, rating and ID mark, only for two people
-   who may still act** *(added 27 November, after Astra's check)*: the list of instant
-   requests gets the same last look the booked list has (both accounts open, neither paused,
-   no block), for the website and the app alike. And **a pause ends an "until its time is
+   who may still act** *(added 27 November, after Astra's checks)*. The rule is part 09a's,
+   decision 6 (both accounts open, neither paused, no block), and it is the same one for the
+   booked list, the instant list and one request's own screen, on the website and in the
+   app. The first version of this decision said the booked list already had it; it has
+   only the half about closed accounts and blocks. And **a pause ends an "until its time is
    up" period for good:** it does not come back when the pause is lifted, even if its time
    is not up yet.
 6. **The host's screen** shows what the website's panel shows for a waiting request, with
    Accept, Decline, and Decline and block (with "try blocking again" when only the decline
    went through). While the app is open it also sounds and vibrates for a new request.
-7. **The customer's side** is the website's: the length and price, the ID check where needed
+7. **The customer's side** is the website's: the host's "business or private" line just
+   above the terms, where she has given one (the website shows it there, and the app's
+   ordinary booking already gets that sentence from the server); the length and price, the
+   ID check where needed
    (part 06's), the consent box, Stripe's sheet, the waiting screen that updates every 2
    seconds and moves on to the hold and the call by itself, and taking the request back.
 
@@ -152,3 +158,10 @@ This plan is read against the code once more on the day it is built.
 2. *A period that survives a locked phone could come back after a pause was lifted.*
    Decision 5a.
 3. *The refusal for a bank dispute pointed to the wrong "messages".* Part 09a, decision 5.
+
+## Astra's second check (27 November 2026), worked in
+
+1. *The booked list does not ask about a pause either.* "What is there today"; decision 5a now
+   uses part 09a's one rule for all three places.
+2. *The host's "business or private" line belongs before the terms of an instant call too.*
+   Decision 7.

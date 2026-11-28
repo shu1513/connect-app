@@ -18,7 +18,7 @@ in `src/lib/payments/collect.ts`:
 - A host's share of a call is ready 24 hours after the call ends; with a refund request, 2
   days **at the earliest**, and not before she has answered it. Collecting is possible once
   every 24 hours, costs 25 cents, and needs more than 25 cents to be ready. Nothing is sent
-  automatically. Not possible while the payout account is not ready. Also not, for a few
+  without her press, except by the 12-month collection described below. Not possible while the payout account is not ready. Also not, for a few
   minutes, while a message from Stripe about any bank dispute has arrived and is not yet
   handled: until the helper has read it, nobody collects (`disputeMessageWaiting` in
   `src/lib/payments/collect.ts`); that says nothing about this host owing an answer.
@@ -69,11 +69,23 @@ in `src/lib/payments/collect.ts`:
    one collection. "In part", "refused" and "not known yet" are shown as that.
 4. **Not possible?** The app says which reason the server gave and leads to the payout
    account (part 14b) only when that is the reason.
-5. **A collection Connect started** is shown with the server's sentence, as the website shows
-   it, **when at least one share in it came from a call** (or from a membership, while
-   memberships are on for the apps). A collection made only of other earnings has no
-   sentence of its own in the app: the two "Other earnings" amounts simply change. Nothing
-   in the app starts, stops or delays a collection of that kind.
+5. **Where the exception for "Other earnings" ends** *(added 27 November; put exactly after
+   Astra's two checks)*. It covers three things and no more: the two amounts (ready and
+   waiting), the one button that collects everything that is ready, and what became of a
+   press of that button (sent, in part, refused, not known yet), because a button whose
+   outcome is hidden is a broken button. Everything else on this screen is worked out from
+   calls alone (and memberships, while they are on for the apps):
+   - **A collection Connect started** has a sentence in the app only when her earnings from
+     calls would have made it happen **by themselves**: they alone were 12 months
+     uncollected, and they alone were more than the least amount. If an old contribution
+     made it due, or a tip lifted a small call share over the least amount, the app says
+     nothing of the collection: the amounts simply change. The same test decides the
+     notification (part 12, decision 2a).
+   - **Figures about a past collection** (what was sent, what is still being checked, the
+     charge, what was not sent) are shown only for a collection she pressed herself, as its
+     outcome; for one Connect started, only what can be worked out from the call shares in
+     it.
+   Nothing in the app starts, stops or delays a collection by Connect.
 6. **Money owed back is part 16b,** built in the same pull request as this part or in the
    next. If this part is merged first, the app's earnings answer says one plain sentence
    whenever such a list would not be empty **for calls** (and for memberships while they are
@@ -113,8 +125,9 @@ watch: the line names nothing and leads nowhere.
 
 1. *The earnings function carries the project's name and whole records.* Decision 2: field by
    field.
-2. *A ready contribution would be called membership time.* Decision 2 puts it right, for the
-   website too.
+2. *A ready contribution would be called membership time.* Decision 2 puts it right. (On 27
+   November: the website's caption has since been put right there; nothing of it is left
+   for this part.)
 3. *"Other earnings" must cover both ready and waiting, and memberships when they are off.*
    Decision 2.
 4. *The real rules:* more than 25 cents, 2 days at the earliest, one collection per number,
@@ -142,3 +155,10 @@ This plan is read against the code once more on the day it is built.
 3. *Three descriptions were wrong:* the website's caption (it is right already), what stops a
    collection while a bank dispute's message waits, and how the 12 months are counted. "What
    is there today"; decision 2 no longer changes the website.
+
+## Astra's second check (27 November 2026): "not ready", worked in
+
+1. *One call share in a collection does not show why the collection happened.* Decision 5 now
+   asks whether the calls alone would have caused it, and says where the exception ends.
+2. *Two summaries still said the opposite of the decisions* ("nothing is sent automatically",
+   and the website's caption). Corrected.

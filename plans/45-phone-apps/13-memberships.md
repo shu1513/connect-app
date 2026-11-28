@@ -146,11 +146,14 @@ with three positions.
     the website's page has no sentence yet for a pay-back that is stuck, one is written for
     both when this part is built.)
 12. **"Book a time" from a conversation** (part 17b, decision 13) leads a member to this
-    part's booking only when the server says this member can book as a member now (the
-    apps' switch fully on, the membership running, the host able to be booked). Otherwise
-    the conversation keeps what part 17b gives it: the ordinary booking button, or its
-    sentence for a closed conversation. It is built with whichever of the two parts comes
-    second (part 17b, decision 20).
+    part's booking by the very rule this part's own booking screen uses, whichever way he
+    comes: fully on, everything; in the middle position, a booking from time that is
+    already paid, and not one that would take a held month's money (decision 1); off,
+    nothing. So a member of a host whose page is hidden, who has no other way to her, keeps
+    his way in the middle position. Where that rule gives him nothing, the conversation
+    keeps what part 17b gives it: the ordinary booking button, or its sentence for a closed
+    conversation. It is built with whichever of the two parts comes second (part 17b,
+    decision 20).
 
 ## How it is tried
 
@@ -208,3 +211,8 @@ This plan is read against the code once more on the day it is built.
    "What is there today"; decision 10.
 4. *Booking as a member from a conversation was promised without its conditions.* Decision
    12.
+
+## Astra's second check (27 November 2026), worked in
+
+1. *A member in the middle position could lose his only way to book from a conversation.*
+   Decision 12 now uses this part's own rule from either way in.

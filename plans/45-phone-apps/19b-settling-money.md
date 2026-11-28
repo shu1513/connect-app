@@ -37,8 +37,9 @@ left, and a host does not have to sign in again to get hers.
   **begin after she has left**: a refund or a lost dispute over an old payment.
 - **A bank dispute** (plan 47) can be open on a payment of a deleting customer or host, and
   can arrive months later. For some of them the host is asked to choose the answer: her
-  time is at most 24 hours from the dispute's arrival, less when the bank's deadline is
-  near, and without a choice Connect sends its proof (`src/lib/disputes/rules.ts`).
+  time is at most 24 hours from the moment she is asked, less when the bank's deadline is
+  near (the server stores it, `askUntil`), and if she is asked and does not choose, Connect
+  sends its proof (`src/lib/disputes/rules.ts`).
 - **Debts come in more than one kind** (`src/lib/disputes/takeback.ts`). One from a refund,
   for a payment made before the host held a published Host Agreement, is only written down
   ("waiting") and settled by a person; one from a lost dispute is taken by the app after its
@@ -65,9 +66,13 @@ left, and a host does not have to sign in again to get hers.
 3. **A refund request she had not answered** goes to the founder, as one that is never
    answered does today.
 4. **What truly cannot be sent** (no working payout account, an open dispute) stays in the
-   books as owed, with the reason. The founder sees these in a list on the admin pages. The
-   person was told beforehand, on the confirmation screen, and has a reference number to
-   claim it through support. Her payout account's details are kept until then, and not
+   books as owed, with the reason. The founder sees these in a list on the admin pages.
+   **Every** person who deletes an account gets a reference for it, of the same kind,
+   whatever they had: it is what they name when they write to support afterwards. What
+   exactly could not be sent to her, with its figures, is on the website's confirmation
+   screen and in the email she is sent, never in the app's answer: there the reference and
+   the general sentences are all there is, the same fields with the same shape for a host
+   with unsent money and for a person with none (part 19, decision 3). Her payout account's details are kept until then, and not
    longer.
 5. **Her payout account at Stripe is closed** only when Stripe allows it: nothing owed,
    nothing on its way.
@@ -86,8 +91,13 @@ left, and a host does not have to sign in again to get hers.
    after Astra's check; the builder's, and a point for the lawyer)*.
    - **Each debt keeps the state and the direction it has.** One that waits for a person
      stays with that person. One that the app takes goes on along its way: the notice, the
-     14 days, her objection, the taking at Stripe. Money that is owed *to her* is sent to
-     her with her last earnings.
+     14 days, her objection, the taking at Stripe. **Money that is owed *to her* has one way to her, and only one.** Some
+     of it already has a way of its own: after a dispute is decided for her, or after too
+     much was taken, a person at Connect is told to send it by hand. A status that says
+     "over", or a message that told the founder to pay, is no proof that she got it. So
+     before a deletion's collection takes any such amount in, it is settled which way it
+     goes and whether it was already sent by hand; nothing is sent twice, and nothing is
+     dropped because its debt looks finished.
    - **A case that had begun counts as hers even if its debt is written later.** A refund
      or a bank dispute that was already under way at the lock belongs to the deletion's
      open cases, whenever the helper gets round to writing the debt down. Otherwise the
@@ -95,10 +105,12 @@ left, and a host does not have to sign in again to get hers.
    - **What must be kept until the case is over, and only until then:** her email address;
      the notices still waiting to be sent; and the record that ties a delivery report to its
      notice, because the 14 days, and the 3 days after an answer, are counted from delivery
-     (part 19c, decision 3b).
+     (part 19c, decisions 3b and 5). Every later notice of that case goes to the address
+     kept for it, also after the address on her emptied account has been replaced.
    - **Her objection** comes by email to support, since she can no longer sign in. It counts
      from the moment it **arrived**, not from when a person typed it in: the founder's page
-     takes the day it came, and the taking is put on hold at once. If the money was taken in
+     takes the day **and the time** it came (a day alone cannot tell the two sides of a
+     deadline on that day apart), and the taking is put on hold at once. If the money was taken in
      between, it is given back.
    - Her payout account at Stripe is not closed while any of this is open (decision 5).
 9. **A debt, or a bank dispute, that begins after the deletion** *(added 27 November; open)*.
@@ -177,3 +189,13 @@ It goes to Astra with parts 19 and 19c before any of them is built.
    Decision 9 says it to every host alike.
 6. *The time for a bank dispute's choice, and the cost of the waived charge, were put too
    simply.* "What is there today"; "Keeping the 4.9%".
+
+## Astra's second check (27 November 2026): "not ready", worked in
+
+1. *Money owed to a host could be sent twice, or not at all.* Decision 8: one way for each
+   amount, settled before a deletion's collection takes it in.
+2. *A reference promised "on the confirmation screen" would differ for a host with unsent
+   contribution money.* Decision 4: everyone gets one, and the figures are not in the app.
+3. *An objection needs its time, not only its day; later notices need the kept address.*
+   Decision 8.
+4. *The time for a bank dispute's choice is the stored one.* "What is there today".

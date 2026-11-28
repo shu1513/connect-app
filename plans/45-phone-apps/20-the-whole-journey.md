@@ -51,8 +51,13 @@ this build and a real app in the two stores, each item with who can do it.
    statement, no collection sentence, the same deletion screen as a host with nothing; parts
    16 and 19); a block between two people who have a monthly contribution (neither sentence
    under "Block" says so; part 09a); a person paused with a reason the team typed about a
-   diary (the typed words are in no answer; part 09a). And it turns the website's own tip
-   switch on and off while the apps' tip switch is off: nothing a phone is sent changes.
+   diary (the typed words are in no answer; part 09a). And the mixed cases, where a call is present but is not the
+   cause: a host who never collected, with a contribution a year old and a call share from
+   yesterday, when Connect collects for her (no sentence, no notification); a small call
+   share that only a tip lifts over the least amount (the same); a customer whose only bank
+   dispute is about a contribution, trying to book a call (refused, in the same words and
+   fields as for a dispute about a call, with no cause named; part 09a). And it turns the
+   website's own tip switch on and off while the apps' tip switch is off: nothing a phone is sent changes.
    And in each position of the membership switch it tries every
    way to a membership payment, the ones through booking, the calendar and Contacts
    included, with a held month, and checks the result for that position: with the switch
@@ -153,9 +158,11 @@ once a real person has the app. Each is looked at again here, before anything is
 - **From plan 51 (built by another session while this build was paused):** the app's screens
   for "End call now" were typed and unit-tested and never run on a phone. Part 09a walks
   them; if it could not, they are walked here.
-- **From bringing the plans up to date (27 November):** the legal pages in the app (part 18,
-  decision 5) wait for a decision between showing every document whole and leaving marked
-  sections out; nothing goes to a store before that is settled with the lawyer.
+- **From bringing the plans up to date (27 November):** how legal documents are shown in the
+  app is open (part 18, decision 5): no way found so far keeps the apps' rule and still
+  says truthfully which document and version a person accepted. Nothing goes to a store
+  before the lawyer has answered; the walk then checks the three places that lead to legal
+  text (the last step of signing up, the ID check, the report form) against that answer.
 
 ## Keeping the 4.9%
 
