@@ -77,11 +77,13 @@ So a pause made by mistake costs a host her members. That is the reason for the 
 
 ### Paused by itself because of ratings
 
-6. **An average of 2.0 or lower from at least 10 different people. (builder)** Counted exactly as
-   the shown average is (each person once, a week after the call, whole groups), for the person as
-   a host and as a customer, each by itself. Only ratings of calls that ended after the last time
-   a pause was lifted count (decision 8).
-
+6. **An average of 2.0 or lower from at least 10 different people, counting paid calls only.
+   (builder)** Counted as the shown average is (each person once, a week after the call, whole
+   groups, the most recent 50), for the person as a host and as a customer, each by itself, but
+   only from ratings of calls that were really paid for: a free call costs nothing to make, and
+   reports have the same line (decision 4). Only ratings of calls that ended after the last
+   time a pause was lifted count (decision 8). So this average can differ from the one a page
+   shows, and the person is told "counting paid calls only".
 6a. **A warning first, once. (builder)** When an average falls to 2.5 or lower (from the 5 people
    an average needs), the person gets one email: their average as a host (or as a customer) is
    low, and an account whose average stays at 2.0 or lower from 10 or more people is paused. It
@@ -97,6 +99,10 @@ So a pause made by mistake costs a host her members. That is the reason for the 
 8. **Lifting a pause is a fresh start. (builder)** A person on the team lifted it, so a person has
    looked. Reports made before that moment, and ratings of calls that ended before it, no longer
    count toward a pause by itself. Otherwise the next round would pause the account again.
+8a. **Counted and paused in two steps, checked in the second. (builder, after the automatic
+    security check)** The round counts first and pauses after. In the pause's own database step
+    the account's row is held and its fresh start is read again: if a person lifted a pause in
+    between, what was counted is out of date and nothing is done.
 9. **Who is never paused by itself. (builder)** An admin's account; a closed account (if it is
    opened again, the next round looks at it).
 10. **When it is looked at. (builder)** By the helper, about every 10 minutes. Not at the moment

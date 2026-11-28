@@ -42,12 +42,12 @@ describe("what a person paused by the app is told", () => {
   it("the rule and that the app did it by itself, never who or how many reported", () => {
     expect(AUTO_PAUSE_WORDS.reports.reason).toBe(`Paused automatically: ${AUTO_PAUSE.reporters} or more different people who had paid calls with this account reported it within ${AUTO_PAUSE.withinDays} days.`);
     expect(AUTO_PAUSE_WORDS.reports.because).toContain("Nobody at Connect has judged those reports");
-    expect(AUTO_PAUSE_WORDS.ratings.reason("host", { average: 1.8, count: 11 })).toBe("Paused automatically: an average rating as a host of 1.8 from 11 people. The line is 2.0 or lower from 10 or more people.");
-    expect(AUTO_PAUSE_WORDS.ratings.because("customer", { average: 2, count: 14 })).toContain("as a customer is 2.0 from 14 people");
+    expect(AUTO_PAUSE_WORDS.ratings.reason("host", { average: 1.8, count: 11 })).toBe("Paused automatically: an average rating as a host of 1.8 from 11 people, counting paid calls only. The line is 2.0 or lower from 10 or more people.");
+    expect(AUTO_PAUSE_WORDS.ratings.because("customer", { average: 2, count: 14 })).toContain("as a customer, counting paid calls only, is 2.0 from 14 people");
   });
   it("the warning names the average and the line, and no particular rating", () => {
     const text = AUTO_PAUSE_WORDS.ratings.warnText("Hana", "host", { average: 2.4, count: 5 }, "help@example.com");
-    expect(text).toContain("Your average rating as a host on Connect is 2.4 from 5 people.");
+    expect(text).toContain("Your average rating as a host on Connect, counting paid calls only, is 2.4 from 5 people.");
     expect(text).toContain("2.0 or lower from 10 or more people is paused automatically");
     expect(text).toContain("help@example.com");
   });

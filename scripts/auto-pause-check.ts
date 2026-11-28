@@ -87,7 +87,7 @@ async function main() {
       check("4 different people who had paid calls with her reported her: nothing happens", first.paused.length === 0 && (await userRow(hana.id)).pausedAt === null);
       await report(customers[0].id, hana.id);
       await runAutoPauses(now, hana.id);
-      check("a second report from one of the four changes nothing: people are counted, not reports", (await userRow(hana.id)).pausedAt === null && (await countedReporters(now, hana.id)).get(hana.id)?.size === 4);
+      check("a second report from one of the four changes nothing: people are counted, not reports", (await userRow(hana.id)).pausedAt === null && (await countedReporters(now, hana.id)).get(hana.id)?.reporters.size === 4);
       await report(customers[4].id, hana.id);
       const second = await runAutoPauses(now, hana.id);
       const paused = await userRow(hana.id);
@@ -118,7 +118,7 @@ async function main() {
         const one = build ? await build(host.id) : (await customersOf(host.id, 1, 1))[0];
         await spoil(host, one);
         const before = await runAutoPauses(now, host.id);
-        const counted = (await countedReporters(now, host.id)).get(host.id)?.size ?? 0;
+        const counted = (await countedReporters(now, host.id)).get(host.id)?.reporters.size ?? 0;
         await customersOf(host.id, 1, 1);
         const after = await runAutoPauses(now, host.id);
         check(label, before.paused.length === 0 && counted === 4 && after.paused.length === 1, `counted ${counted}, then paused ${after.paused.length}, good ${good.length}`);
@@ -199,11 +199,11 @@ async function main() {
     // ----------------------------------------------------------------------
     console.log("\n4. Ratings: a warning, then the pause");
     {
-      /** `stars` from as many different people, each for a call with the host that ended `daysAgo` days ago (so the ratings count). */
-      async function ratedBy(hostId: string, stars: number[], daysAgo = 9, as: "host" | "customer" = "host") {
+      /** `stars` from as many different people, each for a paid call (unless `paid` says otherwise) with the host that ended `daysAgo` days ago (so the ratings count). */
+      async function ratedBy(hostId: string, stars: number[], daysAgo = 9, as: "host" | "customer" = "host", paid: boolean | "refunded" = true) {
         for (const [i, s] of stars.entries()) {
           const p = await person("r");
-          const c = as === "host" ? await call(hostId, p.id, { daysAgo: daysAgo + (stars.length - i) / 1000, paid: false }) : await call(p.id, hostId, { daysAgo: daysAgo + (stars.length - i) / 1000, paid: false });
+          const c = as === "host" ? await call(hostId, p.id, { daysAgo: daysAgo + (stars.length - i) / 1000, paid }) : await call(p.id, hostId, { daysAgo: daysAgo + (stars.length - i) / 1000, paid });
           await db.insert(schema.ratings).values({ callId: c.id, raterId: p.id, ratedId: hostId, ratedAs: as, stars: s });
         }
       }
@@ -239,6 +239,21 @@ async function main() {
       await ratedBy(cust.id, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 9, "customer");
       const asCustomer = await runAutoPauses(now, cust.id);
       check("a customer whom 11 hosts gave 1 star is paused for his average as a customer", asCustomer.paused.length === 1 && (await userRow(cust.id)).pausedReason === AUTO_PAUSE_WORDS.ratings.reason("customer", { average: 1, count: 11 }));
+
+      const freeCalls = await person("freecalls");
+      await ratedBy(freeCalls.id, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 9, "host", false);
+      const free = await runAutoPauses(now, freeCalls.id);
+      check("11 people gave 1 star after calls that were free: neither paused nor warned (a free call costs nothing to make)", free.paused.length === 0 && free.warned.length === 0 && (await userRow(freeCalls.id)).pausedAt === null);
+      const givenBack = await person("givenback");
+      await ratedBy(givenBack.id, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 9, "host", "refunded");
+      check("nor after calls whose money was given back in full", (await runAutoPauses(now, givenBack.id)).paused.length === 0);
+
+      // A person lifts a pause in the moment between the app's counting and its pause: what was counted is out of date.
+      const { pauseByItself } = await import("../src/lib/safety/reports");
+      const raced = await person("raced");
+      await db.update(schema.user).set({ autoPauseFrom: new Date() }).where(eq(schema.user.id, raced.id));
+      const stale = await pauseByItself({ userId: raced.id, expectedFrom: null, reason: "check", because: "check", founder: { subject: "check", text: "check", alreadyText: "check" }, key: `paused:${raced.id}:by-itself:check` });
+      check("a pause counted before a person lifted one is not made: the fresh start is read again in the pause's own step", stale === "not_paused" && (await userRow(raced.id)).pausedAt === null);
 
       const fine = await person("fine");
       await ratedBy(fine.id, [5, 5, 4, 1, 1, 5, 5, 5, 5, 5, 5]);

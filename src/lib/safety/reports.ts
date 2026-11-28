@@ -438,9 +438,15 @@ export async function pauseUnderage(input: {
  * Never an admin's account, and not a closed one (if it is opened again, the next round looks at it). "paused"
  * only when this call paused it: an account that was paused already stays as it was, and the founder is told.
  * `key` must be the same for the same cause within one fresh start, so that nothing is sent twice.
+ *
+ * `expectedFrom` is the fresh start (`auto_pause_from`) the caller counted with. It is read again in the pause's
+ * own database step, with the account's row held: if a person lifted a pause in between, what was counted is
+ * out of date and nothing is done (the next round counts afresh). Lifting a pause writes the same row, so the
+ * two can only happen one after the other.
  */
 export async function pauseByItself(input: {
   userId: string;
+  expectedFrom: Date | null;
   reason: string;
   because: string;
   founder: { subject: string; text: string; alreadyText: string };
@@ -450,6 +456,11 @@ export async function pauseByItself(input: {
   const [admin] = await db.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
   if (!person || admin || person.closedAt || person.pausedAt) return "not_paused";
   const paused = await pause({
+    first: async (tx) => {
+      const [row] = await tx.select({ from: schema.user.autoPauseFrom, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId)).for("update");
+      const [isAdmin] = await tx.select({ id: schema.admins.userId }).from(schema.admins).where(eq(schema.admins.userId, input.userId));
+      return Boolean(row) && !isAdmin && row.closedAt === null && (row.from?.getTime() ?? null) === (input.expectedFrom?.getTime() ?? null);
+    },
     person,
     reason: input.reason,
     because: input.because,

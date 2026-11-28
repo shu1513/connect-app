@@ -27,10 +27,10 @@ const paidCallOf = (call: string) => sql.raw(`exists (select 1 from "payments" p
  * nobody on the team has closed the report, and it was made in the last 90 days and after the
  * last lifted pause. Accounts that are paused, closed or an admin's are left out.
  */
-export async function countedReporters(now: Date, only?: string): Promise<Map<string, Set<string>>> {
+export async function countedReporters(now: Date, only?: string): Promise<Map<string, { reporters: Set<string>; from: Date | null }>> {
   const since = new Date(now.getTime() - AUTO_PAUSE.withinDays * DAY_MS).toISOString();
-  const rows = await db.execute<{ reported_id: string; reporter_id: string }>(sql`
-    select r.reported_id, r.reporter_id
+  const rows = await db.execute<{ reported_id: string; reporter_id: string; auto_pause_from: Date | string | null }>(sql`
+    select r.reported_id, r.reporter_id, reported.auto_pause_from
     from "reports" r
     join "user" reported on reported.id = r.reported_id
     join "user" reporter on reporter.id = r.reporter_id
@@ -51,13 +51,14 @@ export async function countedReporters(now: Date, only?: string): Promise<Map<st
           and ${paidCallOf("c")}
       )
       ${only ? sql`and r.reported_id = ${only}` : sql``}
-    group by r.reported_id, r.reporter_id
+    group by r.reported_id, r.reporter_id, reported.auto_pause_from
   `);
-  const found = new Map<string, Set<string>>();
+  // `from`: the fresh start these reports were counted with. The pause is only made if it is still the same then.
+  const found = new Map<string, { reporters: Set<string>; from: Date | null }>();
   for (const row of rows) {
-    const set = found.get(row.reported_id);
-    if (set) set.add(row.reporter_id);
-    else found.set(row.reported_id, new Set([row.reporter_id]));
+    const one = found.get(row.reported_id);
+    if (one) one.reporters.add(row.reporter_id);
+    else found.set(row.reported_id, { reporters: new Set([row.reporter_id]), from: row.auto_pause_from ? new Date(row.auto_pause_from) : null });
   }
   return found;
 }
@@ -77,8 +78,10 @@ export async function peopleWithPaidCalls(userId: string, now: Date): Promise<Se
 }
 
 /**
- * A person's average in one role, counted exactly as the shown one (ratings.ts), but only from
- * ratings of calls that ended after `from` (the last lifted pause), when there is one.
+ * A person's average in one role for the pause and its warning: counted as the shown one is
+ * (ratings.ts), but only from ratings of calls that were really paid for, and that ended after
+ * `from` (the last lifted pause) when there is one. A free call costs nothing to make, so its
+ * stars count for what is shown and never toward a pause: the same line the reports have.
  */
 export async function averageSince(userId: string, as: "host" | "customer", from: Date | null, now: Date): Promise<ShownAverage | null> {
   const rows: CountedRating[] = await db
@@ -86,7 +89,7 @@ export async function averageSince(userId: string, as: "host" | "customer", from
     .from(schema.ratings)
     .innerJoin(schema.calls, eq(schema.calls.id, schema.ratings.callId))
     .innerJoin(schema.user, eq(schema.user.id, schema.ratings.raterId))
-    .where(and(eq(schema.ratings.ratedId, userId), eq(schema.ratings.ratedAs, as), lte(schema.calls.endsAt, countedUpTo(now)), from ? gt(schema.calls.endsAt, from) : undefined))
+    .where(and(eq(schema.ratings.ratedId, userId), eq(schema.ratings.ratedAs, as), lte(schema.calls.endsAt, countedUpTo(now)), from ? gt(schema.calls.endsAt, from) : undefined, paidCallOf('"calls"')))
     .orderBy(asc(schema.calls.endsAt), asc(schema.ratings.id));
   return shownAverage(rows);
 }
@@ -122,21 +125,22 @@ export async function runAutoPauses(now: Date, only?: string): Promise<{ paused:
   const list = pausedListUrl();
 
   // Reports.
-  for (const [userId, reporters] of await countedReporters(now, only)) {
+  for (const [userId, { reporters, from }] of await countedReporters(now, only)) {
     try {
       if (reporters.size < AUTO_PAUSE.reporters) continue;
       // Every counted reporter is one of "the people they had paid calls with", also when that call was longer ago.
       const people = new Set([...(await peopleWithPaidCalls(userId, now)), ...reporters]);
       const facts = { reporters: reporters.size, people: people.size };
       if (!reportsPause(facts)) continue;
-      const [person] = await db.select({ name: schema.user.name, email: schema.user.email, from: schema.user.autoPauseFrom }).from(schema.user).where(eq(schema.user.id, userId));
+      const [person] = await db.select({ name: schema.user.name, email: schema.user.email }).from(schema.user).where(eq(schema.user.id, userId));
       if (!person) continue;
       const done = await pauseByItself({
         userId,
+        expectedFrom: from,
         reason: AUTO_PAUSE_WORDS.reports.reason,
         because: AUTO_PAUSE_WORDS.reports.because,
         founder: { subject: AUTO_PAUSE_WORDS.reports.founderSubject, text: AUTO_PAUSE_WORDS.reports.founderText(person, facts, list), alreadyText: AUTO_PAUSE_WORDS.reports.founderAlready(person, list) },
-        key: `paused:${userId}:by-itself:reports:${person.from?.getTime() ?? 0}`,
+        key: `paused:${userId}:by-itself:reports:${from?.getTime() ?? 0}`,
       });
       if (done === "paused") paused.push(userId);
     } catch (error) {
@@ -153,6 +157,7 @@ export async function runAutoPauses(now: Date, only?: string): Promise<{ paused:
       if (ratingsPause(shown)) {
         const done = await pauseByItself({
           userId: one.id,
+          expectedFrom: one.from,
           reason: AUTO_PAUSE_WORDS.ratings.reason(one.as, shown!),
           because: AUTO_PAUSE_WORDS.ratings.because(one.as, shown!),
           founder: { subject: AUTO_PAUSE_WORDS.ratings.founderSubject, text: AUTO_PAUSE_WORDS.ratings.founderText(one, one.as, shown!, list), alreadyText: AUTO_PAUSE_WORDS.ratings.founderAlready(one, list) },
