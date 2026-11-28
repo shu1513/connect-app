@@ -2,6 +2,12 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
 checked it once ("ready with changes"); its points are worked in (the list is at the end).
+Read again against the code on 27 November 2026, after pull request 123. One line of
+`src/lib/booking/calendar.ts` changed, and it needs nothing from this part: when a host cuts
+her hours, a membership that was paused or ended in the same moment (one of the two accounts
+was paused, plans 52 and 53) is left exactly as it is. The app shows the choices the server
+sends for each member, as decision 4 already says. It is read once more on the day it is
+built.
 
 ## For the founder: what this is
 

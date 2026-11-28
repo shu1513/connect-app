@@ -2,7 +2,8 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
 checked the first draft ("not ready"); it was split in two (this part and 13b, the host's
-side) and every point is worked in (the list is at the end).
+side) and every point is worked in (the list is at the end). Brought up to date on 27 November
+2026, after the website changed (that list is at the end too).
 
 **This is the part to watch for the 4.9%.** Read "Keeping the 4.9%" below first.
 
@@ -43,7 +44,8 @@ with three positions.
   wording version (`agreementSentences`, `agreementBox`); `join`; paying on Stripe's form
   (`secretToPay`), where the money of the first month is at first only held; `resume`;
   `payNow`; carrying on with a payment that was begun.
-- **A membership's page** (`src/app/memberships/[id]/`, 473 lines): the month, the time left,
+- **A membership's page** (`src/app/memberships/[id]/`, 514 lines on 27 November): the month,
+  the time left,
   each month's receipt and money given back, paused and why, a month that is held and until
   when it can be cancelled free, cancel at the month's end or now (`cancelAction`,
   `cancelNowAction`), keep (`keepAction`), a changed offer (`acceptOfferAction`,
@@ -52,7 +54,29 @@ with three positions.
   website's form step): confirmed at once, from the month's time, with member-only times,
   with a once-only key. **If the month's money is still only held, the first booking takes
   it.** A payment can go through and the time be gone meanwhile; the page says so and offers
-  another time. `continueMemberAction` carries on where a booking stopped.
+  another time. `continueMemberAction` carries on where a booking stopped. **A member's
+  booking now carries the version of the words its page showed** (`wordsVersion`; plan 51):
+  the page shows what ending the call himself costs (`MEMBER_END_NOW_RULE` in
+  `src/lib/booking/rules.ts`), and a booking that comes without the current version is
+  refused with "the words changed", so nobody books under words they did not see.
+- **Cancelling a new membership within 14 days** (plan 46, part 3c): the member's own button,
+  `ownFourteenDays` and `cancelWithin14Days` in `src/lib/membership/fourteen-days.ts`. The
+  sentence ticked before joining (wording version "2026-11-26") promises that button "on
+  your membership's page". The app's side of it is part 13c.
+- **Paused with an account** (plans 53 and 55): when the member's or the host's account is
+  paused, the membership is paused, not ended (`ACCOUNT_PAUSE`). Coming member calls are
+  cancelled at no charge and unused time is paid back to the card. The page says "the
+  membership was paused with one of the two accounts", never which one. When the pause is
+  lifted the member gets an email and can resume, with the time they had and the lower of
+  their old price and the host's price on that day (`resumeTerms` in
+  `src/lib/membership/rules.ts`). The resume page sends the price and time it showed, and
+  the step refuses if those are no longer what the member would get.
+- **A customer with a bank dispute** cannot join, resume, take a host's new offer or switch
+  renewal back on (`whyNoNewPayment`, plan 47). Booking from a month they have is not
+  stopped.
+- **Time given back after the host collected** (plan 50, part 2) goes to the member's card,
+  not back into the month, and the month's page shows each such line as "is being paid back
+  to your card" or "paid back to your card".
 
 ## Decisions (the builder's)
 
@@ -88,13 +112,36 @@ with three positions.
    out, joining, payment begun and not finished, not paid, paused and why, a held month and
    its deadline, time left, not enough time left, the payment went through but the time is
    gone.
+7. **Nobody joins in an app before part 13c's button is there.** The sentence ticked before
+   joining promises it. So part 13c is built in the same pull request as this part, or in
+   the next one, and the apps' switch for memberships stays "off" until both are merged
+   (part 13c, decision 1).
+8. **Paused with an account is one more state, with the server's sentences.** Resuming after
+   it shows the terms the server gives (`resumeTerms`), and the app sends back the price and
+   the time it showed, as the website's page does. The app works out no price. In the middle
+   position of the switch resuming is refused like every payment (decision 1).
+9. **A member's booking sends the version of the words the server gave with the booking
+   screen,** and shows the server's sentence about "End call now" with them. The app holds
+   no copy of the words and no version of its own; "the words changed" is shown with the
+   new words to be read and pressed again.
+10. **A refusal because of a bank dispute** is the server's sentence, shown as it comes, on
+    every step that would start something new to pay.
+11. **Money on its way back to the card** is shown line by line as the server says it, "is
+    being paid back" or "paid back". The app adds nothing up.
+12. **"Book a time" from a conversation** (part 17b, decision 20) leads a member to this
+    part's booking; it is built with whichever of the two parts comes second.
 
 ## How it is tried
 
 - `membership-check`, `membership-journey-check`, `member-calls-check` unchanged and green.
 - Check script for the app's addresses: join by invitation, pay, book as a member (also the
   booking that takes a held month), cancel both ways, keep, a changed offer accepted and
-  declined. **Then every address again in each position of the apps' switch,** with the
+  declined; a member's booking without the words' version, and with an old one (both
+  refused, nothing written); a membership paused with the member's account and one paused
+  with the host's (the same sentence for both), resuming refused while the pause lasts,
+  then resuming with the old time and the lower price, and refused when the app sends terms
+  that are no longer true; joining and resuming refused for a customer with an open bank
+  dispute. **Then every address again in each position of the apps' switch,** with the
   founder's per-host switch and the host's offer switch on and off: exactly what is answered
   and what is refused, and that cancelling and seeing always work.
 - On the Android test phone, with Stripe's test cards and pictures: joining and paying; a
@@ -113,3 +160,18 @@ with three positions.
    given back, the held month's deadline, a payment that succeeds when the time is gone.
    Decision 6.
 6. *Too big for one part.* The host's side is part 13b.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. What changed in this plan:
+
+1. *The 14-day button exists and is promised before joining* (plan 46, part 3c). "What is
+   there today"; decision 7 ties this part to part 13c.
+2. *A paused account pauses its memberships, and the member comes back with the old time and
+   price* (plans 53 and 55). "What is there today", decision 8, the check script.
+3. *A member's booking records the words it showed* (plan 51). Decision 9.
+4. *A customer with a bank dispute cannot start a membership payment* (plan 47). Decision 10.
+5. *Time given back after collection goes to the card* (plan 50, part 2). Decision 11.
+6. *Messages* (part 17b) have a way to book. Decision 12.
+
+This plan is read against the code once more on the day it is built.

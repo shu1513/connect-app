@@ -5,6 +5,8 @@ the founder's word of that day, from the code on `main` after pull request 106. 
 **Not yet checked by Astra:** like every part of plan 45 it is read against the code once more,
 and shown to Astra, just before it is built. The phone-apps build is paused before part 09b on
 the founder's word; this plan does not change that, and nothing is built from it yet.
+Read again on 27 November 2026 by the builder of the phone apps, against the code on `main`
+after pull request 123 (the list is at the end).
 
 ## For the founder: what this is
 
@@ -55,6 +57,11 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
   `src/lib/membership/wording.ts`, wording version "2026-11-26") promises the button "on your
   membership's page".
 - **The founder's form** for a request that came in writing is on the admin page. Website only.
+- **A paused membership has no button** (`fourteenDayCase` answers "paused"). Since plan 53
+  that includes a membership paused with one of the two accounts inside its first 14 days:
+  the pause has already cancelled the coming calls and paid the unused time back to the
+  card, which is what the button would have done. One that is resumed afterwards counts as
+  resumed, and has no button either.
 
 ## Decisions (the builder's; any can be changed)
 
@@ -109,7 +116,8 @@ built:
   `membership-journey-check`, the automatic tests.
 - The part's check script for the app's addresses: the screen's answer carries the button only
   when the case is open (day 15, a resumed membership, a second one, a first month that ended,
-  a bank question, a payment with a problem, the card step: each without it); a stranger's
+  a bank question, a payment with a problem, the card step, a membership paused with an
+  account on day 3, and the same one resumed later: each without it); a stranger's
   press changes nothing and looks like "not found"; a press that names another month changes
   nothing; her own press ends it, with the coming calls cancelled first; pressed twice. Then
   all of it once more in each position of the apps' switch.
@@ -156,3 +164,16 @@ the website shows it. The app counts no days.
 The website says "until the end of 9 December (UTC)". On a phone that is hard to read. The
 server could send the moment instead, and the screen could show it in the phone's own time. A
 proposal for the build, for the website and the app alike; not decided.
+
+## Read again (27 November 2026)
+
+By the builder of the phone apps, against `src/lib/membership/fourteen-days.ts` as it is on
+`main` after pull request 123. The plan matches the code: `ownFourteenDays` answers with the
+last day, a request on record, and the sentence for what stops it. What was added:
+
+1. *A membership paused with an account* (plans 53 and 55) has no button, and why that is
+   right. "What is there today" and the check script.
+2. Part 13 now says the same as decision 1 here, from its side (part 13, decision 7).
+
+Still to do before it is built: Astra's check, and one more read against the code of that
+day.

@@ -10,6 +10,9 @@ security and money work changed again after the second check (14b and 19 to 19c)
 those is shown to Astra once more, with its code-level plan, just before it is built.
 It replaces two decisions of plan 39 (a small app; built after the website is live) and
 keeps the rest of plan 39, which is still the place to read *why* each store rule matters.
+**On 27 November 2026 every part that is not built yet (09b to 20) was read against the code
+again,** after 27 website changes had been merged since part 09, and brought up to date; the
+account is in "Brought up to date on 27 November 2026" below.
 Each part below has its own detailed plan in `plans/45-phone-apps/`, checked by Astra before it
 is built.
 
@@ -220,6 +223,59 @@ says otherwise.
   up without a yes.
 - **Two real phones:** for the first real call between apps, with real cameras.
 - The lawyer's points are in `docs/for-the-lawyer.md` (plan 39 added them).
+
+## Brought up to date on 27 November 2026
+
+The build has been paused before part 09b since 20 November, on the founder's word. In that
+week the website gained, among other things: money a host owes back after a refund or a lost
+bank dispute, with her objection (plans 46, 47, 50); Connect collecting for a host who has
+not collected for 12 months; cancelling a new membership within 14 days; messages between a
+host and a customer (plan 49); "End call now" with its three choices (plan 51); an account
+paused by the app itself, with memberships that are paused and come back at their old price
+(plans 52, 53, 55). The founder, 27 November: "update all the plans first, then when we do
+each part, check the plan once more, update each plan right before building it if
+necessary."
+
+**What was done.** Each plan from 09b to 20 was read against the code on `main` after pull
+request 123 and changed where the code says otherwise. Each changed plan ends with a list,
+"Brought up to date (27 November 2026)". Nothing was built.
+
+- **Changed much:** 10 (the page after a call), 12 (notifications), 13 and 13b (memberships),
+  16 (earnings, which also gains the yearly statement that no part had), 18 (the account
+  page), 19, 19b and 19c (deleting an account), 20 (the walk).
+- **Changed a little:** 09b, 10b, 11, 17; and the three plans other sessions wrote (13c, 16b,
+  17b), which were read and given what the newest changes added.
+- **Read, nothing to change:** 09c, 14, 14b, 15.
+
+**Found on the way, in what is already built.**
+
+- The app's screens for "End call now" were built by another session without a phone (typed
+  and unit-tested only). Part 09b walks them on the test phone before it builds anything.
+- One sentence those screens are sent says "any membership or monthly contribution between
+  you ends". Nothing about a contribution belongs in the apps. Part 09b, decision 7, gives
+  the app a sentence of its own and adds a check for it.
+
+**For the founder to decide** (nothing waits for these until the part in question is built):
+
+1. *A notification when Connect itself writes to someone* (part 12, decision 2a): the phone
+   says only "Connect has written to you." A host has 24 hours to answer a bank dispute, so
+   the builder would have it. The other way: email only, as today.
+2. *A bank dispute's own page in the apps* (proposed as part 16c; parts 16b and 20): today
+   that choice is on the website only. Building it is a part of its own.
+3. *The yearly statement in the app* (part 16, decision 7), or left on the website.
+4. *Part 17b's four choices that are only its builder's:* "Messages" as a fifth place at the
+   bottom; a notification that names nobody; a person's own switch for it; the apps' switch
+   for messages.
+5. *The legal pages in the app* (part 18, decision 5): every document whole, or with the parts
+   about projects left out. With the lawyer.
+6. *Deleting an account,* with the lawyer: a debt or a bank dispute that begins after a host
+   has left (part 19b, decision 9); a person who comes back with the same email address after
+   a pause or a stop on payments (part 19c, decision 3a); whether the other person may keep
+   reading what a deleted person wrote (part 19c's table).
+
+**What stays as it was.** Each part is still read against the code on the day it is built, and
+its plan put right once more if the code has moved. Parts 13c, 14b, 16b, 19, 19b and 19c go
+to Astra with their code-level plan before they are built.
 
 ## What could not be checked
 

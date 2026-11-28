@@ -2,7 +2,8 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. The
 last part: no new feature. Astra checked it once ("ready with changes"); its points are
-worked in (the list is at the end).
+worked in (the list is at the end). Brought up to date on 27 November 2026, after the
+website changed (that list is at the end too).
 
 ## For the founder: what this is
 
@@ -18,7 +19,13 @@ this build and a real app in the two stores, each item with who can do it.
    call and its results; "available now" both ways, with a request left to run out;
    a membership from an invitation to a member's call, in each position of its switch;
    becoming a host from nothing; hours; earnings; contacts; the account page; a report; a
-   block; a paused account's walk; deleting an account. Every screen in light and dark, with
+   block; a paused account's walk; deleting an account. *Added 27 November:* "End call now"
+   as the host and as the customer, with each of the three choices, and the other person's
+   screen; a conversation between a host and a customer, a report of a message and a block
+   from it (part 17b); cancelling a new membership within 14 days (part 13c); a membership
+   paused with an account and resumed at the old price; money owed back, with "I think this
+   is wrong" (part 16b); the yearly statement; a customer with a bank dispute being refused
+   a new booking; "Connect has written to you" arriving on the phone. Every screen in light and dark, with
    large text, and read by the screen reader. Pictures of all of it, the refused and the
    out-of-date states too.
 2. **What the final pass of the website looked for** (plan 11): wording that differs between
@@ -31,7 +38,12 @@ this build and a real app in the two stores, each item with who can do it.
    and reads what comes back; and it makes the things happen that send notifications (a new
    diary post, a contribution paid) and reads what is written for the phones: no field, no
    line, no link and no notification that comes from those things, except the two "Other
-   earnings" amounts (part 16). And in each position of the membership switch it tries every
+   earnings" amounts (part 16). *Added 27 November:* it also makes the things that carry a
+   project's or a tip's name into newer places, and reads the app's answers for them: a tip
+   and a contribution that Connect refunded after the host collected (money owed back, part
+   16b, and the message "From Connect" about it, whose notification names nothing); the
+   yearly statement of a host with contributions and tips (part 16); a block between two
+   people who have a monthly contribution (the sentence under "Block", part 09b). And in each position of the membership switch it tries every
    way to a membership payment, the ones through booking, the calendar and Contacts
    included, with a held month, and checks the result for that position: with the switch
    *on*, the invitation is made and the booking takes the held month, as they should; in the
@@ -52,7 +64,14 @@ You asked for every feature. These are the differences that remain:
 
 - **Left out to keep the 4.9%:** projects (wholly), tips (until Apple's rule is clear), and,
   if you so choose before a store's review, memberships (part 13).
-- **Left out because they are the founder's tools:** the admin pages.
+- **Left out because they are the founder's tools:** the admin pages, among them the refund
+  after a host has collected, the founder's form for cancelling within 14 days, and
+  everything about pauses and reports.
+- **On the website and in email only** *(added 27 November)*: a bank dispute's own page, with
+  the host's choice within 24 hours ("Fight it" or "Give the money back"), and the messages
+  "From Connect". The app's phone only says "Connect has written to you." (part 12, decision
+  2a). A part of its own for these was proposed (16c) and is not decided. Also a copy of the
+  yearly statement for printing.
 - **Not in this build:** signing in with Google (on iPhone it would have to come with a second
   way of signing in that keeps the email address private, such as "Sign in with Apple");
   sharing the phone's own screen in a call (the app shows a screen shared from the website).
@@ -120,6 +139,13 @@ once a real person has the app. Each is looked at again here, before anything is
   "I agree, continue to Stripe"), and a host's "business or private person" line on her page
   and before asking, were added after the walk on the test phone: look at both on a phone.
 
+- **From plan 51 (built by another session while this build was paused):** the app's screens
+  for "End call now" were typed and unit-tested and never run on a phone. Part 09b walks them
+  first; if it could not, they are walked here.
+- **From bringing the plans up to date (27 November):** the legal pages in the app (part 18,
+  decision 5) wait for a decision between showing every document whole and leaving marked
+  sections out; nothing goes to a store before that is settled with the lawyer.
+
 ## Keeping the 4.9%
 
 Step 3 above is the standing guard. It stays in the automatic checks after this part.
@@ -133,3 +159,17 @@ Step 3 above is the standing guard. It stays in the automatic checks after this 
 3. *The differences from the website must be told to the founder as such.* The new section.
 4. *The order of the founder's list:* the lawyer and the account choice first; a reachable
    server before the outside pages and real phones; Google's 12 testers for 14 days.
+
+## Brought up to date (27 November 2026)
+
+Read again after pull request 123. Plan 45 has thirty parts now (13c, 16b and 17b were added
+after this was written). What changed in this plan:
+
+1. *The walk* has the new things in it: "End call now", messages, the 14 days, a pause with
+   an account, money owed back, the statement, a bank dispute's refusal, Connect's own
+   notification.
+2. *The 4.9% sweep* also reads the newer places a project's or a tip's name could travel to.
+3. *"Where the app is not the website"* names what stays on the website and in email.
+4. *Two more things left for this part:* plan 51's screens on a phone, and the legal pages.
+
+This plan is read against the code once more on the day it is built.

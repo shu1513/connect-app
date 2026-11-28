@@ -4,7 +4,12 @@
 ("build the plan for now"). Part of plan 45. Nothing here is built, and the phone build stays
 paused (the founder's word of 20 November) until the founder says otherwise. Astra checked it
 twice (first "not ready", 16 points; then "ready with changes", 8 points); all are worked in
-or answered, and listed at the end.
+or answered, and listed at the end. Read on 27 November 2026 by the builder of the phone
+apps, after pull request 123: nothing in it had to change. Two things were added elsewhere
+that touch it. Part 12, decision 2a, proposes one notification, "Connect has written to
+you.", for each message "From Connect" (see "Not in this part" here, which leaves those
+messages out of the apps). And parts 10 and 17 now name their "Write to" buttons from their
+side, as decision 20 here asks.
 
 ## For the founder: what this is
 

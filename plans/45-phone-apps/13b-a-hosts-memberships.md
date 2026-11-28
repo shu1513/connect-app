@@ -1,7 +1,8 @@
 # Phone apps, part 13b: memberships, the host's side
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Made
-when Astra's check split the first draft of part 13.
+when Astra's check split the first draft of part 13. Brought up to date on 27 November 2026,
+after the website changed (the list is at the end).
 
 ## For the founder: what this is
 
@@ -19,6 +20,16 @@ A host sets her membership offer, sees her members, and looks after them, from t
 - **Her members:** each one's state, time left this month; pausing a member and undoing it
   (`pauseMemberAction`, `undoPauseAction`), ending a membership (`endMemberAction`), taking
   back an offer made to a member (`takeBackOfferAction`), in its two forms.
+- **A membership paused with an account** (plans 53 and 55): when her account or a member's
+  is paused, that membership is paused, not ended, and stays in her list with the reason
+  "paused with one of the two accounts". She is told by email, never which account or why.
+  This is not her own "pause a member", and she cannot undo it: the member resumes
+  themselves once the pause is lifted, with the time and price they had.
+- **A membership cancelled within 14 days** (plan 46, part 3c) shows in her list as ended,
+  with its reason ("it was cancelled within 14 days of joining, as the member asked").
+- **After she has collected a member's call, she cannot give its time back** (plan 50, part
+  2): only Connect can, from the founder's pages. She then owes her share back, which is
+  part 16b's screen.
 - **Inviting** a customer is on the Contacts page (part 17).
 - Cutting weekly hours that members rely on is part of the calendar (part 15).
 
@@ -32,15 +43,37 @@ A host sets her membership offer, sees her members, and looks after them, from t
    calls stay in her calls. The app does not say where else to go.
 3. **Money actions ask once more** (ending a membership gives time or money back), in the
    website's words.
+4. **Each member's state is shown with the server's sentence,** "paused with one of the two
+   accounts" and "cancelled within 14 days" among them. For a membership paused with an
+   account the app offers no "undo pause": the server sends which actions each member's row
+   has, and the app draws only those.
+5. **A host whose own account is paused** sees what part 18 lets a paused account see, and
+   no more: none of this part's actions answer her.
 
 ## How it is tried
 
 - `membership-check` and `membership-journey-check` unchanged and green.
 - Check script: the offer saved with its preview; a preview that changed before saving; pause
-  and undo; end; take back an offer both ways; every address in each position of the switch.
+  and undo; end; take back an offer both ways; a member paused with an account (in the list,
+  with its sentence, and "undo pause" refused for it); a member who cancelled within 14 days
+  (ended, with its reason); every action refused for a host whose account is paused; every
+  address in each position of the switch.
 - On the Android test phone, with pictures: the offer, the preview, the members' list, each
   action.
 
 ## Keeping the 4.9%
 
 As part 13: behind the switch, in all three positions.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. What changed in this plan:
+
+1. *A paused account pauses its memberships* (plans 53 and 55). "What is there today",
+   decisions 4 and 5, the check script.
+2. *A member can cancel within 14 days* (plan 46, part 3c). Shown as an ending with its
+   reason.
+3. *After collection only Connect gives a member's time back* (plan 50, part 2). Said here;
+   the refusal is part 10b's, the debt is part 16b's.
+
+This plan is read against the code once more on the day it is built.

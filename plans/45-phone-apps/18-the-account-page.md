@@ -2,6 +2,9 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
 checked it once ("ready with changes"); its points are worked in (the list is at the end).
+Brought up to date on 27 November 2026, after the website changed (that list is at the end
+too). **Decision 5, about the legal pages, must be decided again before this part is built**
+(see the list).
 
 ## For the founder: what this is
 
@@ -12,7 +15,7 @@ to Hosting, signing out; and the terms, privacy and rules pages. (The report for
 
 ## What is there today (read in the code)
 
-- `src/app/account/page.tsx` (319 lines) and its actions: the time zone (`saveAccount`);
+- `src/app/account/page.tsx` (372 lines on 27 November) and its actions: the time zone (`saveAccount`);
   reminders (`saveReminders`); emails about followed hosts (`saveFollowEmails`); the photo
   (upload, remove; plan 35: a customer's photo is shown only to hosts they asked); two
   ratings kept apart, as a host and as a customer (`averageFor`); the ID check's state and
@@ -20,12 +23,27 @@ to Hosting, signing out; and the terms, privacy and rules pages. (The report for
   (`blockedBy`) with unblock; "change password", which signs out every other device; for an
   account made with Google, how to set a password; that the email address is changed through
   support; the way to Hosting; the list of contributions (`supportedBy`), left out; "To close
-  your account, contact support" (replaced by part 19).
+  your account, contact support" (replaced by part 19). Since plan 44 also the list of tips
+  a person gave (`tipsBy`), left out like the contributions.
+- **The ratings' explanation changed** (plan 52): an average appears once five people's
+  ratings count, moves three people at a time, and is worked out from the most recent
+  people, about fifty at most.
 - **A paused account** (`src/app/paused/`): the reason, how to appeal; it can still see past
-  calls and receipts, read, report and unblock, but start nothing.
-- **The legal pages.** The terms are a placeholder. The privacy page and the rules page have
-  real text, **and both speak about projects** (contribution payments, diary emails, what may
-  be posted in a diary).
+  calls and receipts, read, report and unblock, but start nothing. **Since plans 52 and 53
+  the app itself can pause an account** (several different people reported it, or a very low
+  average after a warning by email). It is the same pause. The reason is said in general
+  words, never with a number of the person's own and never with who reported or rated them.
+  A paused account's memberships are paused, not ended, and can be resumed once the pause is
+  lifted (part 13). The screen after "End call now" stays open to a paused person (the
+  app's address for it already lets one in).
+- **The legal pages are no longer three pages.** Since plan 46 there are seven documents
+  (`src/legal/`: terms of service, payment terms, community rules, host agreement, privacy
+  policy, copyright policy, identity check notice), each in dated versions that are never
+  edited once shown. Every version is still a draft ("Draft. Not in force yet."). What a
+  person accepted, and in which version, is recorded (`agreement_acceptances`), and a coming
+  version is announced. **Several of them speak about projects, contributions and tips.**
+  The app already reads legal text through the website's own reader (parts 03 and 06: the
+  terms step and the identity notice).
 - **Reports** (`createReport` in `src/lib/safety/reports.ts`) can be about a call, a request,
   a profile, and a diary post; a report about a person blocks them automatically and has a
   reference number.
@@ -38,8 +56,9 @@ to Hosting, signing out; and the terms, privacy and rules pages. (The report for
 2. **The photo:** the phone's pictures or camera, as in part 14, through the same checks.
 3. **Blocking and unblocking** on the same functions. A blocked pair sees, everywhere in the
    app, what the website shows a blocked pair (checked in each part's script).
-4. **Reports from the app are about a call, a request or a profile.** The app's report
-   address refuses a report about a diary post, since the app shows none.
+4. **Reports from the app are about a call, a request or a profile,** and, once part 17b is
+   built, a message. The app's report address refuses a report about a diary post, since the
+   app shows none.
 5. **The legal pages are fetched from the server each time,** so there is one version, **but
    not word for word:** the sections that are only about projects are marked as such in the
    one source, and the app's version leaves them out; a short part about what the apps
@@ -53,8 +72,21 @@ to Hosting, signing out; and the terms, privacy and rules pages. (The report for
    text, and it is a point for the lawyer that the two versions must stay one document.
    When the terms change, the app's "18 and terms" step asks again, because the server says
    so.
+   **To be decided again (27 November):** this decision was written for three pages of
+   which nobody had accepted anything. Now a version's text is frozen and a person's
+   acceptance names that version, so a document a person accepted has to be shown to them
+   as they accepted it. Two ways are open. *Whole:* the app shows all seven documents word
+   for word in their versions; a legal text that describes what the website offers sells
+   nothing in the app. *Marked:* the sections only about projects, contributions and tips
+   are marked in the source, and the app's reader shows "A part about features that are not
+   in this app is left out here; the whole document is on the website." in their place, with
+   the acceptance still naming the whole document. The builder leans to *whole* for the
+   documents a person accepts and to asking the lawyer, and it goes to Astra with this part.
+   Nothing is built from this decision until then.
 6. **A paused account** sees the website's notice with the reason and the appeal, and keeps
-   exactly the things the website leaves it.
+   exactly the things the website leaves it. A pause made by the app looks no different, and
+   the app adds no number and no detail to the server's reason. The ratings' explanation is
+   the server's sentence, so its numbers are never written into the app.
 7. **Emails' "unsubscribe" links** stay web links that need no sign-in; the same choices are
    on this screen.
 
@@ -64,7 +96,9 @@ to Hosting, signing out; and the terms, privacy and rules pages. (The report for
 - Check script: each save and its refusals; block and unblock; the account answer holds no
   contribution field; memberships in each position of the switch; a report about a diary post
   refused; the app's legal pages hold no project section; a paused account's allowed and
-  refused actions, one by one; a customer's photo is not sent to a host they never asked.
+  refused actions, one by one, for an account paused by a person and for one paused by the
+  app (the same answers); the account answer holds no tip field; a customer's photo is not
+  sent to a host they never asked.
 - On the Android test phone, with pictures: the account screen; the photo; reminders; the
   blocked list; a paused account; the three legal pages.
 
@@ -87,3 +121,19 @@ Is that acceptable, and what must the apps' version say?
    email address is changed, the note for accounts made with Google, what a paused account
    keeps. Added.
 4. *Memberships on the account page must follow the switch.* Decision 1.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. What changed in this plan:
+
+1. *The legal pages became seven versioned documents with recorded acceptances* (plan 46).
+   "What is there today" says what exists now. **Decision 5 no longer fits as written** and is
+   marked "to be decided again", with the two ways open. For Astra and the lawyer.
+2. *An account can be paused by the app itself, and its memberships are paused, not ended*
+   (plans 52, 53, 55). "What is there today", decision 6, the check script.
+3. *The ratings' explanation has new numbers* (plan 52). Decision 6: the server's sentence.
+4. *Tips a person gave are listed on the website's account page* (plan 44). Left out, like
+   contributions.
+5. *A message can be reported* (plan 49). Decision 4, once part 17b is built.
+
+This plan is read against the code once more on the day it is built.

@@ -5,6 +5,8 @@ the founder's word of that day, from the code on `main` after pull request 106. 
 **Not yet checked by Astra:** like every part of plan 45 it is read against the code once more,
 and shown to Astra, just before it is built. The phone-apps build is paused before part 09b on
 the founder's word; this plan does not change that, and nothing is built from it yet.
+Read again on 27 November 2026 by the builder of the phone apps, against the code on `main`
+after pull request 123 (the list is at the end).
 
 ## For the founder: what this is
 
@@ -26,8 +28,16 @@ screen for each amount owed back, and the same button.
 All of it is in `src/lib/disputes/takeback.ts` and `takeback-rules.ts`. The code calls an
 amount owed back a "take-back".
 
-- **Two causes.** A refund Connect gave after the host collected (today for a call's payment),
-  and a lost bank dispute.
+- **Four causes** (two when this was written; the other two came with plan 50 on 27
+  November). A refund Connect gave after the host collected a call's payment (plan 46); a
+  tip or a contribution that Connect refunded after she collected it (plan 50, part 1); a
+  member's call whose time Connect gave back after she collected it (plan 50, part 2); and
+  a lost bank dispute (plan 47). `debtForPage` says in words what each is about: "the
+  payment for your call with [name] on [day]", "a tip for the call on ...", "a contribution
+  to ...".
+- **A debt Connect does not take by itself** (plan 46, part 3, choice A): one for a payment
+  made before the host held a published Host Agreement, which today is every payment. Its
+  state is "waiting", and its sentence says that a person at Connect will write to her.
 - **The notice.** The host is told by email and on the website's Messages page. Nothing is
   taken before 14 days after that email was reported as delivered (`NOTICE_MS`).
 - **The objection.** While a take-back only has its notice (`canObject`: status "told"), the
@@ -88,10 +98,21 @@ amount owed back a "take-back".
    16's: a contribution or a tip is called "other earnings", with no name and no project, and
    a membership month the same while memberships are off for the apps. The amount, where it
    stands, and the objection box are still there. The email holds the details.
+   *Read on 27 November:* such take-backs now exist (plan 50). The words `debtForPage` gives
+   for a tip and for a contribution name the call or the project, so the app's answer never
+   passes them on: the server puts "other earnings" in their place, in the list and on the
+   screen, and the check script reads the whole answer for a project's name. A member's call
+   given back by Connect is named as a call while memberships are on for the apps, and is
+   "other earnings" while they are off.
 10. **Notifications (a proposal for part 12's list):** two more events, the notice of a
     take-back and our answer to an objection. On a locked screen they say only "Connect has
     written to you about your earnings". A notification is never the notice itself: the 14
     days count from the email's arrival, as today.
+    *Taken up on 27 November* as part 12's decision 2a, in a wider form: every message "From
+    Connect" makes one notification that says "Connect has written to you." and nothing
+    about earnings (fewer words on a locked screen, and one rule for all such messages).
+    Once this part is built, touching one that is about a take-back opens this part's
+    screen.
 11. **The founder's side stays on the website.**
 
 ## Keeping the 4.9%
@@ -107,7 +128,9 @@ a project may appear.
 - The part's check script for the app's addresses: the list and the screen in each state named
   above; somebody else's take-back; an objection that is too short, too long, sent twice,
   sent after the answer, sent after the money was taken; one from a lost dispute; that no
-  field of the founder's is in any answer; one about a contribution (no name anywhere).
+  field of the founder's is in any answer; one about a contribution and one about a tip (no
+  name anywhere, "other earnings" in its place); one about a member's call, with memberships
+  on and off for the apps; one in the state "waiting" (its sentence, and no day).
 - On the Android test phone, with pictures: the list; the screen before and after an
   objection; our answer; taken; the phone offline while the objection is sent, with the text
   still there.
@@ -121,3 +144,21 @@ a project may appear.
 - **Someone who is no longer a host** has no earnings screen in the app. They have the email
   and the website.
 - A host paying back what she owes through the app (not on the website either).
+
+## Read again (27 November 2026)
+
+By the builder of the phone apps, against `src/lib/disputes/takeback.ts`,
+`takeback-words.ts`, `src/app/debts/[id]/page.tsx` and the earnings box as they are on `main`
+after pull request 123. What was added:
+
+1. *Two more causes* (plan 50, parts 1 and 2), and that their words must not reach the app
+   as they are. "What is there today", decision 9, the check script.
+2. *The state "waiting",* for a debt Connect does not take by itself. "What is there today"
+   and the check script.
+3. *Decision 10's proposal* is now part 12's decision 2a.
+4. Part 16 now says from its side that the two are built together, and what the earnings
+   screen says if part 16 is merged first (part 16, decision 6).
+
+Still to do before it is built: Astra's check, and one more read against the code of that
+day. The sentences of each state are still written inside the website's pages, so decision
+3 (one shared function) stands as written.

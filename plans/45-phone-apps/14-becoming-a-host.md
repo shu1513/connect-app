@@ -3,6 +3,9 @@
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
 checked the first draft ("not ready"); it was split in two (this part and 14b, the ID check,
 payouts and proving a social account) and every point is worked in (the list is at the end).
+Read again against the code on 27 November 2026, after pull request 123: `src/app/host/page.tsx`,
+`src/app/host/actions.ts` and what this part uses of `src/lib/profiles/` have not changed since
+this was written, and nothing here had to change. It is read once more on the day it is built.
 
 ## For the founder: what this is
 

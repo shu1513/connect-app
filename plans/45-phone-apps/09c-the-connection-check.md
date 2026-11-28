@@ -2,7 +2,10 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. The
 first draft left this feature out; the founder asked for every feature, and Astra's check
-said it needs an owner. It is its own small part.
+said it needs an owner. It is its own small part. Read again against the code on 27 November
+2026, after pull request 123: `src/lib/connection/`, `src/components/connection-test.tsx` and
+`/api/connection-test` have not changed since this was written, and nothing here had to
+change. It is read once more on the day it is built.
 
 ## For the founder: what this is
 

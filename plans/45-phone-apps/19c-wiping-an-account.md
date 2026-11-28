@@ -6,6 +6,9 @@ Astra's second check ("not ready") added more, and all of it is worked in (the l
 end). **The table below is the builder's version of a list only a lawyer can settle.** It is
 built so that each line is a setting: what the lawyer changes does not need a rebuild. When
 this part is merged, the three parts are complete and the founder can switch the button on.
+Brought up to date on 27 November 2026, after the website changed: nine lines were added to
+the table (the list is at the end). It goes to Astra again, with parts 19 and 19b, before it
+is built.
 
 ## For the founder: what this is
 
@@ -14,7 +17,11 @@ done, and what the law says must be kept is kept without their name where that i
 
 ## What is there today (read in the code)
 
-Nothing wipes an account. The database (`src/db/schema.ts`, about 2,100 lines) holds personal
+Nothing wipes an account. *(As it is on 27 November: still true, but there is now a clean-up
+by age to build beside, `src/lib/retention.ts`: emails are emptied two years after they were
+sent, sign-in records deleted twelve months after they ran out, messages between two people
+deleted twelve months after they were sent. The database file has about 2,850 lines.)* The
+database (`src/db/schema.ts`, about 2,100 lines when this was written) holds personal
 details in many more places than the profile: sign-ins with the device and network address
 they came from; the two-step secret; every email ever written to the person, **and emails to
 other people that name them**; the note a customer wrote when booking; ratings given and
@@ -68,6 +75,15 @@ requests after a year.
    | A project, its posts and pictures | the name, description, posts and pictures erased (a picture held for a report is kept with it). If a contribution to it was ever paid, an empty shell of the project stays, because the money record must point to something | |
    | Contributions | paid ones kept as money records, with their agreement and date; unpaid attempts erased | |
    | The founder's record of actions on this account | keep | The founder's own accountability |
+   | *Added 27 November.* Messages between a host and a customer (plan 49): the conversations, what this person wrote, their switch for one host | this person's own messages are erased at once and the conversation is closed; the other person keeps what they wrote themselves, under "a deleted account", until the twelve months every message has | What someone wrote is theirs. Whether the other person may keep reading it is **for the lawyer**; the builder's first value is no |
+   | *Added.* Messages kept for a report (`report_conversations`) | keep with that report, for as long as the report is kept | The report's evidence |
+   | *Added.* Messages "From Connect" to this person | as "Emails written to this person" above: the text is erased, that one was sent stays | |
+   | *Added.* The record that a notice email arrived (plan 46, part 3a) | keep with the fact that the email was sent | A deadline was counted from it |
+   | *Added.* Acceptances of the legal documents: which document, which version, when | keep while the money records are kept | Proof of what was agreed; time for the lawyer to name |
+   | *Added.* Money a host owes back, what was taken by hand, the helper's own tries to collect for her | keep as money records. **An open one is a named open case** (decision 3), and her email address is kept for it alone until it is over (part 19b, decision 8) | Tax, and a debt that is not finished |
+   | *Added.* A request to cancel a membership within 14 days | finished first (part 19, decision 6a); then kept with that membership's money records | |
+   | *Added.* Tips given and received | paid ones kept as money records, like contributions; unpaid attempts erased | |
+   | *Added.* A warning about ratings, a pause the app made, the date of a "fresh start" | keep with "Reports about this person, pauses" above | Safety |
 
 3. **When:** as soon as parts 19 and 19b are finished for this person, and **in any case no
    later than the time promised on the confirmation screen for everything that is not tied to
@@ -76,6 +92,18 @@ requests after a year.
    with its reason. The promised time is a setting; the builder's choice is 30 days. The
    stores ask for "reasonably quick" and for the reasons for keeping anything to be told;
    neither names a number, so this is **for the lawyer**.
+   *Added 27 November:* money a host owes back is one more named open case (part 19b,
+   decision 8).
+3a. **Coming back with the same email address** *(added 27 November; open, for the lawyer)*.
+   Decision 1 lets the real address sign up again as a new, empty account. Three things now
+   hang on a person that such a return would shed: a stop on new payments after a lost bank
+   dispute (plan 47), a pause, and the count of reports and low ratings toward a pause by the
+   app (plan 52). The table already asks the lawyer whether reports and pauses may be used to
+   recognise a returning person. The same question now covers the stop on payments. The
+   builder's first value: for an account that was paused or stopped from paying when it was
+   deleted, its address is kept in the form that cannot be read back, only matched, and a new
+   account with that address begins paused, with the sentence the paused page has. Nothing of
+   this is built before the lawyer has answered.
 4. **An email, "Your Connect account has been deleted",** is sent after the wipe has
    succeeded. For that one message the address is held apart, used once, and then removed
    too. Both stores ask that the person is told when it is done.
@@ -111,7 +139,10 @@ requests after a year.
   out what they gave, and the average follows today's rule for a closed account; an open
   refund request keeps its texts until it is closed and then loses them; a paid contribution
   still has its empty project to point to; the email arrives after the wipe; a wipe stopped
-  halfway and run again.
+  halfway and run again; a person's own messages are gone and the other person's stay, a
+  message kept for a report is still with that report; a host's open debt keeps her address
+  until it is over and not a day longer; the acceptances are still there; the clean-up by
+  age (`runRetention`) neither brings back nor trips over anything a wipe removed.
 - Every existing check script unchanged and green.
 
 ## Astra's second check (20 November 2026): "not ready", now worked in
@@ -132,8 +163,29 @@ requests after a year.
 
 The whole table: which lines must be erased, which may be kept, for how long each; the 30
 days; whether reports and pauses may be used to recognise a returning person; what outside
-companies must be asked.
+companies must be asked. *Added 27 November:* the same for a stop on new payments after a
+lost bank dispute (decision 3a); whether the other person of a conversation may keep reading
+what a deleted person wrote; how long acceptances of the legal documents are kept.
 
 ## Keeping the 4.9%
 
 No purchase.
+
+## Brought up to date (27 November 2026)
+
+Read again against the database as it is on `main` after pull request 123. Since this was
+written the database gained, among others, these tables: acceptances of the legal documents,
+messages "From Connect", bank disputes, money a host owes back and what was taken by hand,
+the helper's own collection tries, conversations and their messages, messages kept for a
+report, and request keys that were used. What changed in this plan:
+
+1. *Nine lines were added to the table,* each marked "Added". (Request keys that were used
+   hold no personal detail and need no line; the wipe's own search, decision 8, will show if
+   that is wrong.)
+2. *A host's open debt is a named open case* that keeps her email address. Decision 3.
+3. *Coming back with the same address would shed a pause or a stop on payments.* Decision 3a,
+   open, for the lawyer.
+4. *A clean-up by age exists now.* "What is there today" and the check script.
+
+The table was the builder's version of a list only a lawyer can settle, and it still is. It
+goes to Astra with parts 19 and 19b before any of them is built.

@@ -2,7 +2,8 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Made
 when Astra's check split the first draft of part 10. It moves money back and forth, so it is
-kept small and apart.
+kept small and apart. Brought up to date on 27 November 2026, after the website changed (the
+list is at the end).
 
 ## For the founder: what this is
 
@@ -39,6 +40,15 @@ decides. The app does exactly what the website does, with the same words.
 - A refund asked of Stripe twice counts once (the same request number is used again), and an
   answer that is not known yet is told apart from a refusal (`OutcomeUnknownError`).
 - A host cannot collect the money of a call with a request she has not answered.
+- **After the host has collected a payment, she cannot give it back herself** (plan 46, part
+  3, choice B): the server refuses with its own sentence. Only Connect can then refund, from
+  the founder's pages on the website, and the host owes her share back (plans 46 and 50;
+  what she owes is part 16b's screen). The same holds for a member's call: after
+  collection only Connect gives the time back, and the money goes to the member's card.
+- **A refund can be "on its way" for days, or fail at Stripe**; the helper finishes those
+  later and never sends an old request again once it has stood still too long
+  (`src/lib/payments/refund-tries.ts`, pull requests 113, 116 and 121). The page says what
+  is true of each.
 
 ## Decisions (the builder's)
 
@@ -54,6 +64,11 @@ decides. The app does exactly what the website does, with the same words.
    host is asked what to charge; after, what to give back. The app never shows one with the
    other's wording, since that could turn "charge in full" into the opposite. Every state
    listed above under "What the host is shown" has its screen, with the website's sentence.
+3a. **After collection the host's side shows the server's sentence and no button.** The app
+   asks the server what this host can still do with each payment and never offers "give
+   back" by itself; a press that arrives after a collection is refused by the same function
+   as on the website. No address of the app refunds as Connect, and none sets the mark
+   "after collection" (`afterCollection` in `giveTimeBack`, `src/lib/membership/give-back.ts`).
 4. **Every answer about money asks once more** with the amount, in the website's sentence. A
    refund's outcome that is not known yet is shown as exactly that, with "look again"; the
    app never says "refunded" on its own, and a retry uses the same request number.
@@ -70,7 +85,9 @@ decides. The app does exactly what the website does, with the same words.
   more than was charged (refused); a second request for the same call; a member's call; a
   charge still being taken; nothing charged; a host of another call, the customer, and a
   founder who is not this call's host trying to decide through the app (all refused); no
-  closing address exists; the same refund sent twice; a payment of another call.
+  closing address exists; the same refund sent twice; a payment of another call; a host who
+  has collected tries to give back through the app, for an ordinary call and for a member's
+  call (both refused, nothing written, no debt made).
 - `refunds-check` and `payments-check` unchanged and green.
 - On the Android test phone, with Stripe's test mode and pictures: a refund from asking to
   the money coming back, both reasons, both moments, and a declined one.
@@ -78,3 +95,15 @@ decides. The app does exactly what the website does, with the same words.
 ## Keeping the 4.9%
 
 Refunds give money back for a one-to-one call. Nothing is sold.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. `src/lib/refunds/requests.ts`
+changed by one comment only. What changed in this plan:
+
+1. *After collection only Connect refunds, and the host then owes her share* (plans 46 and
+   50). "What is there today", decision 3a, the check script.
+2. *A refund that is on its way or failed* is said as that. "What is there today"; decision 4
+   already shows an unknown outcome as unknown.
+
+This plan is read against the code once more on the day it is built.

@@ -3,6 +3,8 @@
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Built
 up to the point where only the founder's keys are missing, and switched on when they exist.
 Astra checked it once ("ready with changes"); its points are worked in (the list is at the end).
+Brought up to date on 27 November 2026, after the website changed (that list is at the end
+too).
 
 ## For the founder: what this is
 
@@ -30,6 +32,18 @@ stand-in, and no notification leaves this Mac.
   alert" of any kind today.
 - Other emails exist that must never become notifications: about contributions and the
   diary, to followers, to admins, and for signing in.
+- **Messages "From Connect"** (plan 47, `tell` in `src/lib/messages/messages.ts`): when Connect
+  itself writes to a person, one message on their Messages page and one email with the same
+  words are written in one database step. Today these are: a bank dispute, among them the one
+  a host must answer within 24 hours; money a host owes back and the answer to her objection
+  (plans 46 and 50); a collection Connect started after 12 months without one; and the two
+  messages of plan 51's guard.
+- **Whether an email really arrived** is now recorded for the notices where the law needs it
+  (`src/lib/notifications/provider-events.ts`, plan 46, part 3a): a host's 14 days to object
+  run from the day the email service reports the notice delivered.
+- **Emails that came with plans 52 and 53:** a warning about low ratings; "your account is
+  paused"; "your membership is paused because one of the two accounts was paused"; and, when
+  that pause is lifted, the way to resume.
 
 ## Decisions (the builder's)
 
@@ -52,6 +66,24 @@ stand-in, and no notification leaves this Mac.
    from the other person of a conversation, by the rules of part 17b, decision 19 (its own
    switch, one line per conversation, never urgent). **Never:** anything about
    contributions, tips or the diary, emails to followers, admin and sign-in emails.
+2a. **"Connect has written to you."** *(added 27 November; the builder's, and one for the
+   founder to confirm)* Each message "From Connect" also makes one notification for each of
+   the person's phones, written in the same database step as the message and its email. It
+   says only that sentence: nothing about a bank, money or a report. Touching it opens the
+   app, which says "Connect has written to you. The message is in your email, and on your
+   Messages page on the website." The apps have no screen for these messages (part 17b,
+   "Not in this part"), and this notification does not need one. The one exception: once
+   part 16b is built, a message about money owed back opens that part's screen. *Why:* a host has 24 hours
+   to answer a bank dispute and 14 days to object to money taken back; a phone that stays
+   silent about the one email that has a deadline would be the wrong way round.
+   **A notification never counts as "the notice arrived".** Only the email's delivery report
+   starts a deadline, as today.
+2b. **Emails that stay emails only** *(added 27 November; the builder's)*: an account paused,
+   by a person or by the app, and the warning about low ratings. The app shows the paused
+   screen with its reason as soon as it is opened (part 18), and a locked screen is no place
+   for either. The emails about a membership paused with an account, and about resuming it,
+   belong to the kind "a membership needing the member" above, with its condition.
+   Cancelling within 14 days makes no notification (part 13c, decision 9).
 3. **Checked again at the moment of sending:** is this still that person's phone and are
    they still signed in on it; is the request still waiting, the call not cancelled; are
    reminders still wanted; is the thing still switched on. A notification about something
@@ -92,7 +124,9 @@ stand-in, and no notification leaves this Mac.
 
 ## How it is tried
 
-- `notifications-check` grows: for each kind on the list, one row per phone, once; the kinds
+- `notifications-check` grows: one "Connect has written to you" row per phone for a message
+  "From Connect", written with it or not at all, and none when the same message is written a
+  second time under its key; no row for a pause or a rating warning; for each kind on the list, one row per phone, once; the kinds
   on the "never" list write none; reminders off means no reminder but still the notices that
   must come; a cancelled call, an answered request and a signed-out phone get nothing at the
   moment of sending; the locked-screen text of every kind is checked against what it must
@@ -125,3 +159,17 @@ about the person's own calls (Apple forbids using them to advertise without cons
 5. *Expo's service says "taken", not "delivered";* its limits and its later answers.
    Decision 7.
 6. *Signing out and switching accounts.* Decision 8.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. What changed in this plan:
+
+1. *Connect now writes to people itself, with deadlines attached* (plans 46, 47, 50, 51).
+   Decision 2a: one sentence that names nothing. **For the founder to confirm.**
+2. *New emails about pauses and warnings* (plans 52 and 53). Decision 2b: emails only.
+3. *An email's arrival is recorded for legal notices.* Decision 2a says a notification never
+   stands in for it.
+4. The line about messages between two people was added earlier the same day by the builder
+   of part 17b; it stands.
+
+This plan is read against the code once more on the day it is built.
