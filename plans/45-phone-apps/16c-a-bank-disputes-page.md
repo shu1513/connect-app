@@ -36,16 +36,19 @@ its buttons are in `actions.ts` beside it, and the rules are in `src/lib/dispute
 - **What the host's page shows.** A heading ("A bank's question about a payment" or "A bank
   dispute"); one sentence with the customer's name and what it is about; the amount; the
   bank's reason in plain words (`reasonWords` in `status.ts`); when it was opened; where it
-  stands (`standingOf`: waiting, with the bank, won, lost, closed, an appeal, a kind the bank
-  takes no answer to). Then what it means for her money, by state, and "Please do not contact
-  the customer about it." All of these sentences are written inside the page.
+  stands (`standingOf` gives five answers: waiting, with the bank, won, lost, closed; the
+  page also tells an appeal apart, `isAppeal`, and a kind the bank takes no answer to,
+  `noAnswer`). Then what it means for her money, by state, and, while the dispute is open,
+  "Please do not contact the customer about it." All of these sentences are written inside
+  the page.
 - **The choice** (`canChoose` in `rules.ts`, `chooseAnswer` in `choose.ts`). She may choose
   only while all of this holds: it is a dispute and not a bank's mere question; the bank is
   waiting for an answer; it is one Connect asks her about (a dispute about the card network's
-  own rules under a set amount is left alone, and one the bank takes no answer to has nothing
-  to choose); nothing was chosen or sent yet; and the stored moment `askUntil` has not passed.
-  That moment is at most 24 hours after she is asked and never later than 3 days before the
-  bank's own deadline; sometimes there is no time to ask at all. The page shows that moment,
+  own rules is left alone under a set amount, or always, as the founder has set it; and one
+  the bank takes no answer to has nothing to choose); nothing was chosen or sent yet; and
+  the stored moment `askUntil` has not come (at that exact moment the choice is over). When
+  that moment is set, it is at most 24 hours after she is asked and, where the bank gave a
+  deadline, never later than 3 days before it; sometimes there is no time to ask at all. The page shows that moment,
   says "If you do not choose by then, Connect fights it. Your first choice stands: it cannot
   be changed afterwards.", and has two buttons with a paragraph each: "Fight it" and "Give
   the money back". The press holds the dispute's row and reads the clock after it has it, so
@@ -58,8 +61,9 @@ its buttons are in `actions.ts` beside it, and the rules are in `src/lib/dispute
   same objection box as on a debt's own page. In the apps that is part 16b's screen.
 - **How a host gets to the page today:** from the message "From Connect" on her Messages page
   and its email (the menu shows "Messages (1)"); from her earnings box, where a share that a
-  dispute holds back links to it (`disputePagesOf`); and from a take-back ("Read about this
-  dispute").
+  dispute holds back links to it (`disputePagesOf`), and where a take-back's row has "Read
+  about this dispute". (A take-back from a dispute has no page of its own for a host: its
+  address leads to the dispute's page.)
 - **Only for the founder**, on the same page: what was sent to the bank, the bank's deadline,
   Stripe's number, the last error, "Allow paying again", and every button about a take-back
   except the host's own objection.
@@ -72,14 +76,19 @@ its buttons are in `actions.ts` beside it, and the rules are in `src/lib/dispute
 
 1. **The host's view, and nothing of the founder's.** The app's answer is built field by
    field from what the page shows a host. Never in it: what was sent to the bank, the bank's
-   deadline, the last error, the line about Stripe, and the founder's buttons. A founder who
-   is this dispute's host sees the host's view in the app.
+   deadline, the last error, the line about Stripe, and the founder's buttons. **The app
+   never asks as a founder:** `disputeForViewer` lets a founder open any dispute, so the
+   app's addresses always call it with "not a founder". A founder gets what any host gets:
+   her own disputes, in the host's view.
 2. **Which disputes: by what they are about** (the rule for the apps). A dispute over a call's
    payment is in the app. One over a membership's month is in the app while memberships are
    on for the apps, and left out while they are off. One over a contribution or a tip is
    never in the app: not on any list, not on the home screen, and asked for by its number it
    looks exactly like one that does not exist. Her way to those stays the email and the
-   website. The server decides this before anything else is read.
+   website. **The server decides this first, on every address:** before any detail is
+   returned, before a choice is written, and before a refusal of `chooseAnswer` is passed
+   on (so that "already chosen" or "the time is over" cannot be learnt about a dispute the
+   app does not show).
 3. **One shared function for the host's view.** The sentences that are written inside the
    website's page today (where it stands, what it means, what was chosen, what became of the
    answer, the two buttons' paragraphs) move into one function, and the page calls it. The
@@ -101,18 +110,29 @@ its buttons are in `actions.ts` beside it, and the rules are in `src/lib/dispute
    - **Her earnings screen** (part 16) links a share that a dispute holds back to this
      screen, as the website's box does, and gets a short list "Bank disputes": those that
      are not over, and the latest five that are. One line each: what it is about, the
-     amount, where it stands.
+     amount, where it stands. **A link is sent only for a dispute that is hers and that the
+     app shows** (decision 2). The website's own lookup also finds the dispute behind a
+     contribution's share; the app's answer has no link there, as "Other earnings" leads
+     nowhere (part 16).
    - **The notification** of part 12, when touched, opens this screen for a dispute that
      waits for her choice, after asking the server again whether it is still hers and still
      waiting.
    And a take-back's screen (part 16b) leads here with "Read about this dispute", and this
-   screen leads to each of its take-backs there. The take-backs are not shown a second
-   time on this screen.
-7. **A paused host can still answer,** as on the website, where the choice needs only a
-   signed-in person: a pause must not cost her the answer to a bank.
+   screen leads to each take-back of hers that part 16b lets her open, one by one (a
+   dispute can stand behind several amounts; the app never passes on "the dispute's"
+   take-backs as a group). The take-backs are not shown a second time on this screen.
+7. **A paused host can still answer,** as on the website, where the choice needs a
+   signed-in, open account and not an unpaused one: a pause must not cost her the answer to
+   a bank. In the app that is the door's gate for a signed-in member. **Two different
+   answers, as everywhere at the door:** a phone that is not signed in gets "not signed in"
+   for every number; a signed-in person gets "not found", always the same one, for a number
+   that does not exist, for someone else's dispute and for one the app does not show.
 8. **Moments are shown in the phone's own time,** as part 08 does. The moment until which she
    may choose comes from the server (`askUntil`); the app counts nothing and never decides
-   by its own clock whether the buttons are there.
+   by its own clock whether the buttons are there. The sentence that says what the dispute
+   is about holds the call's day, written for the time zone saved on her account; the app
+   is sent the call's moment beside the words and writes that day in the phone's zone, so
+   the two cannot name different days.
 9. **No switch of its own.** Answering a bank is not a feature to be turned off. It follows
    the membership switch only in what decision 2 says.
 
@@ -125,10 +145,12 @@ its buttons are in `actions.ts` beside it, and the rules are in `src/lib/dispute
     her choice; waiting but left alone; one the bank takes no answer to; with the bank; an
     appeal; won; lost; closed), with the sentences the website's page has;
   - no field of the founder's is in any answer;
-  - the customer of the dispute, another host and a signed-out phone all get "not found",
-    the same as for a number that does not exist;
+  - the customer of the dispute and another host get "not found", the same as for a number
+    that does not exist; a phone that is not signed in gets "not signed in"; a founder who
+    is not this dispute's host gets "not found" too;
   - a dispute over a contribution and one over a tip: "not found" by its number, in no list,
-    no line on the home screen, and choosing refused as "not found";
+    no line on the home screen, no link from the earnings screen, and choosing refused as
+    "not found" whatever its state (open, already chosen, time over);
   - a dispute over a membership's month with memberships on for the apps (there) and off
     (as if it did not exist);
   - choosing "fight" and "give back"; choosing twice; a choice that is neither; choosing
@@ -161,3 +183,29 @@ answer for that.
 - Messages "From Connect" as a screen of their own in the apps. The home screen's line and the
   notification stand in for the one message that has a deadline.
 - Money taken back after a lost dispute: part 16b.
+
+## For the day it is built
+
+From Astra's check; none of it changes a decision above.
+
+- Try a dispute over a membership's month in all three positions of the apps' switch, and a
+  change of the switch between the notification arriving and its being touched.
+- Try the exact moment `askUntil`, and a choice that was saved while its answer never reached
+  the phone.
+- Read the shared wording of "Give the money back" against part 16b: the 14 days before
+  anything is taken run from the confirmed arrival of the notice's email.
+
+## Astra's check (27 November 2026): "ready with changes", worked in
+
+1. *The app must never ask as a founder, and must sort disputes out before it passes on a
+   refusal.* Decisions 1 and 2.
+2. *A link is itself about what it leads to.* Decision 6: no link for a dispute the app does
+   not show, and take-backs one by one.
+3. *An objection the founder typed in for the host is stored where her own would be.* Part
+   16b, decision 4a, corrected in the same change.
+4. *Part 12 named only one screen a notification can open.* Its decision 2a now names this
+   one too.
+5. *"Not signed in" and "not found" are two answers.* Decision 7 and the check script.
+6. Smaller: how the page tells states apart, the exact moment the choice ends, where "Read
+   about this dispute" is, and the call's day in the phone's own time. "What is there
+   today"; decision 8.

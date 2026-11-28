@@ -92,8 +92,11 @@ stand-in, and no notification leaves this Mac.
      notification leads only to what is the signed-in person's own.
    - **Touching it** opens the app, which says "Connect has written to you. The message is
      in your email, and on your Messages page on the website." The apps have no screen for
-     these messages (part 17b, "Not in this part"). The one exception: once part 16b is
-     built, a message about money owed back for a call opens that part's screen.
+     these messages (part 17b, "Not in this part"). Two exceptions: once part 16b is
+     built, a message about money owed back for a call opens that part's screen; and once
+     part 16c is built, one about a bank dispute that waits for her choice opens the
+     dispute's screen, after the server has said that it is still hers, still one the app
+     shows, and still waiting.
    - *Why at all:* two of these have a deadline. A host's time to choose how a bank dispute
      is answered is short (at most 24 hours from the moment she is asked, less when the
      bank's own deadline is near, and sometimes she is not asked at all; if she is asked and
