@@ -94,7 +94,8 @@ its buttons are in `actions.ts` beside it, and the rules are in `src/lib/dispute
    answer, the two buttons' paragraphs) move into one function, and the page calls it. The
    app shows the same sentences. The scripts that read that page today must pass unchanged.
 4. **Three addresses, on the functions that exist:** read one dispute (`disputeForViewer`,
-   then decision 2); choose (`chooseAnswer`, with its refusals as they come); and a short
+   then decision 2); choose (decision 2 first, then `chooseAnswer` with its refusals as they
+   come); and a short
    list of her disputes for the earnings screen (decision 6).
 5. **Choosing asks once more.** The website's buttons act at once. On a phone a touch by
    mistake is easier, and this choice cannot be changed. So each button opens a sheet with
