@@ -7,8 +7,11 @@
  * looks ("You host this call") never decides it.
  *
  * Nothing at all about a customer while either has blocked the other, or once the customer's
- * account is closed: such a call can still be on the list (a block cancels only calls that have
- * not started). Nothing for a call made by a check script either.
+ * account is closed or paused: such a call can still be on the list (a block, and a pause, cancel
+ * only calls that have not started). The rule of the request's own page
+ * (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6): the two must be able to act,
+ * with the host's own pause set aside, so that a paused host keeps what is hers while her pause
+ * is the only thing in the way. Nothing for a call made by a check script either.
  *
  * Every field read about a customer is named. Never their email, the name from their ID check,
  * their card, or anything another host knows about them.
@@ -17,9 +20,10 @@
  */
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { hostNotesAbout, openAndUnblocked, talkedBefore } from "@/lib/people/contacts";
+import { hostNotesAbout, talkedBefore } from "@/lib/people/contacts";
 import { photosForHost } from "@/lib/profiles/photo";
 import { verifiedAmong } from "@/lib/safety/identity";
+import { mayActWith } from "@/lib/safety/may-act";
 import type { CustomerDetails } from "./rules";
 
 export type AboutCall = { details: CustomerDetails; /** The customer's photo, when this host is handed one. */ photoId: string | null };
@@ -47,10 +51,13 @@ export async function customerDetailsFor(hostId: string, calls: Array<{ id: stri
     const booking = bookingOf.get(call.id);
     return booking && booking.source !== "admin";
   });
-  // The whole of it hangs on this: an open account, and no block in either direction.
-  const allowed = await openAndUnblocked(
+  // The whole of it hangs on this: the customer's account open and not paused, and no block in either direction.
+  // (The host's own pause is set aside: for a host who is not paused that changes nothing.)
+  const allowed = await mayActWith(
     hostId,
     real.map((call) => call.customerId),
+    undefined,
+    { ownPauseAside: true },
   );
   const shown = real.filter((call) => allowed.has(call.customerId));
   if (shown.length === 0) return about;

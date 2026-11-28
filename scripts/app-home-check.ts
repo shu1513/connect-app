@@ -20,7 +20,7 @@ import http from "node:http";
 import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { APP_ORIGIN } from "../src/lib/auth-rules";
 import { APP_HEADER, SIGN_IN_HEADER } from "../src/lib/app-door/rules";
-import type { AppHome, Refusal } from "../src/lib/app-door/types";
+import type { AppCalls, AppHome, Refusal } from "../src/lib/app-door/types";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
@@ -443,6 +443,43 @@ async function main() {
       const followedNow = (await home(cust.jar)).body?.followed.hosts.find((h) => h.name === hostA.displayName);
       check("and a followed host whose page is hidden is listed by name only", followedNow !== undefined && followedNow.handle === null && followedNow.photoId === null && followedNow.available === false);
       await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, hostA.id));
+
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6.) A customer paused while a call with this host
+      // is under way: a pause cancels only calls that have not started, so the call stays on her home page and in her
+      // Calls. Nothing about him goes with it any more: not what he wrote, not his ID mark, not his photo's id. And the
+      // photo's own address refuses her, since a phone may still hold the id. (Last here: it puts a call under way.)
+      const underWay = await call({ hostId: hostC.id, customerId: cust.id, startsInMinutes: -5, words: "Written when asking for the call under way" });
+      const [idCheck] = await db.insert(schema.identityChecks).values({ userId: cust.id, stripeSessionId: `vs_check_${RUN}_underway`, status: "verified", adult: true, checkedAt: now }).returning({ id: schema.identityChecks.id });
+      const onHome = async () => (await home(hostC.jar)).body?.calls.find((c) => c.id === underWay.id);
+      const inCalls = async () => {
+        const reply = await asApp("/api/app/calls?kind=coming&page=1", { jar: hostC.jar });
+        return reply.status === 200 ? (reply.json as AppCalls).calls.find((c) => c.id === underWay.id) : undefined;
+      };
+      const photoFor = (jar: Jar) => asApp(`/api/app/photos/${custPhoto}`, { jar });
+      type Row = Awaited<ReturnType<typeof onHome>>;
+      const withDetails = (row: Row) => row !== undefined && row.hosting === true && row.about?.words === "Written when asking for the call under way" && row.about.idConfirmed === true && row.photoId === custPhoto;
+      const bare = (row: Row) => row !== undefined && row.hosting === true && row.name === cust.name && !("about" in row) && row.photoId === null;
+      try {
+        check("(as things stand, the call under way carries what he wrote, his ID mark and his photo's id, on Home and in Calls)", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
+        await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, cust.id));
+        const during = await home(hostC.jar);
+        check("a customer paused during a call that is under way: the row stays on the host's home page, without his words, his ID mark or his photo", bare(during.body?.calls.find((c) => c.id === underWay.id)) && !during.reply.text.includes("Written when asking for the call under way") && !during.reply.text.includes(custPhoto), JSON.stringify(during.body?.calls.find((c) => c.id === underWay.id)).slice(0, 200));
+        check("the same in her Calls", bare(await inCalls()));
+        const refusedPhoto = await photoFor(hostC.jar);
+        check("and the photo's own address refuses her, as for any photo that is not hers to see", refusedPhoto.status === 404 && refusal(refusedPhoto) === "not_found" && refusedPhoto.bytes.toString() !== "photo");
+        check("(he still gets his own photo)", (await photoFor(cust.jar)).status === 200);
+        await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
+        // A host whose own pause is the only thing in the way keeps what is hers.
+        await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, hostC.id));
+        check("a paused host keeps what is hers while her own pause is the only thing in the way: the details and the photo", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
+        await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, cust.id));
+        check("but not once the customer is paused as well", bare(await onHome()) && bare(await inCalls()) && refusal(await photoFor(hostC.jar)) === "not_found");
+        await db.update(schema.user).set({ pausedAt: null }).where(inArray(schema.user.id, [cust.id, hostC.id]));
+        check("with the pauses lifted, everything about him is back beside the call", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
+      } finally {
+        await db.update(schema.user).set({ pausedAt: null }).where(inArray(schema.user.id, [cust.id, hostC.id]));
+        await db.delete(schema.identityChecks).where(eq(schema.identityChecks.id, idCheck.id));
+      }
     }
   } finally {
     const ids = made.length ? made : ["-"];

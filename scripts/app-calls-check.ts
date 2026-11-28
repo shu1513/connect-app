@@ -451,6 +451,34 @@ async function main() {
       const charged = await paymentOf(late.call.id);
       const taken = await stripe().paymentIntents.retrieve(charged.stripePaymentIntentId!);
       check("the late charge is the booked price, taken once at Stripe", charged.status === "charged" && charged.bookedCents === 1333 && taken.status === "succeeded" && taken.amount_received === 1333, `${charged.status} ${taken.status} ${taken.amount_received}`);
+      // A call that cannot go ahead costs nothing to cancel (plans/45-phone-apps/09a-what-is-built-put-right.md,
+      // decision 6). The same kind of call: inside the host's hour, with the money held. With a block between the
+      // two (written straight into the database, so nothing has cancelled the call), the person who cancels it by
+      // hand gets what the cancelling after a block would have given: nothing is taken.
+      {
+        const stuck = await newCall(host.id, cust.id, { startsIn: 30, price: 2000, minutes: 10, freeCancel: 60 });
+        await step(stuck.call.id, "pay", cust.jar);
+        await confirmAtStripe(stuck.call.id, "pm_card_visa");
+        await step(stuck.call.id, "pay-check", cust.jar);
+        const asItStands = (await callPage(stuck.call.id, cust.jar)).body;
+        check("(without a block this very call costs the late charge, and its page says so)", (await paymentOf(stuck.call.id)).status === "held" && asItStands?.cancel?.shown === "late_charge" && asItStands.cancel.words === "Cancelling now is past the free period: the full $13.33 is charged. The host may choose to refund you.", JSON.stringify(asItStands?.cancel));
+        await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: cust.id });
+        try {
+          const quoted = (await callPage(stuck.call.id, cust.jar)).body;
+          check("with a block between the two, the page says beforehand that cancelling is free, although the free hour is over and the money is held", quoted?.cancel?.shown === "free" && quoted.cancel.words === "Cancelling now is free. Nothing is charged." && (await callPage(stuck.call.id, host.jar)).body?.cancel?.shown === "free", JSON.stringify(quoted?.cancel));
+          const webQuote = await asBrowser(`/calls/${stuck.call.id}`, { jar: cust.jar });
+          check("the website's page says the same, and its form carries it", webQuote.status === 200 && formFields(webQuote.text, "callId")?.shown === "free", `${webQuote.status}`);
+          const freed = await step(stuck.call.id, "cancel", cust.jar, { shown: "free" });
+          const freedPage = freed.status === 200 ? (freed.json as AppCallPage) : null;
+          const freedCall = await callRow(stuck.call.id);
+          check("the customer cancels: it is cancelled as a free cancellation", freedPage?.state === "cancelled" && freedPage.notice === "The call was cancelled. Nothing is charged, and the hold on the card is being let go." && freedCall.cancelledAt !== null && freedCall.cancelledBy === "customer" && freedCall.cancelledLate === false, `${freed.status} ${freed.text.slice(0, 160)}`);
+          const letGo = await paymentOf(stuck.call.id);
+          const atStripe = await stripe().paymentIntents.retrieve(letGo.stripePaymentIntentId!);
+          check("nothing is taken, and the hold is let go, here and at Stripe", letGo.status === "closed_uncharged" && (letGo.chargedCents ?? 0) === 0 && atStripe.status === "canceled" && atStripe.amount_received === 0, `${letGo.status} ${atStripe.status} ${atStripe.amount_received}`);
+        } finally {
+          await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, host.id), eq(schema.blocks.blockedId, cust.id)));
+        }
+      }
       // The free period ends while the cancelling waits its turn (here: for the call's own lock). What it means is
       // decided when it happens, not when the button was pressed: nothing is cancelled, and the person is told.
       const edge = await newCall(host.id, cust.id, { startsIn: 60 + 16 / 60, price: 2000, minutes: 10, freeCancel: 60 });
@@ -624,6 +652,11 @@ async function main() {
       check("(as things stand: the pay step or its date for the customer, the host waiting for it, and the way to the room for both)", await asThingsStand());
       /** No step that would be refused: neither the pay step nor the way into the room, and one sentence in their place. Cancelling stays. */
       const stopped = (page: AppCallPage | null) => page !== null && page.state === "blocked" && page.words?.length === 1 && page.words[0] === CANNOT && page.small === null && page.pay === null && page.room === null && page.cancel !== null && page.afterEnd === null;
+      /** Turned away at the room's door for the other person's pause or closure: the sentence, and the code "not_valid", which is what makes the phone read the room again. */
+      const refusedAtTheDoor = async (id: string, jar: Jar) => {
+        const reply = await step(id, "enter", jar);
+        return reply.status === 400 && refusal(reply) === "not_valid" && sentence(reply) === "You cannot join this call right now.";
+      };
       /**
        * ANOTHER call of the two, one that is over: its page still leads to "Report" and "Block". (The calls above, which
        * can no longer go ahead, are not over: their page has no "Report" and no "Block", now as before.) The page must
@@ -641,7 +674,7 @@ async function main() {
         check("a paused customer is not offered the pay step, which the address refuses: the page says that the call can no longer go ahead", stopped(await pageOf(toPay.call.id, cust.jar)) && refusal(await step(toPay.call.id, "pay", cust.jar)) === "paused", JSON.stringify(await pageOf(toPay.call.id, cust.jar)).slice(0, 200));
         check("both people read the same about the unpaid call: the host is not told that she waits for a payment that cannot come", stopped(await pageOf(toPay.call.id, host.jar)));
         check("nor is the customer told from when a call far ahead can be paid for, or its host that she waits", stopped(await pageOf(farAhead.call.id, cust.jar)) && stopped(await pageOf(farAhead.call.id, host.jar)));
-        check("nor is either of the two offered the way into a room nobody can enter", stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)) && refusal(await step(open.call.id, "enter", cust.jar)) === "paused" && sentence(await step(open.call.id, "enter", host.jar)) === "You cannot join this call right now.");
+        check("nor is either of the two offered the way into a room nobody can enter", stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)) && refusal(await step(open.call.id, "enter", cust.jar)) === "paused" && (await refusedAtTheDoor(open.call.id, host.jar)));
         check('another call of theirs, one that is over, still leads to "Report" and "Block", for the paused person and for the other', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
         await setPaused(cust.id, false);
 
@@ -656,7 +689,7 @@ async function main() {
         await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, host.id));
         const refusedHold = await step(toPay.call.id, "pay", cust.jar);
         check("a call's money is not held when the other account was closed: no pay step is offered, and the step refuses", stopped(await pageOf(toPay.call.id, cust.jar)) && refusal(refusedHold) === "not_valid" && sentence(refusedHold) === "This call can no longer be paid for." && (await paymentOf(toPay.call.id)).stripePaymentIntentId === null && (await paymentOf(toPay.call.id)).status === "awaiting_payment", `${refusedHold.status} ${sentence(refusedHold)}`);
-        check("nor is its room offered or entered", stopped(await pageOf(open.call.id, cust.jar)) && sentence(await step(open.call.id, "enter", cust.jar)) === "You cannot join this call right now.");
+        check("nor is its room offered or entered", stopped(await pageOf(open.call.id, cust.jar)) && (await refusedAtTheDoor(open.call.id, cust.jar)));
       } finally {
         await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, host.id));
         await setPaused(cust.id, false);

@@ -13,8 +13,31 @@ import { closeRoom } from "@/lib/video/livekit";
 import { capturePayment, releasePayment } from "./actions";
 import { syncHoldLocked } from "./hold";
 import { CALL_WORDS } from "@/lib/call-page/words";
+import { mayStillAct } from "@/lib/safety/may-act";
 import { lockPayment, MoneyError } from "./operations";
-import { cancellationOutcome } from "./rules";
+import { cancellationOutcome, type CancellationOutcome } from "./rules";
+
+/**
+ * What cancelling this call would mean right now, for the person who would cancel it. The one question, asked in
+ * two places so that they cannot come to differ: by a call's page, for what it says beforehand (the website's and
+ * the phone app's, src/lib/call-page/gather.ts), and by the locked step below that cancels and decides the money.
+ *
+ * The decision itself is `cancellationOutcome` (rules.ts). Here it is handed the one fact the clock does not know:
+ * whether the call's two people may still act (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6).
+ * Asked only where it can change the answer, which is where a late charge would otherwise be due.
+ *
+ * `reader`: the database, or the step that cancels. Only read, nothing locked: a pause or a block that is written
+ * down after this look is one that came after the cancellation.
+ */
+export async function cancelOutcomeFor(
+  reader: Pick<typeof db, "select">,
+  input: { call: Pick<Call, "hostId" | "customerId" | "startsAt" | "freeCancelMinutes">; by: "host" | "customer" | "admin"; now: Date; held: boolean },
+): Promise<CancellationOutcome> {
+  const facts = { by: input.by, now: input.now, startsAt: input.call.startsAt, freeCancelMinutes: input.call.freeCancelMinutes, held: input.held };
+  const byTheClock = cancellationOutcome(facts);
+  if (byTheClock !== "late_charge") return byTheClock;
+  return cancellationOutcome({ ...facts, cannotGoAhead: !(await mayStillAct(input.call.hostId, input.call.customerId, reader)) });
+}
 
 /** Cancelling would cost more than the person was shown: nothing was cancelled, and the page shows what it means now. */
 export class CancelChangedError extends MoneyError {}
@@ -47,7 +70,8 @@ export type Cancelled = {
 
 /**
  * Cancels a call on behalf of its host or its customer, or for the founder when an account is closed.
- * Free before the host's cut-off; after it, the customer is charged the booked price.
+ * Free before the host's cut-off; after it, the customer is charged the booked price, unless the call's
+ * two people may no longer act (`cancelOutcomeFor`): such a call costs nobody anything.
  */
 export async function cancelCall(input: CancelInput): Promise<"free" | "late_charge"> {
   return (await cancelCallWith(input)).outcome;
@@ -100,7 +124,9 @@ export async function cancelCallWith(input: CancelInput): Promise<Cancelled> {
     // "Unpaid" is the helper's reason for cancelling a call whose money was not held in time, and for nothing else:
     // if the money has been held meanwhile, the call stands.
     if (input.reason === "unpaid" && !neverPaid) return { refused: new MoneyError("This call has been paid for meanwhile, so it is not cancelled as unpaid.") };
-    const outcome = neverPaid ? "free" : cancellationOutcome({ by, now: at, startsAt: fresh.startsAt, freeCancelMinutes: fresh.freeCancelMinutes, held: own?.status === "held" });
+    // (Asked with this step's own connection, the call and its payment held: free also past the free period when the
+    // call's two people may no longer act. That look only reads, so it waits for nothing and nothing waits for it.)
+    const outcome = neverPaid ? "free" : await cancelOutcomeFor(tx, { call: fresh, by, now: at, held: own?.status === "held" });
     if (outcome === "not_allowed") return { refused: new MoneyError("This call has started, so it can no longer be cancelled.") };
     if (input.shown === "free" && outcome === "late_charge") return { refused: new CancelChangedError(CALL_WORDS.cancelChanged) };
 

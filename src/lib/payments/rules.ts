@@ -62,9 +62,16 @@ export function cancellationOutcome(input: {
   freeCancelMinutes: number;
   /** Whether money is currently held for this call. Without a hold there is nothing to charge. */
   held: boolean;
+  /**
+   * The call's two people may no longer act (an account paused or closed, or a block between them). Such a call
+   * is cancelled at no charge by the step that follows a pause, a closure or a block; a person who does that
+   * cancelling by hand, because that step failed or has not run yet, gets the same: free, whatever the clock
+   * says. Only before the start: a call that has started keeps its own rules. Left out: they may act.
+   */
+  cannotGoAhead?: boolean;
 }): CancellationOutcome {
   if (input.now >= input.startsAt) return "not_allowed";
-  if (input.by !== "customer" || !input.held) return "free";
+  if (input.by !== "customer" || !input.held || input.cannotGoAhead) return "free";
   const freeUntil = input.startsAt.getTime() - input.freeCancelMinutes * 60_000;
   return input.now.getTime() < freeUntil ? "free" : "late_charge";
 }

@@ -11,8 +11,9 @@ import { wholeBookingSaid } from "@/lib/booking/rules";
 import type { Call, Payment } from "@/db/schema";
 import { hostNoteAbout } from "@/lib/people/contacts";
 import { callForParticipant, formatMoney } from "@/lib/payments/access";
+import { cancelOutcomeFor } from "@/lib/payments/cancel";
 import { syncHold } from "@/lib/payments/hold";
-import { cancellationOutcome, paymentBlocksJoin, payWindow, type CancellationOutcome } from "@/lib/payments/rules";
+import { paymentBlocksJoin, payWindow, type CancellationOutcome } from "@/lib/payments/rules";
 
 /** The hold may land any second when the call is this close: the page then follows it by itself. */
 const FOLLOW_WITHIN_MS = 10 * 60_000;
@@ -86,7 +87,9 @@ export async function gatherCallPage(userId: string, callId: string, now: Date, 
   // for paying and cancelling before the call) does not.
   const [booking] = payment ? await db.select({ totalCents: schema.bookings.totalCents, cardConsentVersion: schema.bookings.cardConsentVersion }).from(schema.bookings).where(eq(schema.bookings.callId, call.id)) : [];
 
-  const cancel = cancellationOutcome({ by: role, now, startsAt: call.startsAt, freeCancelMinutes: call.freeCancelMinutes, held: payment?.status === "held" });
+  // The very question the step that cancels asks, so the page never says one thing and the cancelling does another:
+  // free also past the free period when the call's two people may no longer act.
+  const cancel = await cancelOutcomeFor(db, { call, by: role, now, held: payment?.status === "held" });
   // The call's own hold against its own stretch (see the join check): the call's end moves when time is added.
   const blocked = paymentBlocksJoin({ payment, callEndsAt: payment?.coversUntil ?? call.endsAt, now });
   const unpaid = Boolean(payment) && blocked === "not_paid" && payment?.status === "awaiting_payment";

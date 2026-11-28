@@ -483,6 +483,38 @@ async function main() {
       check("a customer whose account is closed: the call that is still listed shows no details", listed(closed.html, withFirst.id) && detailsOf(closed.html, withFirst.id) === "" && !closed.text.includes(`Sponsors question ${RUN}`) && (await same()).ok);
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, first.id));
 
+      // A customer paused during a call that is under way (plans/45-phone-apps/09a-what-is-built-put-right.md, decision
+      // 6): a pause cancels only calls that have not started, so the call stays on the host's home page. His words, his
+      // ID mark, her note about him and his photo are gone from it, and the photo's own address refuses her. (The
+      // website's home page and the phone app's Home and Calls read the same function, src/lib/home/customer-details.ts.
+      // The website's own calls page lists only calls that are over, which never carry a customer's details.)
+      {
+        const underWay = await call({ hostId: bri.id, customerId: regular.id, startsInMinutes: -5 });
+        await requestOf(underWay, { words: `Words during the call ${RUN}` });
+        const photoAddress = () => send(`/host-photos/${regularsPhoto.id}`, { jar: bri.jar });
+        const shown = (page0: { html: string }) => listed(page0.html, underWay.id) || page0.html.includes(`data-next-call="${underWay.id}"`);
+        try {
+          const asItIs = await page("/", bri.jar);
+          check("(as things stand, the call under way carries his words, his ID mark and his photo on the host's home page)", asItIs.status === 200 && shown(asItIs) && words(detailsOf(asItIs.html, underWay.id)).includes(`Words during the call ${RUN}`) && detailsOf(asItIs.html, underWay.id).includes("data-customer-id") && asItIs.html.includes(`/host-photos/${regularsPhoto.id}`) && (await photoAddress()).status === 200, `${asItIs.status}`);
+          await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, regular.id));
+          const during = await page("/", bri.jar);
+          check("the row of the call under way stays on her home page, without the paused customer's words, ID mark, note or photo", during.status === 200 && shown(during) && detailsOf(during.html, underWay.id) === "" && !during.text.includes(`Words during the call ${RUN}`) && !during.text.includes(noteText) && !during.text.includes(regularsPhoto.id), `${during.status} ${words(detailsOf(during.html, underWay.id)).slice(0, 120)}`);
+          check("nor do his other calls with her show anything of him while he is paused", detailsOf(during.html, withRegular.id) === "" && !during.text.includes(`Advice on my first video ${RUN}`));
+          check("and the photo's own address refuses the host", (await photoAddress()).status === 404);
+          await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, regular.id));
+          // A host whose own pause is the only thing in the way keeps what is hers.
+          await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, bri.id));
+          const hers = await page("/", bri.jar);
+          check("a paused host keeps what is hers while her own pause is the only thing in the way: the details and the photo", shown(hers) && words(detailsOf(hers.html, underWay.id)).includes(`Words during the call ${RUN}`) && (await photoAddress()).status === 200, `${hers.status}`);
+        } finally {
+          await db.update(schema.user).set({ pausedAt: null }).where(inArray(schema.user.id, [regular.id, bri.id]));
+          // The call under way goes again, so that what follows finds the home page as it was.
+          await db.delete(schema.bookings).where(eq(schema.bookings.callId, underWay.id));
+          await db.delete(schema.calls).where(eq(schema.calls.id, underWay.id));
+        }
+        check("with the pause lifted and that call gone, the details of her next call are back", detailsOf((await page("/", bri.jar)).html, withRegular.id).includes("data-host-note"));
+      }
+
       // Requests, to answer on the home page.
       const asking = [await person("ask1"), await person("ask2")];
       const sameTime = await Promise.all(asking.map((who, i) => waitingRequest(bri.id, who.id, 3 * 24 * 60, `Request words ${i} ${RUN}`)));

@@ -395,7 +395,8 @@ it. The three taken were small and made by the builder himself.
 - *A hold's claim can survive if the helper program itself stops in the instant between
   writing its claim and learning that the two may no longer act, and the pause is then lifted
   before the call is cancelled.* The customer would get one email asking him to pay by hand. It
-  needs a crash inside a few milliseconds and a pause lifted within about a minute. Before this
+  needs a crash inside a few milliseconds and a pause lifted before the helper's next sweep
+  (which comes no sooner than two minutes later). Before this
   part the same email went out in the far commoner case, a pause or a block at the moment of
   the try, and that case is fixed. A transaction around the claim would narrow it further and
   not close it; it was left.
@@ -408,3 +409,30 @@ it. The three taken were small and made by the builder himself.
   readings skips the automatic move to the three choices.* In both, a press is refused and the
   room is read again (the second look's fix), and the choices stay reachable from the call's
   page.
+
+## Astra's fourth look at the code (28 November 2026): "not ready", two real points, both taken
+
+Neither needs a race of milliseconds. Corrected by the terminal Claude from a fourth brief;
+lint, types, tests and fifteen check scripts pass (`photo-check` with its one old line, as on
+`main`).
+
+1. **Cancelling a call that cannot go ahead costs nothing, whoever cancels it.** When a block
+   goes through and the cancelling of a coming call fails, the person is told to cancel it from
+   the calls page. Past the free-cancel time that page offered a late cancellation, and the
+   customer could be charged the whole booked price for a call that could never take place.
+   Now one function, `cancelOutcomeFor` (`src/lib/payments/cancel.ts`), is asked both by the
+   call's page for what it says beforehand and by the locked step that takes the money: before
+   a call's start, when its two people may no longer act, cancelling is free. A call that has
+   started keeps its rules. **This is a rule about money on the website too, and the founder
+   was told:** it is what the automatic tidying-up after a pause, a closure or a block already
+   did; the gap was only a person cancelling by hand first. `app-calls-check` plays it with a
+   real hold in Stripe's test mode: the late charge without a block, "free" on both pages with
+   one, and the hold let go with nothing taken.
+2. **A customer paused during a call that is under way still showed on the host's Home and
+   Calls with his words, ID mark and photo.** The lists' details (`customerDetailsFor`) and the
+   address of a customer's private photo (`handedTo` in `src/lib/profiles/photo.ts`) now ask
+   the pair rule, with the host's own pause set aside. The website's home page reads the same
+   function and follows; its request page no longer shows a paused customer's photo.
+
+Smaller: the new case in `booking-check` no longer swallows a failed clean-up, and the checks
+that expect "You cannot join this call right now." also assert the code the phone acts on.

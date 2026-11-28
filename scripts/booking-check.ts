@@ -695,9 +695,11 @@ async function main() {
         check("with the pause lifted, the next pass makes the real try, exactly one, and the money is held", held.status === "held" && tries.length === 1 && tries[0].status === "succeeded" && (await reload(booking.id)).holdTriedAt !== null && (await stripeIntentsOf(tia.id)).length === 1, `${held.status} ${tries.length}`);
         check("and no card email was ever written", (await emailsTo(tia.email, "needs your attention")) === 0 && (await reload(booking.id)).holdFailedAt === null);
       } finally {
+        // The pause is lifted first, whatever becomes of the rest. Then the call is cancelled and its money settled:
+        // a failure there is not swallowed, so this check cannot pass with its call (and a hold) left open.
         await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, tia.id));
-        await cancelCall({ call, payment: await payment(), by: "host", now: at }).catch(() => undefined);
-        await settleCancelledCalls().catch(() => undefined);
+        if (!(await db.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, callId)))[0]?.cancelledAt) await cancelCall({ call, payment: await payment(), by: "host", now: at });
+        await settleCancelledCalls();
       }
     }
 
