@@ -48,6 +48,7 @@ async function main() {
   const { announceAvailable, announcePosts } = await import("../src/lib/follows/emails");
   const { runNoticeRound } = await import("../src/legal/notices");
   const { runRetention } = await import("../src/lib/retention");
+  const { runAutoPauses } = await import("../src/lib/safety/auto-pause");
   const { collectUncollected, rerunUnfinishedTries, tellOfCollections } = await import("../src/lib/payments/uncollected");
 
   const closesAt = sql`${schema.calls.endsAt} + make_interval(secs => ${CLOSE_LATE_SECONDS})`;
@@ -133,6 +134,8 @@ async function main() {
     if (stripeConfigured() && passes % 12 === 0) await refreshPendingIdentityChecks().catch((error) => console.error("[identity] refresh failed; will retry", error));
     // About once a minute: what a pause or a closure left behind when the server stopped in the middle of it.
     if (passes % 12 === 0) await finishPausesAndClosures(now).catch((error) => console.error("[accounts] finishing pauses and closures failed; will retry", error));
+    // About every 10 minutes: accounts whose reports or ratings have reached the line for a pause by the app itself (plans/52).
+    if (passes % 120 === 0) await runAutoPauses(now).catch((error) => console.error("[auto-pause] the round failed; will retry", error));
     // About once an hour: the notes about connection quality of calls that ended more than 60 days ago are removed.
     if (passes % 720 === 0) await removeOldNotes(now).catch((error) => console.error("[quality] removing old notes failed; will retry", error));
     // The summary and the two short texts of a refund request are kept for one year.

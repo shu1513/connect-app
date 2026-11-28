@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { photoStates } from "@/lib/profiles/photo";
 import { unansweredRequests } from "@/lib/refunds/requests";
+import { AUTO_PAUSE } from "@/lib/safety/auto-pause-rules";
 import { reportedBackWords } from "@/lib/safety/report-words";
 import { openReports, REPORT_REASONS } from "@/lib/safety/reports";
 import { switches } from "@/lib/safety/switches";
@@ -324,6 +325,11 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
       )}
 
       <h2 className="mt-10 text-lg font-semibold">Paused accounts ({paused.length})</h2>
+      <p className="mt-1 text-sm opacity-70">
+        An account is paused by the app itself when {AUTO_PAUSE.reporters} different paying customers report it within {AUTO_PAUSE.withinDays} days (and they are at least 1 in{" "}
+        {AUTO_PAUSE.oneIn} of its customers in that time), or when its average rating is {AUTO_PAUSE.lowAverage.toFixed(1)} or lower from {AUTO_PAUSE.minRaters} or more people. Lifting a
+        pause is a fresh start: reports and ratings from before no longer count toward a pause by the app.
+      </p>
       {paused.length > 0 && (
         <ul className="mt-2 space-y-1 text-sm">
           {paused.map((p) => (

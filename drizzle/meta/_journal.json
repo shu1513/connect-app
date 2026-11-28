@@ -477,6 +477,13 @@
       "when": 1795795867884,
       "tag": "0067_end_call_now",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795825804333,
+      "tag": "0068_automatic_pause",
+      "breakpoints": true
     }
   ]
 }

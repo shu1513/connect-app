@@ -429,9 +429,60 @@ export async function pauseUnderage(input: {
   }
 }
 
+/**
+ * The app pauses an account by itself because its reports or its ratings reached a line (plans/52). Exactly the
+ * founder's pause, made by nobody: the person is told why in general words and where to write, and the founder
+ * is told that it happened. Whether a line is reached is worked out by the caller (auto-pause.ts); this only
+ * pauses.
+ *
+ * Never an admin's account, and not a closed one (if it is opened again, the next round looks at it). "paused"
+ * only when this call paused it: an account that was paused already stays as it was, and the founder is told.
+ * `key` must be the same for the same cause within one fresh start, so that nothing is sent twice.
+ */
+export async function pauseByItself(input: {
+  userId: string;
+  reason: string;
+  because: string;
+  founder: { subject: string; text: string; alreadyText: string };
+  key: string;
+}): Promise<"paused" | "not_paused"> {
+  const [person] = await db.select().from(schema.user).where(eq(schema.user.id, input.userId));
+  const [admin] = await db.select().from(schema.admins).where(eq(schema.admins.userId, input.userId));
+  if (!person || admin || person.closedAt || person.pausedAt) return "not_paused";
+  const paused = await pause({
+    person,
+    reason: input.reason,
+    because: input.because,
+    emailKey: input.key,
+    adminId: null,
+    tellFounder: { subject: input.founder.subject, text: input.founder.text, alreadyText: input.founder.alreadyText, key: `${input.key}:founder` },
+  });
+  if (typeof paused === "string") return "not_paused";
+  if (paused.callsNotEnded !== 0) {
+    // The founder's own pause shows this number on the page. Here nobody is looking, so it is sent.
+    console.error(`[auto-pause] account ${input.userId} was paused automatically, but ${paused.callsNotEnded === -1 ? "its requests and calls" : `${paused.callsNotEnded} of its calls`} could not be ended.`);
+    for (const one of await adminsIn(db)) {
+      await queueEmail(db, {
+        to: one.email,
+        subject: "A paused account still has calls",
+        text: `The account of ${person.name} (${person.email}) was paused automatically, but ${paused.callsNotEnded === -1 ? "its requests and calls" : `${paused.callsNotEnded} of its calls`} could not be ended. Please look at them now:\n\n${appUrl()}/admin`,
+        key: `${input.key}:calls:${one.id}`,
+      });
+    }
+  }
+  return "paused";
+}
+
+/** Where the founder lifts a pause: said in the emails about a pause the app made by itself. */
+export function pausedListUrl(): string {
+  return `${appUrl()}/admin/reports`;
+}
+
 export async function liftPause(input: { adminId: string; userId: string }): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx.update(schema.user).set({ pausedAt: null, pausedReason: null, updatedAt: new Date() }).where(eq(schema.user.id, input.userId));
+    // A person has looked at the account: what was reported and rated before this moment no longer counts toward
+    // a pause the app makes by itself (plans/52, decision 8). Without this, the next round would pause it again.
+    await tx.update(schema.user).set({ pausedAt: null, pausedReason: null, autoPauseFrom: new Date(), updatedAt: new Date() }).where(eq(schema.user.id, input.userId));
     await recordAdminAction({ adminId: input.adminId, action: "pause lifted", targetUserId: input.userId }, tx);
   });
 }

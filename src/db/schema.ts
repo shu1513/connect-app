@@ -48,6 +48,12 @@ export const user = pgTable("user", {
   /** Set when the founder pauses the account: it can log in and look, but not book, host or join calls. */
   pausedAt: timestamp("paused_at", { withTimezone: true }),
   pausedReason: text("paused_reason"),
+  /**
+   * When a pause of this account was last lifted (plans/52, decision 8). A person looked at the account then, so
+   * reports made before this moment, and ratings of calls that ended before it, no longer count toward a pause
+   * the app makes by itself. Null: no pause was ever lifted.
+   */
+  autoPauseFrom: timestamp("auto_pause_from", { withTimezone: true }),
   /** Kept by the login library: whether this person logs in with a second step (admins must). */
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   /** Reminder emails before calls and about requests. Emails about things that happened are always sent. */

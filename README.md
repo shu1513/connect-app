@@ -115,6 +115,10 @@ Testing tools:
   local database: which calls can be rated and when, when a rating counts and what an average shows,
   search by name, handle and confirmed social name (and who is never found), contacts, and private
   notes. It makes and removes its own people and calls, and needs neither Stripe nor the app running.
+- `npx tsx scripts/auto-pause-check.ts` checks the pause the app makes by itself (plans/52) against the
+  local database: the fifth reporter pauses, each thing that makes a report not count, the share for
+  a busy account, a lifted pause is a fresh start, and ratings that warn and then pause. It makes
+  and removes its own people, and needs neither Stripe nor the app running.
 - `npx tsx scripts/follow-check.ts` runs the following journeys against the local database: following
   and unfollowing, the limit, the follow that comes by itself after a call (and every kind of call that
   must not lead to one), blocks in both directions, and the list with who is available now. It makes
@@ -193,6 +197,8 @@ Every major module follows the same steps:
 | Reminder emails and the unsubscribe link | `src/lib/notifications/reminders.ts`, `unsubscribe.ts` |
 | Which calls can be rated, when a rating counts, what an average shows | `src/lib/ratings/rules.ts` |
 | Giving a rating, and the averages | `src/lib/ratings/ratings.ts` |
+| When the app pauses an account by itself: the numbers and the sentences | `src/lib/safety/auto-pause-rules.ts` |
+| The round that looks for accounts over a line | `src/lib/safety/auto-pause.ts` |
 | Search: cleaning what was typed, ordering results | `src/lib/profiles/search-rules.ts` |
 | Search: who can be found | `src/lib/profiles/search.ts` |
 | People you have talked to, and a host's private notes | `src/lib/people/contacts.ts` |

@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "auto_pause_from" timestamp with time zone;

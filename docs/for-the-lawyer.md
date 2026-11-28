@@ -463,7 +463,8 @@ written here.
   consent) cannot use the report form: it needs an account. Such a person can only write to the
   support address shown on the site, which is still a placeholder. A manager or agency running a
   star's account raises the question of who really has the right to sell calls under that name.
-- **Stars are not a safety mark.** Calls ended for safety cannot be rated, and a new host starts
+- **Stars are not a safety mark.** A call ended with the old button, "End call and report", cannot
+  be rated (one ended with "End call now" can, since 27 November 2026: section 25), and a new host starts
   with an assumed rating when hosts are ordered (`src/lib/ratings/rules.ts`,
   `src/lib/suggestions/rules.ts`). Should the pages say what a star average does and does not
   show?
@@ -889,3 +890,53 @@ guard against repeated reports is the builder's choice, which the founder asked 
   ratings: is that enough, and must the Terms' sentence on which calls can be rated be changed
   (proposed wording: `docs/legal/end-call-now-proposed-wording.md`, section 5)?
 
+## 26. An account paused by the app itself, and the rating average (new, plan 52, 27 November 2026)
+
+What the app now does (`plans/52-automatic-pause.md`): about every 10 minutes it looks for
+accounts that have reached one of two lines, and pauses them with no person deciding.
+
+- **Reports:** 5 different people reported the account within 90 days, each of them had a call
+  with it that was really paid for, and those people are at least 1 in 10 of everyone the account
+  had paid calls with in that time. A report does not count if its reporter's account is closed,
+  if the two reported each other, or if a person on the team has closed it.
+- **Ratings:** an average of 2.0 or lower from at least 10 different people. At 2.5 or lower the
+  person gets one warning email first.
+
+The person is told why in general words (never who reported or rated them) and where to write.
+The founder gets an email that it happened. Only a person can lift the pause. A pause ends the
+account's memberships and monthly contributions for good, as a pause by hand does.
+
+The average itself changed too: it is shown from 5 different people on (before: 3), and it is a
+rolling one, worked out from the most recent 50 people or so.
+
+Questions:
+
+- **A decision by a machine with a serious effect.** A host loses her income from Connect, and
+  her members, with no person involved. Under the UK and EU rules on automated decisions, may
+  Connect do this at all, on what legal ground, and what must it offer (a way to get a person to
+  look, to give one's side, to contest)? Today that is an email to the support address, which is
+  still a placeholder. Is that enough, and must there be a time limit for the answer?
+- **Telling the person why.** The EU's rules for online platforms ask for a "statement of
+  reasons" when an account is suspended. The email and the paused page give the rule that was
+  reached, and no detail of any report. Is that a sufficient reason? Must it say how to
+  complain, and to whom outside Connect?
+- **Not telling them who.** The person is never told who reported them or what was said. Can
+  they demand it (a data request), and what may Connect withhold to protect the reporters?
+- **What the Terms and the Community Rules must say.** They say an account can be paused for
+  breaking the rules. They do not say that reports or low ratings alone can pause it, nor the
+  numbers. Must they, before this is used on real people? Must the numbers be published, or is
+  "may be paused automatically when several customers report it or its ratings are very low"
+  enough? A low rating is not a broken rule: may Connect pause for it?
+- **Memberships that end for good.** A pause made by a machine ends every membership of the
+  host at once, and lifting the pause does not bring them back. If the pause was wrong, what
+  does Connect owe the host, and the members?
+- **Reports nobody examined.** The pause rests on reports that no person has read. Could it be
+  said to treat a person as guilty on an accusation? Does it matter that every counted reporter
+  paid for a call, and that 5 different people are needed?
+- **The warning email about low ratings.** It tells a person their average is low and that the
+  account may be paused. Anything to watch in its wording?
+- **The rolling average.** Older ratings stop counting once about 50 more recent people have
+  rated. Must the pages say that the number shown is from recent ratings only? (The account page
+  says so to the person; the public pages say "4.8 from 48 ratings".)
+- **The draft Terms** say ratings count "in complete groups of three". Now: the first 5 people,
+  then three at a time, and only the most recent 50 or so. The sentence needs to follow.
