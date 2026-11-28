@@ -6419,9 +6419,10 @@ with the reasons and what was looked at and not built):
 - That cannot close the last instant between reading the clock and the request leaving, or
   the Stripe library's own second sending after a closed connection. Nothing in the app
   runs after its own last check. So what is left is at least made known: a helper that
-  holds a refund Stripe made while the app's books do not have it changes nothing, writes
-  it to the error log, and sends every founder one email with the money, Stripe's number
-  for the refund, what Stripe shows for it, and what to compare.
+  holds a refund Stripe made, while the app's books carry no refund or another one for
+  that money, changes nothing, writes it to the error log, and sends every founder one
+  email with the money, Stripe's number for the refund, what Stripe shows for it, what the
+  books have, and what to compare.
 - Not built: a regular comparison of every charge's refunds at Stripe with the app's lines.
   It would ask Stripe for a list per refunded charge again and again, for a case that needs
   several unlikely things at once.
@@ -6439,6 +6440,37 @@ nobody is told. A call's refund that Stripe paid although the app calls it faile
 repaired by the app: the founder's email says not to refund it again before looking. A
 tip's, a contribution's and a membership's money that is still waiting to go out again
 repairs itself: the next try finds the refund on Stripe's list and counts it. If the money
-had already gone out again, the second amount is Connect's cost.
+had already gone out again and both refunds stay paid, the second amount is Connect's cost.
+
+**How it was checked.** Type check, lint, 1,179 automatic tests, the build. New cases
+against Stripe's test area in `scripts/membership-check.ts` (journey 29, part 11),
+`scripts/contribution-check.ts` (journey 19, part 8) and `scripts/owed-check.ts` (part 11,
+a call's refund). The script takes hold of the request's own row in the database and first
+makes sure the helper's look is really waiting for it; then it keeps the row too long (the
+helper sends nothing), or writes "not made" while the helper waits (the helper sees it and
+sends nothing), or writes "not made" in the instant the request leaves (Stripe pays, the
+books stay as they are, each admin gets one email). All three scripts pass (49 checks in
+the membership journey, 26 in the contribution's, 154 in the call's script). The cases
+that go through the helper were also run against the follow-up code as it is on main, and
+fail there (11 checks in the membership journey, 7 in the contribution's, 6 in the call's
+part): the old request reaches Stripe from a helper that stood still, a call's customer is
+paid for a refund the app calls failed, and no email is written. Because the
+step that books an outcome changed by one line for every kind of money action, the whole
+of `membership-check` (518 checks), `contribution-check` (308), `payments-check` (77) and
+`refunds-check` (112) were run with that line in and pass.
+
+**Astra's review** (gpt-6.2-astra, effort high), two rounds, both "merge after fixes". The
+first: seven points, among them a look that could wait for ever on a row somebody holds
+(now 8 seconds at most) and a false alarm for a call. The second found the guard right and
+had six points, all on the email and the checks; they were settled by one change of idea
+(the email asks whether the books carry this refund, not whether the request was called
+"not made"). One point not taken, with the reason: storing a refund's number so that a
+lost email can be tried again later. Both rounds are written out at the end of
+`plans/50-part-1-gifts-owed-back.md`.
+
+**What the checks cannot cover.** A machine that really stands still: the script holds a
+row in the database instead, which is where the helper's last look waits. A real refusal
+from Stripe and a real lost answer are made up by the script in Stripe's place, as before.
+Two helpers really running at once: the script writes what the second one would write.
 
 **For going live.** Nothing new to set up. The email goes to every admin.

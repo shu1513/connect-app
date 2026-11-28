@@ -1192,12 +1192,12 @@ example, and Astra's check of it are at the end of `plans/50-part-1-gifts-owed-b
   and the request leaving, and the Stripe library's own second sending after a closed
   connection. Nothing of ours runs after our last check, so this is named and left.
 - **So what is left is at least said out loud.** A helper that holds a refund that is
-  alive at Stripe while the books do not have it (its try is written down as "not made",
-  or is booked with another refund) changes nothing and tells the founders by email, once
+  alive at Stripe while the pay-back's line does not carry it (the line carries none, or
+  another one) changes nothing and tells the founders by email, once per refund
   (`sayIfRefundNotInBooks`). If the pay-back is still waiting to go out again, its next
   try finds that refund on Stripe's list and counts it (rule 5 above), and the member is
-  paid once. If a later try had already gone out, the member has the money twice, it is
-  Connect's cost, and the email is how it is known.
+  paid once. If a later try had already gone out and both refunds stay paid, the member
+  has the money twice, it is Connect's cost, and the email is how it is known.
 - **Not built:** a regular comparison of every charge's refunds at Stripe with the app's
   lines. It would cost a request to Stripe per refunded charge, again and again, for a
   path that needs two helpers, a refusal, enough money left on the charge and a standstill

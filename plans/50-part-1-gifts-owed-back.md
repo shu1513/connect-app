@@ -426,19 +426,22 @@ anybody knowing.
      one list per refunded charge, again and again, for a case that needs several unlikely
      things at once; and when it finds one, the money is already with the customer. Worth
      having once there is an accountant's monthly comparison anyway.
-   - *The helper that wakes up says so itself.* **Built** (`sayIfRefundNotInBooks`). When
-     a helper holds a refund that is alive at Stripe and the books do not have it, the
-     books and Stripe disagree. That is so when the try is written down as "not made", and
-     also when the try was booked with another refund (an earlier try's, found on Stripe's
-     list) while this one was paid as well. Before anything is said, Stripe is asked about
-     the refund once more by its number: one that has failed since is no disagreement.
-     Nothing is overwritten. The error log names it, and every founder gets one email with
-     the money, Stripe's number for the refund, what Stripe shows for it (paid, or not
-     finished yet), and what to compare. For a tip, a contribution and a pay-back there is
-     usually nothing to do: if the money is still waiting to go out again, the next try
-     finds that refund on Stripe's list and counts it instead of sending (rule 5 above).
-     For a call's refund the app shows "failed", and the email says not to refund it again
-     before looking.
+   - *The helper that wakes up says so itself.* **Built** (`sayIfRefundNotInBooks`). A
+     helper that holds a refund that is alive at Stripe looks, once its try has an
+     outcome, at what the books carry for that money (the refund's own line). If the line
+     carries this very refund, all is well, whoever wrote it. If it carries none, or
+     another one, the books and Stripe disagree: the try was written down as "not made"
+     although Stripe made the refund, or the money was booked with another refund while
+     this one was made as well. Three looks come first: the try itself, waiting for
+     anybody who is writing its outcome down; the books; and Stripe, asked about the
+     refund once more by its number (one that has failed since is no disagreement).
+     Nothing is overwritten. The error log names it, and every founder gets one email per
+     refund with the money, Stripe's number for the refund, what Stripe shows for it
+     (paid, or not finished yet), what the books have, and what to compare. For a tip, a
+     contribution and a pay-back there is usually nothing to do: if the money is still
+     waiting to go out again, the next try finds that refund on Stripe's list and counts
+     it instead of sending (rule 5 above). For a call's refund the app shows "failed", and
+     the email says not to refund it again before looking.
 
 **Recommended and built: the fresh look (1) together with the email (3).** The reason: the
 look makes the path need a standstill that begins inside an instant, at almost no cost and
@@ -459,30 +462,39 @@ alone, and nothing more is worth its weight for a path this unlikely.
   app: the customer's page and the host's share stay as for a failed refund until the
   founder has looked. A tip's, a contribution's and a membership's line repair themselves
   through the look before a new try.
-- When the money had already gone out again before the old request arrived, the customer
-  has it twice. The app does not get it back: the second amount is Connect's cost, and the
-  founder's email is how it is known.
+- When the money had already gone out again before the old request arrived, and both
+  refunds stay paid, the customer has it twice. The app does not get it back: the second
+  amount is Connect's cost, and the founder's email is how it is known.
 
 **How it was tried.** New cases in the three check scripts, against Stripe's test mode:
 `scripts/contribution-check.ts` (journey 19, part 8), `scripts/membership-check.ts`
 (journey 29, part 11) and `scripts/owed-check.ts` (part 11, a call's refund). In each, the
-script takes hold of the try's own row and first makes sure the helper is really waiting
-at its last look (it asks the database who is waiting for whom). Then:
+script takes hold of the try's own row and first makes sure a helper's look is really
+waiting for it (it asks the database who is waiting for whom, and with which question).
+In all three:
 - it keeps the row for 6 seconds: the helper's look comes back too old, and no request
   leaves; the next look sends once, with the 10 seconds and "no repeats";
 - it writes "not made" while the helper waits: the helper sees it and sends nothing, and
   the new try is the only one Stripe gets;
 - the instant that cannot be closed, made by the script in the place where the request
   leaves: Stripe pays, the books are not changed, and each admin has exactly one email
-  that names the refund and says Stripe shows it as paid; seen a second time, it is not
-  said a second time; a refund that has failed at Stripe since is not said.
-The membership script also holds the row until the helper gives up by itself (8 seconds,
-nothing sent, the try still open), and shows the email for a try that is booked with
-another refund, and none for the refund a try is booked with.
-All of these were run against the follow-up code as it was before (the three files put
-back, the rest as now): every new case failed there. For a membership and a contribution
-the old label reached Stripe; for a call the customer was paid for a refund the app called
-failed.
+  that names the refund, says Stripe shows it as paid and that the books have no refund
+  for it; seen a second time, it is not said a second time.
+In the membership script and the call's script, the same instant with a refund that fails
+at Stripe right after the helper saw it alive: nothing is said. In the membership script
+only: the look that gives up by itself after 8 seconds on a row nobody lets go of; a
+refund the books carry by now is not said; Stripe not answering while "not made" is still
+being written (the helper waits for that writing and says it with the last answer it
+has); and two refunds for one pay-back with one in the books, said whichever helper's
+write came first (the contribution script has one of the two orders).
+
+The cases that go through the helper were run against the follow-up code as it is on main
+(the four files of the app put back, the scripts as now), and fail there: the old label
+reaches Stripe from a helper that stood still, the customer of a call is paid for a refund
+the app calls failed, and no email is written (11 checks fail in the membership journey,
+7 in the contribution's, 6 in the call's part). One case asks the new notice directly (a
+refund the books carry by now is not said); it does not use the follow-up code and so
+cannot tell old from new.
 
 ## Astra's check of "a helper that stood still" (27 November 2026): "merge after fixes"
 
@@ -524,3 +536,32 @@ second; the look holds only the try's row and lets go before it asks Stripe); al
 follow-ups use the guard the same way and no other place repeats a refund without it; a
 label that turns 23 hours old during the look falls through to the search of Stripe's
 list, as before.
+
+## Astra's second check (27 November 2026): "merge after fixes", all about the email
+
+The fresh look, its limit of time and the row taken first in the booking step were found
+right for every kind of money action, with no deadlock. Six points, all on the email and
+the checks. Taken, by one change of idea: the email no longer asks "was this try written
+down as not made?" but "do the books carry this refund for this money?".
+
+1. *The email could still be lost when Stripe did not answer the asking by number:* the
+   helper read the try while the other helper's "not made" was written but not yet saved,
+   saw "open" and left. **Taken:** the email's own look at the try waits for that writing,
+   as the look before a repeat does.
+2. *Two refunds for one line were only said in one order of the two helpers.* **Taken:**
+   whichever refund a helper holds, it is compared with the one in the books.
+3. *A false alarm after the books were right again:* try 1 "not made", try 2 books try 1's
+   refund, and only then does try 1's helper come by with it. **Taken:** the line carries
+   that refund, so nothing is said.
+4. *Some checks called the new notice directly, so they pass on the old follow-up code too,
+   and the plan said "every new case failed there".* **Taken:** the alarm cases now go
+   through the helper, and the sentence above names the one that cannot tell old from new.
+5. *The script's "is the helper waiting?" took any waiter for the helper's look, and the
+   limit of the wait was not read from the look's own answer.* **Taken:** it asks for a
+   waiter with the look's own question, and the limit is asked of the look itself.
+6. *Words that were too sure:* "a moment ago" for an answer that can be hours old; "has the
+   money twice" where a refund may still fail. **Taken.**
+
+I stopped after this round. The path needs several unlikely things at once, the guard was
+confirmed twice, and what the last round found were ways the founder's email about it could
+be missed or sent needlessly.
