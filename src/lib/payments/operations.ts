@@ -211,7 +211,9 @@ export async function finishOperation(
 export async function finishOwnedOperation<Row>(operationId: string, owner: Owner<Row>, stripeId: string, apply: (row: Row, tx: Tx) => Promise<void>): Promise<void> {
   await db.transaction(async (tx) => {
     const row = await owner.lock(tx);
-    const [operation] = await tx.select().from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operationId));
+    // The action's own row is held from here on, before anything is written: a helper's last look before a repeat
+    // (refund-tries.ts, repeatFromFreshLook) waits for this step to be saved and then sees its outcome.
+    const [operation] = await tx.select().from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operationId)).for("update");
     if (!operation || operation.status !== "started") return; // already recorded by someone else
     await apply(row, tx);
     await tx

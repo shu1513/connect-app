@@ -1173,3 +1173,34 @@ search functions changed nothing for contributions; holds, takings and letting g
 followed up as before. For going live: the app and its helper are put out together, because
 an older sender has no last moment for sending (rule 5 covers a try it left behind, not a
 request it still holds).
+
+## A helper that stood still (27 November 2026): point 1 above, decided for all three refunds
+
+Point 1 of Astra's check above is decided and built, for a call's refund, a tip's or a
+contribution's refund and a membership's pay-back together. The whole reasoning, with an
+example, and Astra's check of it are at the end of `plans/50-part-1-gifts-owed-back.md`
+("A helper that stood still"). In short, for a pay-back:
+
+- **Before a repeat leaves, the helper looks at the try once more, and the look has a short
+  life.** The look waits (8 seconds at most) for anybody who is writing the try's outcome
+  down at that moment. If more than 5 seconds pass between the start of that look and the
+  sending, the helper stood still, and it sends nothing; the next pass looks afresh. The
+  repeat itself is sent with a limit of 10 seconds, and the Stripe library is told not to
+  send it again. One piece of code for all three: `repeatFromFreshLook` in
+  `src/lib/payments/refund-tries.ts`.
+- **What that cannot close** is the instant between the helper's last look at the clock
+  and the request leaving, and the Stripe library's own second sending after a closed
+  connection. Nothing of ours runs after our last check, so this is named and left.
+- **So what is left is at least said out loud.** A helper that holds a refund that is
+  alive at Stripe while the pay-back's line does not carry it (the line carries none, or
+  another one) changes nothing and tells the founders by email, once per refund
+  (`sayIfRefundNotInBooks`). If the pay-back is still waiting to go out again, its next
+  try finds that refund on Stripe's list and counts it (rule 5 above), and the member is
+  paid once. If a later try had already gone out and both refunds stay paid, the member
+  has the money twice, it is Connect's cost, and the email is how it is known.
+- **Not built:** a regular comparison of every charge's refunds at Stripe with the app's
+  lines. It would cost a request to Stripe per refunded charge, again and again, for a
+  path that needs two helpers, a refusal, enough money left on the charge and a standstill
+  of over an hour beginning inside an instant.
+
+Tried in `scripts/membership-check.ts`, journey 29, part 11.

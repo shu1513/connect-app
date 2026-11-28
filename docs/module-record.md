@@ -6394,3 +6394,90 @@ report, block and limits are enough). The last is in the lawyer's file too.
 **Found on the way.** The website's own box can say "What you wrote was not sent" after an
 answer that never came, when the conversation closes before Send is pressed again; the
 message may have been sent. A small change of its own, proposed, not made.
+
+## A helper that stood still can no longer send an old refund request (plans 20 and 50, follow-up, 27 November 2026)
+
+**What it is about.** Not a new feature and no decision of the founder's: the one point the
+two entries above left for a fix of its own, for all three kinds of refund at once (a call's
+refund, a tip's or a contribution's refund, a membership's pay-back). Two helpers work at
+once. The first reads that a refund request is still unanswered and then stands still for a
+long time (its machine was put to sleep, say). Meanwhile the second helper finds out that
+the request was never made, and the money goes out again as a new request and is paid.
+Then the first helper wakes up and sends the old request, and Stripe pays that too. The
+customer has the money twice and the app's books show it once.
+
+**What was decided** (`plans/50-part-1-gifts-owed-back.md`, "A helper that stood still",
+with the reasons and what was looked at and not built):
+
+- A helper's repeat of a refund request now only leaves from a look at the request that is
+  a moment old. As the last things before it sends, the helper looks once more (that look
+  waits, 8 seconds at most, for anybody who is writing an outcome down at that moment),
+  then reads the clock: if more than 5 seconds have passed, it stood still, and it sends
+  nothing. The next pass, a few seconds later, looks afresh. The repeat itself is sent
+  with a limit of 10 seconds, and the Stripe library is told not to send it again by
+  itself.
+- That cannot close the last instant between reading the clock and the request leaving, or
+  the Stripe library's own second sending after a closed connection. Nothing in the app
+  runs after its own last check. So what is left is at least made known: a helper that
+  holds a refund Stripe made, while the app's books carry no refund or another one for
+  that money, changes nothing, writes it to the error log, and sends every founder one
+  email with the money, Stripe's number for the refund, what Stripe shows for it, what the
+  books have, and what to compare.
+- Not built: a regular comparison of every charge's refunds at Stripe with the app's lines.
+  It would ask Stripe for a list per refunded charge again and again, for a case that needs
+  several unlikely things at once.
+
+One piece of code for all three, in `src/lib/payments/refund-tries.ts`
+(`repeatFromFreshLook`, `sayIfRefundNotInBooks`), used by `src/lib/payments/jobs.ts`,
+`src/lib/contributions/recover.ts` and `src/lib/membership/recover.ts`. One line in
+`src/lib/payments/operations.ts`: the step that books an outcome takes hold of the
+action's own row before it writes anything, so that the helper's look waits for it. No
+change to the database's tables and nothing a customer or a host sees.
+
+**What stays as it is, and is named.** The last instant, above. If the waking helper dies
+before it hears Stripe's answer, or the database cannot be reached at that very moment,
+nobody is told. A call's refund that Stripe paid although the app calls it failed is not
+repaired by the app: the founder's email says not to refund it again before looking. A
+tip's, a contribution's and a membership's money that is still waiting to go out again
+repairs itself: the next try finds the refund on Stripe's list and counts it. If the money
+had already gone out again and both refunds stay paid, the second amount is Connect's cost.
+
+**How it was checked.** Type check, lint, 1,179 automatic tests, the build. New cases
+against Stripe's test area in `scripts/membership-check.ts` (journey 29, part 11),
+`scripts/contribution-check.ts` (journey 19, part 8) and `scripts/owed-check.ts` (part 11,
+a call's refund). The script takes hold of the request's own row in the database and first
+makes sure the helper's look is really waiting for it; then it keeps the row too long (the
+helper sends nothing), or writes "not made" while the helper waits (the helper sees it and
+sends nothing), or writes "not made" in the instant the request leaves (Stripe pays, the
+books stay as they are, each admin gets one email). All three scripts pass (49 checks in
+the membership journey, 26 in the contribution's, 154 in the call's script). The cases
+that go through the helper were also run against the follow-up code as it is on main, and
+fail there (11 checks in the membership journey, 7 in the contribution's, 6 in the call's
+part): the old request reaches Stripe from a helper that stood still, a call's customer is
+paid for a refund the app calls failed, and no email is written. Because the
+step that books an outcome changed by one line for every kind of money action, the whole
+of `membership-check`, `contribution-check`, `payments-check` (77 checks) and
+`refunds-check` (112) were run with that line in and pass.
+
+**Astra's review** (gpt-6.2-astra, effort high), two rounds, both "merge after fixes". The
+first: seven points, among them a look that could wait for ever on a row somebody holds
+(now 8 seconds at most) and a false alarm for a call. The second found the guard right and
+had six points, all on the email and the checks; they were settled by one change of idea
+(the email asks whether the books carry this refund, not whether the request was called
+"not made"). One point not taken, with the reason: storing a refund's number so that a
+lost email can be tried again later. Both rounds are written out at the end of
+`plans/50-part-1-gifts-owed-back.md`.
+
+**CodeRabbit** could not read pull request 121: its limit of free reviews was reached, with
+the next one an hour away. As agreed for that case, the builder read the whole change in
+its place (every call of the new notice in the ordinary, successful path; the order of
+locks; the email's words) and found nothing to change. After that read, the whole of
+`membership-check` (522 checks) and `contribution-check` (309) were run once more on the
+final code and pass.
+
+**What the checks cannot cover.** A machine that really stands still: the script holds a
+row in the database instead, which is where the helper's last look waits. A real refusal
+from Stripe and a real lost answer are made up by the script in Stripe's place, as before.
+Two helpers really running at once: the script writes what the second one would write.
+
+**For going live.** Nothing new to set up. The email goes to every admin.
