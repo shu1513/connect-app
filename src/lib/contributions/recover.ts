@@ -18,9 +18,8 @@
  *   - and before anything is repeated for a try after the first, Stripe's list is searched for a
  *     refund of an earlier try (refund.ts, earlierTryAtStripe): that one is booked instead;
  *   - a repeat only leaves from a look at the try that is a moment old, so a helper that stood
- *     still sends nothing (payments/refund-tries.ts, repeatFromFreshLook); and a refund that turns
- *     out to be paid although its try was written down as "not made" is said out loud
- *     (sayIfPaidAlthoughNotMade).
+ *     still sends nothing (payments/refund-tries.ts, repeatFromFreshLook); and a refund that is
+ *     alive at Stripe although the books do not have it is said out loud (sayIfRefundNotInBooks).
  *
  * It always finds out what became of the action, also for a payment that was given up meanwhile:
  * a taking that went through is recorded (and owed back if it should not have happened), and a
@@ -38,7 +37,7 @@ import { takingOnFor } from "@/lib/safety/switches";
 import { applyLetGo, applyTaken, freshNow, giveUp, paymentById, syncPayment } from "./charge";
 import { paymentOwner } from "./locks";
 import { formatMoney } from "@/lib/payments/access";
-import { repeatFromFreshLook, sayIfPaidAlthoughNotMade } from "@/lib/payments/refund-tries";
+import { repeatFromFreshLook, sayIfRefundNotInBooks, WHY_NOT_REPEATED } from "@/lib/payments/refund-tries";
 import { applyRefundOutcome, earlierTryAtStripe, isTry, outcomeStatus, refundAtStripe, refundOnStripesList, type RefundOutcome, type RefundParams } from "./refund";
 import { mayTake } from "./rules";
 
@@ -125,18 +124,34 @@ export async function recoverContributionOperation(operation: typeof schema.mone
       refund = await earlierTryAtStripe(params as RefundParams);
       if (refund) console.error(`[contributions] refund ${params.refundId}: Stripe already has refund ${refund.id} of an earlier try, which had been recorded as not made. It is booked, and try ${params.attempt} is not repeated.`);
       const ofEarlierTry = Boolean(refund);
+      // For this try's own refund, alive at Stripe: if the books do not have it (the try was written down as "not
+      // made" meanwhile, or booked with another refund), nothing is changed and the founders are told.
+      const sayIfNotInBooks = (alive: { id: string; status: string | null }) =>
+        sayIfRefundNotInBooks({
+          operationId: operation.id,
+          refund: alive,
+          about: `a tip's or a contribution's refund of ${formatMoney(params.amountCents)} to the contributor's card (refund ${params.refundId}, try ${params.attempt}, contribution payment ${paymentId})`,
+          next: "if this refund is still waiting to be sent again, its next try (an hour after the last one failed at the earliest, and not while the charge is disputed) finds this refund at Stripe and counts it instead of sending. If a later try has already been sent, the contributor may have been paid twice, and Connect does nothing more about it.",
+        });
       if (!refund && canRepeat()) {
         try {
           // Sent only from a look at the try that is a moment old, with a limit of time and no later repeats
           // (payments/refund-tries.ts, repeatFromFreshLook): a helper that stood still sends nothing.
           const repeat = await repeatFromFreshLook(operation.id, canRepeat, (how) => refundAtStripe(params as RefundParams, operation.label, how));
           if (!repeat.sent && repeat.why !== "too_late") {
-            console.log(`[contributions] unfinished refund on contribution payment ${paymentId}: not repeated (${repeat.why === "ended" ? "the try has an outcome by now" : "this helper stood still after its look, so the look is too old"})`);
+            console.log(`[contributions] unfinished refund on contribution payment ${paymentId}: not repeated (${WHY_NOT_REPEATED[repeat.why]})`);
             return;
           }
-          // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
-          // asked by its own number: one that was paid at first can have failed since.
-          if (repeat.sent) refund = await lookUp(() => stripe().refunds.retrieve(repeat.answer.id));
+          if (repeat.sent) {
+            // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
+            // asked by its own number: one that was paid at first can have failed since. (If that asking fails, the
+            // try may not be looked at again, so a refund the books do not have is said at once, from the answer.)
+            const answer = repeat.answer;
+            refund = await lookUp(() => stripe().refunds.retrieve(answer.id)).catch(async (error) => {
+              await sayIfNotInBooks(answer);
+              throw error;
+            });
+          }
         } catch (error) {
           // A clear "no" to the repeat proves nothing about the first request (it may have gone through before,
           // say, a permission was taken away): Stripe's own list of this charge's refunds settles it, below.
@@ -169,16 +184,8 @@ export async function recoverContributionOperation(operation: typeof schema.mone
         // As it stands at Stripe now: paid, still on its way (then asked about by its own number), or failed since.
         const found = refund;
         await finishOwnedOperation(operation.id, owner, found.id, (locked, tx) => applyRefundOutcome(tx, locked, refunded(found.id, outcomeStatus(found.status)), now));
-        // This try's own refund is alive at Stripe. If the try was written down as "not made" meanwhile (by another
-        // helper, while this one stood still), the write above changed nothing, and the founders are told.
-        if (!ofEarlierTry) {
-          await sayIfPaidAlthoughNotMade({
-            operationId: operation.id,
-            refund: found,
-            about: `a tip's or a contribution's refund of ${formatMoney(params.amountCents)} to the contributor's card (refund ${params.refundId}, try ${params.attempt}, contribution payment ${paymentId})`,
-            next: "if this refund is still waiting to be sent again, the next try finds this refund at Stripe within the hour and counts it instead of sending. If a later try has already been sent, the contributor may have been paid twice, and Connect does nothing more about it.",
-          });
-        }
+        // (If another helper ended this try meanwhile, the write above changed nothing.)
+        if (!ofEarlierTry) await sayIfNotInBooks(found);
       }
     }
     console.log(`[contributions] checked unfinished ${operation.kind} on contribution payment ${paymentId}`);

@@ -372,34 +372,43 @@ to Maya's card was written down as try 1 and its answer never came.
    request leaves (her machine was put to sleep, or her process was frozen).
 2. Meanwhile Ben repeats try 1. Stripe refuses it, Stripe's list shows no such refund, and
    Ben writes down "not made". That is right: at that moment it was not made.
-3. An hour later the $5 goes out as try 2 and Maya is paid.
+3. The $5 goes out again and Maya is paid. For a tip, a contribution or a membership the
+   app does that by itself as try 2, an hour later at the earliest. For a call nothing goes
+   out by itself: the host or the founder sees "failed" and refunds again, which can be at
+   once.
 4. Anna wakes up. Less than 23 hours have passed, so she sends try 1. Stripe has never made
    a refund under that name, so it pays Maya a second $5. Anna's note about it is thrown
    away, because try 1 already has an outcome. The books say $5, Stripe paid $10.
 
 It needs two helpers, a refusal from Stripe that Stripe does not remember under the label,
-enough money left on the charge, and a standstill of over an hour that begins in one exact
-moment. It is very unlikely. It is also money lost without anybody knowing.
+enough money left on the charge, and a standstill that begins in one exact moment and lasts
+until the money has gone out again. It is very unlikely. It is also money lost without
+anybody knowing.
 
 **The three questions, and the answers.**
 
 1. *How small can the moment be made?* Before: from Anna's look until her request left. For
    a first try that was a few thousandths of a second; for a later try it also held a
-   search of Stripe's list, up to 20 seconds; and the Stripe library could send the request
-   again by itself for minutes afterwards, because the helper's repeat had no limit of time.
+   search of Stripe's list, up to 20 seconds. And the helper's repeat was sent the Stripe
+   library's usual way: 80 seconds allowed for a sending, and up to two more sendings by the
+   library itself, none of them with a new look.
    Now (`repeatFromFreshLook` in `src/lib/payments/refund-tries.ts`), as the last things
    before the request leaves:
    - Anna looks at the try once more, and that look **waits** for anybody who is writing
      the try's outcome down at that moment. She sees what Ben wrote, never the moment
-     before it.
+     before it. (Every step that writes an outcome now takes hold of the try's own row
+     before it writes anything; `finishOwnedOperation` in `operations.ts` did not, and
+     does now.) The look waits 8 seconds at most. If somebody holds the row longer, Anna
+     leaves this try for her next pass and goes on with her other work.
    - She reads the clock. If more than 5 seconds have passed since that look began, she
      stood still in between, and she sends nothing. The try stays open, and the next pass, a
      few seconds later, starts with a fresh look. (The clock on the wall is used, because
      time asleep must count.)
-   - The request is given up after 10 seconds, and the library is told not to send it
-     again.
-   What is left: the instant between reading the clock and the request leaving (a
-   standstill would have to begin inside well under a hundredth of a second), and point 2.
+   - The request is sent with a limit of 10 seconds, and the library is told not to send
+     it again. (The library counts those 10 seconds on the connection, so they are not a
+     hard limit on the whole sending.)
+   What is left: the instant between reading the clock and the request leaving, and
+   point 2.
 2. *What cannot be closed that way?* Two things, and no check of ours can close them,
    because nothing of ours runs after our last check.
    - The Stripe library sends a request a second time by itself when the connection was
@@ -414,18 +423,22 @@ moment. It is very unlikely. It is also money lost without anybody knowing.
    "pay this only if nothing has changed". So the answer has to come **after**. Looked at:
    - *A regular comparison of every charge's refunds at Stripe with the app's lines.* It
      would find a double payment whoever caused it. **Not built now:** it asks Stripe for
-     one list per refunded charge, again and again, for a case that needs four unlikely
+     one list per refunded charge, again and again, for a case that needs several unlikely
      things at once; and when it finds one, the money is already with the customer. Worth
      having once there is an accountant's monthly comparison anyway.
-   - *The helper that wakes up says so itself.* **Built** (`sayIfPaidAlthoughNotMade`).
-     When a helper holds a refund that is alive at Stripe, for a try that is written down
-     as "not made", the books and Stripe disagree. Nothing is overwritten. The error log
-     names it, and every founder gets one email with the money, Stripe's number for the
-     refund, and what to compare. For a tip, a contribution and a pay-back there is usually
-     nothing to do: if the money is still waiting to go out again, the next try finds that
-     refund on Stripe's list and counts it instead of sending (rule 5 above). For a call's
-     refund the app shows "failed" although the customer has the money, and the email says
-     not to refund it again before looking.
+   - *The helper that wakes up says so itself.* **Built** (`sayIfRefundNotInBooks`). When
+     a helper holds a refund that is alive at Stripe and the books do not have it, the
+     books and Stripe disagree. That is so when the try is written down as "not made", and
+     also when the try was booked with another refund (an earlier try's, found on Stripe's
+     list) while this one was paid as well. Before anything is said, Stripe is asked about
+     the refund once more by its number: one that has failed since is no disagreement.
+     Nothing is overwritten. The error log names it, and every founder gets one email with
+     the money, Stripe's number for the refund, what Stripe shows for it (paid, or not
+     finished yet), and what to compare. For a tip, a contribution and a pay-back there is
+     usually nothing to do: if the money is still waiting to go out again, the next try
+     finds that refund on Stripe's list and counts it instead of sending (rule 5 above).
+     For a call's refund the app shows "failed", and the email says not to refund it again
+     before looking.
 
 **Recommended and built: the fresh look (1) together with the email (3).** The reason: the
 look makes the path need a standstill that begins inside an instant, at almost no cost and
@@ -435,8 +448,10 @@ alone, and nothing more is worth its weight for a path this unlikely.
 
 **Known, and left.**
 - The instant described in 2. Named, not closed.
-- If the waking helper dies before it hears Stripe's answer, nobody is told. Only the
-  regular comparison would find that.
+- The email is written once, by the helper that woke up. If that helper dies before it
+  hears Stripe's answer, or the database cannot be read or written at that very moment,
+  nobody is told (in the second case the error log still has it). The try is not looked at
+  again, because it has an outcome. Only the regular comparison would find these.
 - A machine whose own clock stood still with it (some paused virtual machines, until
   their clock is set right again) cannot know that it stood still. The 23 hours of a
   label are counted on the same clock, and were before.
@@ -444,16 +459,68 @@ alone, and nothing more is worth its weight for a path this unlikely.
   app: the customer's page and the host's share stay as for a failed refund until the
   founder has looked. A tip's, a contribution's and a membership's line repair themselves
   through the look before a new try.
-- When a later try had already been sent before the old request arrived, the customer has
-  the money twice. The app does not get it back: the second amount is Connect's cost, and
-  the founder's email is how it is known.
+- When the money had already gone out again before the old request arrived, the customer
+  has it twice. The app does not get it back: the second amount is Connect's cost, and the
+  founder's email is how it is known.
 
 **How it was tried.** New cases in the three check scripts, against Stripe's test mode:
 `scripts/contribution-check.ts` (journey 19, part 8), `scripts/membership-check.ts`
-(journey 29, part 11) and `scripts/owed-check.ts` (part 11, a call's refund). In each: the
-script holds the try's own row for 6.5 seconds, so the helper's look comes back too old,
-and no request leaves; the next look sends once, with 10 seconds and no repeats. The script
-writes "not made" while the helper looks: the helper waits, sees it, and sends nothing, and
-the new try is the only one Stripe gets. And the instant that cannot be closed, made by the
-script in the place where the request leaves: Stripe pays, the books are not changed, and
-each admin has one email that names Stripe's refund.
+(journey 29, part 11) and `scripts/owed-check.ts` (part 11, a call's refund). In each, the
+script takes hold of the try's own row and first makes sure the helper is really waiting
+at its last look (it asks the database who is waiting for whom). Then:
+- it keeps the row for 6 seconds: the helper's look comes back too old, and no request
+  leaves; the next look sends once, with the 10 seconds and "no repeats";
+- it writes "not made" while the helper waits: the helper sees it and sends nothing, and
+  the new try is the only one Stripe gets;
+- the instant that cannot be closed, made by the script in the place where the request
+  leaves: Stripe pays, the books are not changed, and each admin has exactly one email
+  that names the refund and says Stripe shows it as paid; seen a second time, it is not
+  said a second time; a refund that has failed at Stripe since is not said.
+The membership script also holds the row until the helper gives up by itself (8 seconds,
+nothing sent, the try still open), and shows the email for a try that is booked with
+another refund, and none for the refund a try is booked with.
+All of these were run against the follow-up code as it was before (the three files put
+back, the rest as now): every new case failed there. For a membership and a contribution
+the old label reached Stripe; for a call the customer was paid for a refund the app called
+failed.
+
+## Astra's check of "a helper that stood still" (27 November 2026): "merge after fixes"
+
+Seven points. Six taken, one taken in part.
+
+1. *A row somebody holds on to could stop the helper's whole pass:* the look waited for the
+   row without a limit. **Taken:** it waits 8 seconds at most and then leaves that try for
+   the next pass. Astra also saw that a step that books a refund wrote its lines first and
+   touched the try's row last, so the look could still read "open" during it. **Taken:**
+   that step takes hold of the try's row first now.
+2. *The email could be lost by a passing fault:* if asking Stripe about the refund by its
+   number failed right after the repeat was answered, the helper left without saying
+   anything, and the try is never looked at again. **Taken in part:** in that case it is
+   said at once, from the answer the helper holds; and a fault inside the saying itself no
+   longer stops the pass and always leaves a line in the error log. **Not taken:** keeping
+   the refund's number somewhere to try the email again later. That is a new table for a
+   fault inside a fault; named above under "Known, and left".
+3. *A false alarm for a call:* a helper saw a refund alive, the refund failed at Stripe a
+   moment later, the other helper rightly wrote "failed", and the first one would have
+   mailed "the customer has the money". **Taken:** Stripe is asked again before anything
+   is said, a refund that has failed is not said, and the email says what Stripe shows
+   (paid, or not finished yet) instead of claiming the customer has it.
+4. *Two refunds at Stripe could escape the email:* a try booked with an earlier try's
+   refund while this helper's own request was paid too. **Taken:** said as well.
+5. *The new checks depended on timing:* they slept a second and hoped the helper had
+   reached its look. **Taken:** the script now waits until the database shows the helper
+   waiting for the row.
+6. *Some checks proved less than they said:* no second sighting, emails counted but not
+   matched to each admin, "not failed" taken for "paid", and a last check that the old
+   code passes too. **Taken:** each put right, and the last one now says "as before".
+7. *Timing claims that were too strong:* the 10 seconds are counted on the connection and
+   are not a hard limit; a call's refund can be asked for again at once, not after an
+   hour; "within the hour" in the email was wrong (an hour at the earliest, later if the
+   charge is disputed). **Taken:** the words here, in plan 20, in the record and in the
+   email.
+
+Astra also confirmed: no deadlock (every writer takes the owner first and the try's row
+second; the look holds only the try's row and lets go before it asks Stripe); all three
+follow-ups use the guard the same way and no other place repeats a refund without it; a
+label that turns 23 hours old during the look falls through to the search of Stripe's
+list, as before.

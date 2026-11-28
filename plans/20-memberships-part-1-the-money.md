@@ -1178,24 +1178,26 @@ request it still holds).
 
 Point 1 of Astra's check above is decided and built, for a call's refund, a tip's or a
 contribution's refund and a membership's pay-back together. The whole reasoning, with an
-example, is at the end of `plans/50-part-1-gifts-owed-back.md` ("A helper that stood
-still"). In short, for a pay-back:
+example, and Astra's check of it are at the end of `plans/50-part-1-gifts-owed-back.md`
+("A helper that stood still"). In short, for a pay-back:
 
 - **Before a repeat leaves, the helper looks at the try once more, and the look has a short
-  life.** The look waits for anybody who is writing the try's outcome down at that moment.
-  If more than 5 seconds pass between that look and the sending, the helper stood still,
-  and it sends nothing; the next pass looks afresh. The repeat itself is given up after 10
-  seconds, and the Stripe library is told not to send it again. One piece of code for all
-  three: `repeatFromFreshLook` in `src/lib/payments/refund-tries.ts`.
+  life.** The look waits (8 seconds at most) for anybody who is writing the try's outcome
+  down at that moment. If more than 5 seconds pass between the start of that look and the
+  sending, the helper stood still, and it sends nothing; the next pass looks afresh. The
+  repeat itself is sent with a limit of 10 seconds, and the Stripe library is told not to
+  send it again. One piece of code for all three: `repeatFromFreshLook` in
+  `src/lib/payments/refund-tries.ts`.
 - **What that cannot close** is the instant between the helper's last look at the clock
   and the request leaving, and the Stripe library's own second sending after a closed
   connection. Nothing of ours runs after our last check, so this is named and left.
-- **So what is left is at least said out loud.** A helper that holds a refund Stripe has
-  paid, for a try that is written down as "not made", changes nothing and tells the
-  founders by email, once (`sayIfPaidAlthoughNotMade`). If the pay-back is still waiting
-  to go out again, its next try finds that refund on Stripe's list and counts it (rule 5
-  above), and the member is paid once. If a later try had already gone out, the member has
-  the money twice, it is Connect's cost, and the email is how it is known.
+- **So what is left is at least said out loud.** A helper that holds a refund that is
+  alive at Stripe while the books do not have it (its try is written down as "not made",
+  or is booked with another refund) changes nothing and tells the founders by email, once
+  (`sayIfRefundNotInBooks`). If the pay-back is still waiting to go out again, its next
+  try finds that refund on Stripe's list and counts it (rule 5 above), and the member is
+  paid once. If a later try had already gone out, the member has the money twice, it is
+  Connect's cost, and the email is how it is known.
 - **Not built:** a regular comparison of every charge's refunds at Stripe with the app's
   lines. It would cost a request to Stripe per refunded charge, again and again, for a
   path that needs two helpers, a refusal, enough money left on the charge and a standstill

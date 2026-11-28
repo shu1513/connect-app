@@ -38,7 +38,7 @@ import { failOperation, failOwnedOperation, finishOperation, lockPayment, MoneyE
 import { owedFor } from "./owed";
 import { countedSeconds } from "./pricing";
 import { formatMoney } from "./access";
-import { repeatFromFreshLook, sayIfPaidAlthoughNotMade } from "./refund-tries";
+import { repeatFromFreshLook, sayIfRefundNotInBooks, WHY_NOT_REPEATED } from "./refund-tries";
 import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
 import { settleOrdinaryCharges } from "./take";
@@ -230,6 +230,15 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
         // was picked up here (it found the refund, or a clear "no"). Then nothing is sent from this older look.
         const [stillOpen] = await db.select({ status: schema.moneyOperations.status }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operation.id));
         if (stillOpen?.status !== "started") continue;
+        // For this refund, alive at Stripe: if the books do not have it (the action was written down as "not made"
+        // meanwhile), nothing is changed and the founders are told.
+        const sayIfNotInBooks = (alive: { id: string; status: string | null }) =>
+          sayIfRefundNotInBooks({
+            operationId: operation.id,
+            refund: alive,
+            about: `a call's refund of ${formatMoney(params.amountCents)} to the customer's card (refund ${params.refundId}, payment ${payment.id})`,
+            next: "nothing. Connect shows this refund as failed, and the host's share was not lowered for it. Do not refund the same amount again before you have looked.",
+          });
         if (canRepeat()) {
           try {
             // Sent only from a look at the action that is a moment old, with a limit of time and no later repeats
@@ -241,12 +250,20 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
               ),
             );
             if (!repeat.sent && repeat.why !== "too_late") {
-              log(`unfinished refund on payment ${operation.paymentId}: not repeated (${repeat.why === "ended" ? "the action has an outcome by now" : "this helper stood still after its look, so the look is too old"})`);
+              log(`unfinished refund on payment ${operation.paymentId}: not repeated (${WHY_NOT_REPEATED[repeat.why]})`);
               continue;
             }
-            // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
-            // asked by its own number: one that was paid at first can have failed since.
-            if (repeat.sent) refund = await lookUp(() => stripe().refunds.retrieve(repeat.answer.id));
+            if (repeat.sent) {
+              // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
+              // asked by its own number: one that was paid at first can have failed since. (If that asking fails,
+              // the action may not be looked at again, so a refund the books do not have is said at once, from the
+              // answer.)
+              const answer = repeat.answer;
+              refund = await lookUp(() => stripe().refunds.retrieve(answer.id)).catch(async (error) => {
+                await sayIfNotInBooks(answer);
+                throw error;
+              });
+            }
           } catch (error) {
             // A clear "no" to the repeat proves nothing about the first request (it may have gone through before,
             // say, a permission was taken away): Stripe's own list of this charge's refunds settles it, below.
@@ -295,16 +312,8 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
             await tx.update(schema.refunds).set({ stripeRefundId: found.id }).where(eq(schema.refunds.id, params.refundId));
           });
         }
-        // The refund is alive at Stripe. If the action was written down as "not made" meanwhile (by another helper,
-        // while this one stood still), the write above changed nothing, and the founders are told.
-        if (refund) {
-          await sayIfPaidAlthoughNotMade({
-            operationId: operation.id,
-            refund,
-            about: `a call's refund of ${formatMoney(params.amountCents)} to the customer's card (refund ${params.refundId}, payment ${payment.id})`,
-            next: "nothing. Connect shows this refund as failed although the customer has the money, and the host's share was not lowered for it. Do not refund the same amount again before you have looked.",
-          });
-        }
+        // (If another helper ended this action meanwhile, the write above changed nothing.)
+        if (refund) await sayIfNotInBooks(refund);
       } else if (operation.kind === "transfer") {
         // A share a host's collection wrote down. Whether Stripe's answer was lost or the request
         // never left, the same request under the same label finishes it without the host pressing again
