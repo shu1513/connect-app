@@ -42,6 +42,8 @@ const PAUSED = "Your account is paused, so you cannot join calls.";
 const MESSAGES = {
   not_open_yet: "This room is not open yet.",
   closed: "This call has ended.",
+  /** The call's two people may no longer act (the other account was paused or closed a moment ago): nothing is said about the call's end, which may not have come. */
+  not_now: "You cannot join this call right now.",
   not_paid: "This call has not been paid for yet.",
   hold_ended: "The payment hold for this call is no longer valid.",
 } as const;
@@ -96,7 +98,9 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
   if ((await switches()).joiningOff) return no(503, "switched_off", "Calls are paused across Connect right now. Please try again shortly.");
   // A block between the two, and also the other person's account paused or closed a moment ago, before their calls
   // were ended (plans/45-phone-apps/09a, decision 6): nobody goes into such a room.
-  if (!(await mayStillAct(call.hostId, call.customerId))) return no(409, "not_now", MESSAGES.closed);
+  // A block reads as "ended", as it always has. A pause or a closure does not mean that this call has ended (one that
+  // is under way is not cancelled by it), so that sentence says only that it cannot be joined.
+  if (!(await mayStillAct(call.hostId, call.customerId))) return no(409, "not_now", (await isBlockedEitherWay(call.hostId, call.customerId)) ? MESSAGES.closed : MESSAGES.not_now);
 
   const now = new Date();
   const decision = canJoin(call, user.id, now);

@@ -641,7 +641,7 @@ async function main() {
         check("a paused customer is not offered the pay step, which the address refuses: the page says that the call can no longer go ahead", stopped(await pageOf(toPay.call.id, cust.jar)) && refusal(await step(toPay.call.id, "pay", cust.jar)) === "paused", JSON.stringify(await pageOf(toPay.call.id, cust.jar)).slice(0, 200));
         check("both people read the same about the unpaid call: the host is not told that she waits for a payment that cannot come", stopped(await pageOf(toPay.call.id, host.jar)));
         check("nor is the customer told from when a call far ahead can be paid for, or its host that she waits", stopped(await pageOf(farAhead.call.id, cust.jar)) && stopped(await pageOf(farAhead.call.id, host.jar)));
-        check("nor is either of the two offered the way into a room nobody can enter", stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)) && refusal(await step(open.call.id, "enter", cust.jar)) === "paused" && sentence(await step(open.call.id, "enter", host.jar)) === "This call has ended.");
+        check("nor is either of the two offered the way into a room nobody can enter", stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)) && refusal(await step(open.call.id, "enter", cust.jar)) === "paused" && sentence(await step(open.call.id, "enter", host.jar)) === "You cannot join this call right now.");
         check('another call of theirs, one that is over, still leads to "Report" and "Block", for the paused person and for the other', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
         await setPaused(cust.id, false);
 
@@ -656,7 +656,7 @@ async function main() {
         await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, host.id));
         const refusedHold = await step(toPay.call.id, "pay", cust.jar);
         check("a call's money is not held when the other account was closed: no pay step is offered, and the step refuses", stopped(await pageOf(toPay.call.id, cust.jar)) && refusal(refusedHold) === "not_valid" && sentence(refusedHold) === "This call can no longer be paid for." && (await paymentOf(toPay.call.id)).stripePaymentIntentId === null && (await paymentOf(toPay.call.id)).status === "awaiting_payment", `${refusedHold.status} ${sentence(refusedHold)}`);
-        check("nor is its room offered or entered", stopped(await pageOf(open.call.id, cust.jar)) && sentence(await step(open.call.id, "enter", cust.jar)) === "This call has ended.");
+        check("nor is its room offered or entered", stopped(await pageOf(open.call.id, cust.jar)) && sentence(await step(open.call.id, "enter", cust.jar)) === "You cannot join this call right now.");
       } finally {
         await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, host.id));
         await setPaused(cust.id, false);

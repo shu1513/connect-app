@@ -254,12 +254,12 @@ async function main() {
       // database, so their calls are not ended yet: nobody goes into that room, and the look into it is not ready.
       try {
         await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, host.id));
-        check("nobody goes into a room whose other person was paused a moment ago, and the look into it is not ready", sentence(await step(id, "enter", cust.jar)) === "This call has ended." && (await room(id, cust.jar)).body?.ready === false);
+        check("nobody goes into a room whose other person was paused a moment ago, and the look into it is not ready", sentence(await step(id, "enter", cust.jar)) === "You cannot join this call right now." && (await room(id, cust.jar)).body?.ready === false);
         await db.update(schema.user).set({ pausedAt: null, closedAt: now }).where(eq(schema.user.id, host.id));
-        check("nor into one whose other person's account was closed a moment ago", sentence(await step(id, "enter", cust.jar)) === "This call has ended." && (await room(id, cust.jar)).body?.ready === false);
+        check("nor into one whose other person's account was closed a moment ago", sentence(await step(id, "enter", cust.jar)) === "You cannot join this call right now." && (await room(id, cust.jar)).body?.ready === false);
         await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, host.id));
         await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cust.id));
-        check("the same the other way round: the host does not go into a room whose customer was paused a moment ago", sentence(await step(id, "enter", host.jar)) === "This call has ended." && (await room(id, host.jar)).body?.ready === false);
+        check("the same the other way round: the host does not go into a room whose customer was paused a moment ago", sentence(await step(id, "enter", host.jar)) === "You cannot join this call right now." && (await room(id, host.jar)).body?.ready === false);
       } finally {
         await db.update(schema.user).set({ pausedAt: null, closedAt: null }).where(inArray(schema.user.id, [host.id, cust.id]));
       }

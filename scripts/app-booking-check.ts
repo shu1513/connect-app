@@ -858,11 +858,11 @@ async function main() {
         await db.update(schema.bookings).set({ stripeSetupIntentId: null }).where(eq(schema.bookings.id, cardId));
         try {
           const again = await send(noor.handle, paidSummary, guest.jar);
-          check("the same request sent again from the app while the host is paused: the same request comes back, and nothing but its id", again.status === 200 && (again.json as AppBookSent | null)?.id === cardId && keys(again.json) === "id", `${again.status} ${again.text.slice(0, 160)}`);
+          check("the same request sent again from the app while the host is paused: the same request comes back, and nothing but its id", again.status === 200 && (again.json as AppBookSent | null)?.id === cardId && keys(again.json) === "id", `${again.status}, fields: ${keys(again.json)}`);
           // The function behind the address, as it runs when a sending finds the request already made.
           const retried = await B.askForCall({ customer: { id: guest.id, name: guest.name, email: guest.email }, hostId: noor.id, startsAt: new Date(paidSummary.startsAt), lengthMinutes: paidSummary.minutes, note: "", requestKey: paidSummary.requestKey, agreedToCardTerms: true, seen: { pricePer15Cents: paidSummary.seen.price, freeCancelMinutes: paidSummary.seen.freeCancel, cardTermsVersion: paidSummary.cardTermsVersion }, fromApp: true, now: new Date() });
           const afterRetry = await row(cardId);
-          check("and the step behind it hands out no card secret and makes no card step at Stripe", retried.booking.id === cardId && retried.clientSecret === null && afterRetry.stripeSetupIntentId === null && afterRetry.stage === "card" && (await db.select().from(schema.bookings).where(eq(schema.bookings.requestKey, paidSummary.requestKey))).length === 1, `${retried.booking.id === cardId} ${String(retried.clientSecret)} ${String(afterRetry.stripeSetupIntentId)}`);
+          check("and the step behind it hands out no card secret and makes no card step at Stripe", retried.booking.id === cardId && retried.clientSecret === null && afterRetry.stripeSetupIntentId === null && afterRetry.stage === "card" && (await db.select().from(schema.bookings).where(eq(schema.bookings.requestKey, paidSummary.requestKey))).length === 1, `${retried.booking.id === cardId}, ${retried.clientSecret === null ? "no secret" : "a secret was handed out"}, ${afterRetry.stripeSetupIntentId === null ? "no card step" : "a card step was made"}`);
         } finally {
           await db.update(schema.bookings).set({ stripeSetupIntentId: stepId }).where(eq(schema.bookings.id, cardId));
         }

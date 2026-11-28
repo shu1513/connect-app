@@ -373,3 +373,38 @@ appear in the app is the apps' switch.
 15 seconds and the phone said "Cannot reach Connect." The test customer had 39 leftover calls
 from the check scripts still marked as open, and entering a call first takes a person out of
 every other one. With those marked closed, entering took a moment, as before.
+
+## Astra's third look at the code (28 November 2026): "not ready"; three points taken, four not
+
+Two points Astra counts as must-fix and five smaller ones. This time the builder of the plan
+decided against both of the first two, and says why here, so that the next reader can judge
+it. The three taken were small and made by the builder himself.
+
+**Taken:**
+
+- *The room's door said "This call has ended." when the other account had only been paused or
+  closed a moment ago,* while the call itself can still be under way. It now says "You cannot
+  join this call right now." A block still reads as "ended", as it always has.
+- *One check would have printed a card step's secret into its log if it ever caught the fault
+  it looks for.* It prints only whether one was handed out.
+- *The new case in `booking-check` could leave a call open against the test host if it failed
+  half-way.* It cancels and settles its call in a `finally`.
+
+**Not taken, with the reason:**
+
+- *A hold's claim can survive if the helper program itself stops in the instant between
+  writing its claim and learning that the two may no longer act, and the pause is then lifted
+  before the call is cancelled.* The customer would get one email asking him to pay by hand. It
+  needs a crash inside a few milliseconds and a pause lifted within about a minute. Before this
+  part the same email went out in the far commoner case, a pause or a block at the moment of
+  the try, and that case is fixed. A transaction around the claim would narrow it further and
+  not close it; it was left.
+- *A customer's name can still be in the host's list of requests if he blocks her in the
+  instant the list is being put together.* That is the list's second look, which is older than
+  this part and says so where it is written: such a row keeps the name, the time, the length
+  and the price, and loses everything else. The name is one she was sent with the request a
+  moment before.
+- *"Use this phone" can show "Join" from an old answer,* and *an end that falls between two
+  readings skips the automatic move to the three choices.* In both, a press is refused and the
+  room is read again (the second look's fix), and the choices stay reachable from the call's
+  page.
