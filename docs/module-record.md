@@ -6378,7 +6378,9 @@ them, a message whose answer was lost could later be called "not sent"; the swit
 apps and reporting contradicted each other; the answer could give away what the website
 hides; a second message could lose the only alert; after a report whose block failed the app
 had no way to block. Then "ready with changes", 8 smaller points. All are worked in or
-answered; the plan's last section lists each.
+answered; the plan's last section lists each. CodeRabbit had reached its limit of reviews
+on pull request 118 and was not waited for; the builder read the whole change once more
+instead (three small things put right, listed in the plan).
 
 **Open, and the founder's.** Whether the fifth place, the nameless notification and its
 switch are wanted as planned. Whether the app may word one sentence differently from the

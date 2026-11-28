@@ -295,8 +295,6 @@ this part.
    - The server counts a message's length (2,000 characters) and refuses a longer one with
      its sentence. The app stops typing at about that length as the website's box does; the
      server's count is the one that decides.
-   The app's address for sending never answers "not sent" for something it did not foresee:
-   it answers without a sentence, which the app treats as "not known".
 
 10. **"Write to …"** appears on a request that was accepted (part 06/07's screen), by the
     website's own condition, in a new field the server adds to that screen's answer. Pressing
@@ -432,13 +430,17 @@ this part.
     - `mayWrite` and the other rules are not touched. `sendMessage` is touched in one place
       only, and only when notifications exist (decision 19).
 
+18. **When the server stumbles in the middle of a send** in a way it did not foresee, the
+    app's address for sending never answers "not sent". It answers without a sentence (the
+    report form's address does the same today), and the app treats that as "not known"
+    (decision 9): the words and the key are kept, and pressing Send again is safe.
+
 ### The notification
 
 19. **"A new message" joins part 12's list of what becomes a notification.** It is built
     with part 12 or with this part, whichever is built second; until then the apps have
-    messages without it, as the website does. (There is no decision 18: the numbers after 17
-    are kept as they were in the first draft, so the notes of Astra's check still point at
-    the right ones.)
+    messages without it, as the website does. The address the app asks when an alert is
+    touched is part 12's; this part only says what it must answer for a message.
     - **What it says:** "You have a new message." Nothing else: no name, no words of the
       message (part 12, decision 4). Two numbers travel with it to Apple or Google, both made
       up by Connect and meaning nothing outside it: the notification's own, which the app
@@ -638,8 +640,8 @@ has reviewed the app.
   block; a report from a message, then the founder's page showing the kept copy (an ordinary
   report has no receipt; the receipt is shown once on the phone from a prepared case in
   which a future call between the two cannot be cancelled, and its other outcomes are left
-  to the check script); a send with the connection cut beforehand (how "could not confirm" looks; that it is
-  *right* is proved by the tests above, since the test phone reaches the server over a cable
+  to the check script); a send with the connection cut beforehand (how "could not confirm"
+  looks; that it is *right* is proved by the tests above, since the test phone reaches the server over a cable
   and an answer cannot be lost on purpose there); the screen left open and the phone locked,
   a message sent from the website, and the website's side showing it still "New" for that
   person **while the phone is still locked**.
@@ -720,7 +722,8 @@ has reviewed the app.
 
 1. *A send whose answer was lost could later be called "not sent", and a weak key could make
    a different message count as sent.* Decision 9, rewritten: a secure key, one send at a
-   time, "sent" only with the same key, "not known" stays until the server's word.
+   time, "sent" only with the same key, and "not known" stays until "sent" comes back for
+   that key (made stricter after the second check, below).
 2. *The app's "shown" address could not hold what it promised.* Decision 8: the server asks
    the gap question again. Not taken: a signed slip (said there, with the reason).
 3. *The apps' switch and reporting contradicted each other.* Decision 3's table, decision 14.
@@ -773,6 +776,13 @@ and that stays an open question for the stores).
 7. *The key in an answer, the switch's position, the closed account's sentence.* Decisions
    4, 6 and 12.
 8. *Three checks expected the wrong thing.* "How it is tried".
+
+**CodeRabbit (pull request 118, 27 November 2026):** it had reached its limit of reviews
+("next included review available in 31 minutes"). By the standing rule it was not waited
+for: the builder read the whole change once more instead. Found and put right: a jump in
+the numbering of the decisions (18 was missing; the sentence about a send the server
+stumbles over is decision 18 again), one note of the first check that the second check had
+overtaken, and a line that named no address for a touched alert.
 
 ## Sources
 
