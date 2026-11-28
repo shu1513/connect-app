@@ -1120,6 +1120,10 @@ during its look for an earlier try sends nothing, and the hour is counted from a
 search; a refund of the same line and another try is not taken for this try; an earlier
 try's refund that fails while the line waits on it makes the line owed again; and a "no" to
 the look for an earlier try stops the sender and the helper alike.
+Each of these was also run once against code broken on purpose in the matching place (the
+last moment looked at before the search, "final" decided after it, the hour taken from the
+round's start, the try read from the refund, the attempt left out of the search): every one
+failed its check, and the code was put back.
 
 ## Astra's check of the pay-back's follow-up (27 November 2026): "merge after fixes"
 
