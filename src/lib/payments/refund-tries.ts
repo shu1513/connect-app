@@ -37,7 +37,8 @@ export const isTry = (params: Pick<RefundTry, "refundId" | "attempt">) => (refun
 /**
  * The last safeguard against paying one line twice, looked at before ANY try after the first is sent, by whoever
  * sends it: a refund that an EARLIER try of this line made at Stripe and that is not over there (failed or
- * cancelled). A new try only exists because the one before was recorded as "not made". Every way that record can
+ * cancelled). A new try only exists because the one before was recorded as "not made" (or because Stripe said a
+ * refund it had confirmed failed after all: that one is failed on the list too, and is passed over). Every way the record can
  * be wrong although each step judged rightly by what it saw (two helpers repeating at the same moment, one refused
  * and the other paid a moment later; the Stripe library sending a request a second time by itself after a closed
  * connection; a try written down before its sender had a last moment for sending it) leaves the earlier refund on

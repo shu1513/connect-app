@@ -6279,6 +6279,13 @@ after Stripe confirmed it), and one is the same for calls and contributions and 
 as its own fix for all three (a helper that stands still for over an hour at one exact
 step).
 
+**CodeRabbit** answered "Review limit reached" on pull request 116, so by the standing rule
+the diff was read line by line by me in its place. Two small things came of it, neither a
+change in behaviour: an import in `recover.ts` made plain, and the shared search's comment
+now also names the other reason a new try can exist since plan 50, part 2 (a confirmed
+refund that failed later; it is failed on Stripe's list and is passed over). The pay-back
+journey was run again afterwards and passes.
+
 **What the checks cannot cover.** A real lost answer from Stripe and a real refusal of a
 repeat: both are made up by the script, in the place where Stripe's answer comes in. Two
 helpers really working at the same moment: the script sets up the state they would leave.

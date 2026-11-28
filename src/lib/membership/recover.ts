@@ -21,7 +21,7 @@
  *     instead.
  */
 import { eq } from "drizzle-orm";
-import { db, schema as tables, type schema } from "@/db";
+import { db, schema } from "@/db";
 import { captureAtStripe } from "@/lib/payments/actions";
 import { failOwnedOperation, finishOwnedOperation, SETTLED_AFTER_MS } from "@/lib/payments/operations";
 import { earlierTryAtStripe, isTry, refundOnStripesList } from "@/lib/payments/refund-tries";
@@ -85,7 +85,7 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
       let settled = false;
       // Looked at once more right before a repeat goes out: another helper may have ended this try since it was
       // picked up here (it found the refund, or a clear "no"). Then nothing is sent from this older look.
-      const [stillOpen] = await db.select({ status: tables.moneyOperations.status }).from(tables.moneyOperations).where(eq(tables.moneyOperations.id, operation.id));
+      const [stillOpen] = await db.select({ status: schema.moneyOperations.status }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operation.id));
       if (stillOpen?.status !== "started") return;
       // A try after the first: if Stripe has a refund of an earlier try of this line that is not over, that one is
       // the line's refund. It is booked as this try's outcome, and nothing is repeated.
