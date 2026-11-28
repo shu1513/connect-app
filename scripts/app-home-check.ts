@@ -459,12 +459,21 @@ async function main() {
       type Row = Awaited<ReturnType<typeof onHome>>;
       const withDetails = (row: Row) => row !== undefined && row.hosting === true && row.about?.words === "Written when asking for the call under way" && row.about.idConfirmed === true && row.photoId === custPhoto;
       const bare = (row: Row) => row !== undefined && row.hosting === true && row.name === cust.name && !("about" in row) && row.photoId === null;
+      // The note she keeps about him, as the call's own page hands it to her (null when it is withheld; undefined when the page could not be read).
+      await db.insert(schema.hostNotes).values({ hostId: hostC.id, customerId: cust.id, text: "A note for the call under way" }).onConflictDoNothing();
+      const noteOf = async () => {
+        const reply = await asApp(`/api/app/calls/${underWay.id}`, { jar: hostC.jar });
+        return reply.status === 200 ? ((reply.json as { about: { text: string } | null }).about?.text ?? null) : undefined;
+      };
+      const noteOnPage = await noteOf();
       try {
+        check("(and the call's own page hands her the note she keeps about him)", typeof noteOnPage === "string" && noteOnPage.length > 0, String(noteOnPage));
         check("(as things stand, the call under way carries what he wrote, his ID mark and his photo's id, on Home and in Calls)", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
         await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, cust.id));
         const during = await home(hostC.jar);
         check("a customer paused during a call that is under way: the row stays on the host's home page, without his words, his ID mark or his photo", bare(during.body?.calls.find((c) => c.id === underWay.id)) && !during.reply.text.includes("Written when asking for the call under way") && !during.reply.text.includes(custPhoto), JSON.stringify(during.body?.calls.find((c) => c.id === underWay.id)).slice(0, 200));
         check("the same in her Calls", bare(await inCalls()));
+        check("nor does the call's own page hand her the note she keeps about him", noteOnPage !== undefined && (await noteOf()) === null, String(await noteOf()));
         const refusedPhoto = await photoFor(hostC.jar);
         check("and the photo's own address refuses her, as for any photo that is not hers to see", refusedPhoto.status === 404 && refusal(refusedPhoto) === "not_found" && refusedPhoto.bytes.toString() !== "photo");
         check("(he still gets his own photo)", (await photoFor(cust.jar)).status === 200);

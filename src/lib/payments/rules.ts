@@ -63,7 +63,8 @@ export function cancellationOutcome(input: {
   /** Whether money is currently held for this call. Without a hold there is nothing to charge. */
   held: boolean;
   /**
-   * The call's two people may no longer act (an account paused or closed, or a block between them). Such a call
+   * The call's two people may no longer act (an account paused or closed, or a block between them), or its host's
+   * page was suspended. Such a call
    * is cancelled at no charge by the step that follows a pause, a closure or a block; a person who does that
    * cancelling by hand, because that step failed or has not run yet, gets the same: free, whatever the clock
    * says. Only before the start: a call that has started keeps its own rules. Left out: they may act.

@@ -479,6 +479,26 @@ async function main() {
           await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, host.id), eq(schema.blocks.blockedId, cust.id)));
         }
       }
+      // The same for a host whose page was suspended: the step that suspends her cancels her coming calls at no charge,
+      // and a customer who cancels one by hand first gets what it would have given. (Written straight into the
+      // database, so nothing has cancelled the call.)
+      {
+        const hers = await newCall(host.id, cust.id, { startsIn: 30, price: 2000, minutes: 10, freeCancel: 60 });
+        await step(hers.call.id, "pay", cust.jar);
+        await confirmAtStripe(hers.call.id, "pm_card_visa");
+        await step(hers.call.id, "pay-check", cust.jar);
+        const before = (await callPage(hers.call.id, cust.jar)).body;
+        await db.update(schema.hostProfiles).set({ status: "suspended" }).where(eq(schema.hostProfiles.userId, host.id));
+        try {
+          const quoted = (await callPage(hers.call.id, cust.jar)).body;
+          check("a held call of a host whose page was suspended: late by the clock before, free to cancel once she is suspended", before?.cancel?.shown === "late_charge" && quoted?.cancel?.shown === "free", `${before?.cancel?.shown} ${quoted?.cancel?.shown}`);
+          const freed = await step(hers.call.id, "cancel", cust.jar, { shown: "free" });
+          const letGo = await paymentOf(hers.call.id);
+          check("the customer cancels it: nothing is taken, and the hold is let go", freed.status === 200 && letGo.status === "closed_uncharged" && (letGo.chargedCents ?? 0) === 0, `${freed.status} ${letGo.status}`);
+        } finally {
+          await db.update(schema.hostProfiles).set({ status: "approved" }).where(eq(schema.hostProfiles.userId, host.id));
+        }
+      }
       // The free period ends while the cancelling waits its turn (here: for the call's own lock). What it means is
       // decided when it happens, not when the button was pressed: nothing is cancelled, and the person is told.
       const edge = await newCall(host.id, cust.id, { startsIn: 60 + 16 / 60, price: 2000, minutes: 10, freeCancel: 60 });

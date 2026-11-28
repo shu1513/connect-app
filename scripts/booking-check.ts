@@ -701,6 +701,8 @@ async function main() {
         if (!(await db.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, callId)))[0]?.cancelledAt) await cancelCall({ call, payment: await payment(), by: "host", now: at });
         await settleCancelledCalls();
       }
+      // (The settling above catches a payment's own failure itself, so the payment is read once more.)
+      check("(this case left no hold behind: its payment is closed with nothing taken)", (await payment()).status === "closed_uncharged", (await payment()).status);
     }
 
     // ----------------------------------------------------------------------

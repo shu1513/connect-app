@@ -36,7 +36,11 @@ export async function cancelOutcomeFor(
   const facts = { by: input.by, now: input.now, startsAt: input.call.startsAt, freeCancelMinutes: input.call.freeCancelMinutes, held: input.held };
   const byTheClock = cancellationOutcome(facts);
   if (byTheClock !== "late_charge") return byTheClock;
-  return cancellationOutcome({ ...facts, cannotGoAhead: !(await mayStillAct(input.call.hostId, input.call.customerId, reader)) });
+  // The same when this call's host has had her page suspended: the step that suspends her cancels her coming calls
+  // at no charge, and a customer who cancels one by hand first gets what that step would have given.
+  const [hostPage] = await reader.select({ status: schema.hostProfiles.status }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, input.call.hostId));
+  const cannotGoAhead = hostPage?.status === "suspended" || !(await mayStillAct(input.call.hostId, input.call.customerId, reader));
+  return cancellationOutcome({ ...facts, cannotGoAhead });
 }
 
 /** Cancelling would cost more than the person was shown: nothing was cancelled, and the page shows what it means now. */

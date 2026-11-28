@@ -331,7 +331,7 @@ scripts, all passing).
 - *Hiding "When" and "Price" on a request whose details are withheld.* They say nothing about
   the other person.
 - *Leaving a request of a just-paused customer out of the emails that gather waiting requests.*
-  The tidying-up ends it within about a minute.
+  The tidying-up ends it within a few minutes at the latest.
 - *A new "Report" and "Block" for a coming call that cannot go ahead.* A way to report from a
   cancelled call is part 10's.
 
@@ -436,3 +436,35 @@ lint, types, tests and fifteen check scripts pass (`photo-check` with its one ol
 
 Smaller: the new case in `booking-check` no longer swallows a failed clean-up, and the checks
 that expect "You cannot join this call right now." also assert the code the phone acts on.
+
+## Astra's fifth look at the code (28 November 2026): "not ready"; two points taken, two left, and the looking ends here
+
+Astra found the money fix of the fourth look right as far as it went, and named four more
+things. The builder of the plan made the two small ones himself and left the other two, for
+the reasons below. After five looks, each of which found something next to the last fix, the
+part goes to its pull request: what is left is older than this part and not of the apps.
+
+**Taken:**
+
+- *A call of a host whose page was suspended could still cost the late charge* if its automatic
+  cancelling had failed and the customer cancelled by hand. `cancelOutcomeFor` now also looks at
+  the page of this call's host: suspended means the call cancels for free before its start,
+  as the step that suspends her would have done. `app-calls-check` plays it with a real hold.
+- *The host's private note about a customer was still handed out by the call's own page and the
+  room* while her lists withheld his details. It follows the same rule now (`gatherCallPage`).
+- Smaller: `booking-check` reads its payment once more after cleaning up.
+
+**Left, and said here so that it is not lost:**
+
+- **A member's call after the host ended the membership.** If the clean-up that cancels the
+  member's coming calls is late or fails, the member can cancel one by hand inside its
+  late-cancel time and lose the time set aside for it, where the clean-up would have given it
+  back. This is the membership's own money path (plans 20 to 22), it is the same on the website,
+  and the right fix is in how a membership's ending and its clean-up hang together, not in a
+  rule about two people. **For the founder: a small piece of work of its own, proposed.**
+- **Home and Calls say "The room is open" for a call that is under way while one of its two
+  people was just paused.** The call's own page says that it cannot go ahead. One tap shows the
+  truth; left.
+- The website's own page still offers "Report" on a request that ran out at its card step (said
+  under the first look; Astra adds that such a report goes through even where a report of the
+  host's page would be refused because she hid it).
