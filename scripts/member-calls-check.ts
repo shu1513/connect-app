@@ -1988,7 +1988,7 @@ async function main() {
             const atStripe = monthPaid.stripeChargeId ? await stripe().charges.retrieve(monthPaid.stripeChargeId) : null;
             check("the month pays it back to the member's card, once: $3.00 more is refunded on the month's charge at Stripe, and the month's places say paid back", paid?.status === "done" && paid.amountCents === 300 && paid.stripeRefundId !== null && (await owedLine()).length === 1 && monthPaid.paidBackCents === monthWas.paidBackCents + 300 && monthPaid.toPayBackCents === monthWas.toPayBackCents && atStripe?.amount_refunded === monthPaid.paidBackCents, { status: paid?.status, paidBack: monthPaid.paidBackCents, atStripe: atStripe?.amount_refunded });
             // (The month, its calls, Stripe and the money record are compared here, while they are all true: further down
-            // this script only SAYS that the pay-back failed, and the next try then really pays a second time at Stripe.)
+            // this script only SAYS that the pay-back failed.)
             await audit("after giving time back after collection, and paying it back", m);
             await TB.takeBackPass(new Date(), mine);
             let debt = await debtNow();
@@ -2009,9 +2009,14 @@ async function main() {
             const monthOpen = await M(m.monthId);
             await TB.takeBackPass(new Date(debt.dueAt!.getTime() + 1000), mine);
             check("a pay-back that fails after it was confirmed is owed again, once and only for that very refund; and the host's share is not taken while the member is without the money", !wrongOne && reopened && !twice && again2.status === "owed" && again2.attempt === paid.attempt + 1 && again2.stripeRefundId === null && monthOpen.toPayBackCents === monthWas.toPayBackCents + 300 && monthOpen.paidBackCents === monthWas.paidBackCents && (await debtNow()).status === "told" && (await stripe().transfers.retrieve(pa.stripeTransferId!)).amount_reversed === 0, { wrongOne, reopened, twice, status: again2.status });
-            // Its next try, an hour later at the earliest, pays it; then the take-back is taken.
+            // Its next try, an hour later at the earliest, pays it; then the take-back is taken. (A refund that really
+            // failed is passed over and the next try is sent. Here Stripe really paid the first one and only this script
+            // said it failed, so the next try finds it alive on Stripe's list and books it instead of paying a second
+            // time: plans/20-memberships-part-1-the-money.md, "The pay-back's follow-up, hardened".)
             await sendPayBack(again2.id, new Date(Date.now() + 2 * HOUR));
-            check("(the pay-back's next try went through)", (await owedLine())[0].status === "done" && (await M(m.monthId)).paidBackCents === monthWas.paidBackCents + 300);
+            const paidAgain = (await owedLine())[0];
+            const chargeNow = monthPaid.stripeChargeId ? await stripe().charges.retrieve(monthPaid.stripeChargeId) : null;
+            check("(the pay-back's next try is done: it found the refund Stripe had really made and booked it, so the member was not paid twice)", paidAgain.status === "done" && paidAgain.attempt === paid.attempt + 1 && paidAgain.stripeRefundId === paid.stripeRefundId && (await M(m.monthId)).paidBackCents === monthWas.paidBackCents + 300 && chargeNow?.amount_refunded === atStripe?.amount_refunded, { status: paidAgain.status, refund: paidAgain.stripeRefundId, atStripe: chargeNow?.amount_refunded });
             await TB.takeBackPass(new Date(debt.dueAt!.getTime() + 1000), mine);
             debt = await debtNow();
             const reversed = await stripe().transfers.retrieve(pa.stripeTransferId!);

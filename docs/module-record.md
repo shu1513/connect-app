@@ -6223,3 +6223,73 @@ refused; it is so today for every pay-back of a month.
 for a card call). A bank dispute lost on a part of the month while a pay-back of that month
 is on its way can be worked out a little differently than a moment later (so today). The
 founder's page action itself is not pressed by a check. The phone apps have none of it.
+
+## A membership's pay-back can no longer be paid twice after a lost answer (plan 20, follow-up, 27 November 2026)
+
+**What it is about.** Not a new feature and no decision of the founder's: the weakness that
+the entry on a tip's or a contribution's refund (plan 50, part 1, follow-up, two entries
+up) left for later. When Stripe's answer to a membership's pay-back was lost, the
+app's follow-up could wrongly conclude "it was not made" and send the pay-back again an hour
+later. A pay-back is nearly always a part of the month's charge, so the member could then get
+the money twice.
+
+**What was built.** The follow-up now works as a call's refund and a tip's or contribution's
+refund already do (`plans/20-memberships-part-1-the-money.md`, "The pay-back's follow-up,
+hardened"):
+
+- whoever sends a pay-back first has 30 seconds to do so, as one request; after that it is
+  left to the helper, so the helper never has to guess whether a first request is still on
+  its way;
+- when the helper repeats the request, it no longer believes the answer as it comes back
+  (Stripe returns the first answer, which can be out of date): it asks about the refund by
+  its own number and books what it is now;
+- when Stripe says "no" to the repeat, the helper first searches Stripe's complete list of
+  that charge's refunds. A refund that is there is booked once. Only if it is not there is
+  the pay-back owed again;
+- after 23 hours, when nothing can be repeated, "not on Stripe's list" only counts after 24
+  hours. Until then the pay-back stays open and is looked at again;
+- before a pay-back is ever sent a second time, the app looks at Stripe's list for the first
+  sending. If it is there after all, it is booked and nothing is sent;
+- the hour before a second sending starts when the "no" is written down.
+
+The search of Stripe's list is now one piece of code for contributions and memberships
+(`src/lib/payments/refund-tries.ts`). One more small thing, from Astra's review: a pay-back
+that cannot be sent right now (its month has an action without an answer) no longer takes a
+place among the 50 the helper tries per round. Nothing else behaves differently. No change
+to the database.
+
+**How it was checked.** Type check, lint, 1,168 automatic tests. A new journey (29) in
+`scripts/membership-check.ts` (33 checks, real refunds in Stripe's test area, with the
+script answering in Stripe's place only where the test area cannot be made to refuse or
+fail). The journey was first run against the old code, where the main case failed as feared:
+the member got 5.00 twice. With the new code the member gets it once. The checks added
+after Astra's review were each run once against code broken on purpose in the matching
+place, and each failed as it should. The whole script (507 checks) and the contribution's
+own journey 19 were run again after the last change and pass. So was the collecting journey
+of `scripts/member-calls-check.ts`, which came in with plan 50, part 2 while this was being
+built: there the script only says that a pay-back failed, and the next try now finds the
+refund Stripe had really made and books it, where it used to pay a second time. Its check
+now says so.
+
+**Astra's review** (gpt-6.2-astra, effort high) said "merge after fixes", with five points:
+three taken (the batch above, and stronger checks: the order of things with a slow search, a
+refund of the same line and another try, a refund that fails while a line waits on it), two
+left and written down with the reason (`plans/20-memberships-part-1-the-money.md`, at the
+end). Of the two left, one is being built by plan 50, part 2 (a pay-back that fails days
+after Stripe confirmed it), and one is the same for calls and contributions and is proposed
+as its own fix for all three (a helper that stands still for over an hour at one exact
+step).
+
+**CodeRabbit** answered "Review limit reached" on pull request 116, so by the standing rule
+the diff was read line by line by me in its place. Two small things came of it, neither a
+change in behaviour: an import in `recover.ts` made plain, and the shared search's comment
+now also names the other reason a new try can exist since plan 50, part 2 (a confirmed
+refund that failed later; it is failed on Stripe's list and is passed over). The pay-back
+journey was run again afterwards and passes.
+
+**What the checks cannot cover.** A real lost answer from Stripe and a real refusal of a
+repeat: both are made up by the script, in the place where Stripe's answer comes in. Two
+helpers really working at the same moment: the script sets up the state they would leave.
+
+**For going live.** The app and its helper are put out together: a sender from before this
+change has no last moment for sending.
