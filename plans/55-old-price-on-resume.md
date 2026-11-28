@@ -77,3 +77,9 @@ Not taken, and why:
   of the versioned agreement wording, and changing it is a matter for the lawyer
   (`docs/for-the-lawyer.md`, section 27).
 
+## CodeRabbit (27 November 2026)
+
+Its review limit was reached (36 minutes to wait), so, as the standing rule says, the builder
+read the whole change again instead. Found: a comment that had ended up above the wrong
+function. Nothing else.
+

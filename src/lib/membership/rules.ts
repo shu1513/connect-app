@@ -81,7 +81,6 @@ export function minutesCovered(freeCents: number, pricePer15Cents: number): numb
  */
 export const UNDONE_BOOKINGS_PER_DAY = 5;
 
-/** What a month costs. Exact: the time is always a whole number of half hours. */
 /** The reason a membership carries when it was paused because one of its two accounts was paused (plans/53). */
 export const ACCOUNT_PAUSE = "account";
 
@@ -102,6 +101,7 @@ export function resumeTerms(
   return { pricePer15Cents: offer.pricePer15Cents, includedMinutes: offer.includedMinutes, kept: false };
 }
 
+/** What a month costs. Exact: the time is always a whole number of half hours. */
 export function monthTotalCents(pricePer15Cents: number, includedMinutes: number): number {
   return (pricePer15Cents * includedMinutes) / 15;
 }

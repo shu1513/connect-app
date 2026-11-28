@@ -6588,7 +6588,10 @@ was told, and asked for it.
 **Whose decisions.** The founder's: the old price is kept. The builder's: only after a pause
 with an account; the lower of the two prices; the old time as well.
 
-**Reviews.** Astra and CodeRabbit: see the plan and the pull request.
+**Reviews.** Astra (Codex, effort high): "not ready", 6 points; 4 taken (among them: a page left
+open could record a yes to other terms than the ones it showed, so the page now sends what it
+showed and the step checks it), 2 not, with reasons at the end of the plan. CodeRabbit's review
+limit was reached, so the builder read the whole change again instead.
 
 **Checks.** Unit tests for `resumeTerms`. `scripts/membership-check.ts`, journey 27, against
 Stripe's test area: the host raises her price and halves the time during the pause, and the
