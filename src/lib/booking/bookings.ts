@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { whyNoNewPayment } from "@/lib/disputes/paying";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Booking } from "@/db/schema";
 import { bookingCardSeen } from "@/lib/membership/cards";
@@ -1011,10 +1011,13 @@ export async function createTestCall(input: {
  * (their requests as a host) or closes or pauses an account (as host and as customer).
  * Calls that were already accepted are cancelled by the caller.
  */
-export async function endWaitingRequestsOf(userId: string, roles: { asHost: boolean; asCustomer: boolean }, now: Date): Promise<void> {
+export async function endWaitingRequestsOf(userId: string, roles: { asHost: boolean; asCustomer: boolean }, now: Date, madeBy?: Date): Promise<void> {
+  // `madeBy`: only requests made up to that moment (the moment the account was paused). One made after a pause was
+  // lifted is the person's to keep, also when this runs a moment late.
+  const old = madeBy ? lte(schema.bookings.requestedAt, madeBy) : undefined;
   await db.transaction(async (tx) => {
-    if (roles.asHost) await endWaiting(tx, eq(schema.bookings.hostId, userId), "declined", "the host is no longer available", now);
-    if (roles.asCustomer) await endWaiting(tx, eq(schema.bookings.customerId, userId), "taken_back", "the customer's account was closed or paused", now);
+    if (roles.asHost) await endWaiting(tx, and(eq(schema.bookings.hostId, userId), old), "declined", "the host is no longer available", now);
+    if (roles.asCustomer) await endWaiting(tx, and(eq(schema.bookings.customerId, userId), old), "taken_back", "the customer's account was closed or paused", now);
   });
 }
 

@@ -192,6 +192,10 @@ async function saveCut(tx: Tx, userId: string, cut: Cut, choices: { mark: string
   for (const member of cut.members) {
     const choice = chosen.get(member.membershipId)!;
     const membership = locked.get(member.membershipId)!;
+    // Read again now that it is held: a membership that was paused or ended since the cut was worked out (one of
+    // the two accounts was paused in this very moment, say) takes no place any more, and is left exactly as it is.
+    // Writing a host's stop on it would wipe the reason of its pause, and with it the pay-back of its month.
+    if (membership.status === "paused" || membership.status === "ended") continue;
     const month = membership.currentMonthId ? await lockMonth(tx, membership.currentMonthId) : null;
     if (choice.choice === "pause") {
       if (month?.status === "to_pay") {

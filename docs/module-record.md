@@ -6358,3 +6358,53 @@ script calls the same function). The founder's page with a paused account, in a 
 next piece of work); the lawyer's answers in `docs/for-the-lawyer.md` section 26 (a machine
 deciding, what the Terms must say, five accounts of one person); a real support address, since
 writing to it is the only way to appeal.
+
+## A paused account pauses its memberships; the pause by the app is switched on (plan 53, 27 November 2026)
+
+**What it is.** Until now every membership of a paused account ended for good. The founder:
+"instead of ending the memberships, maybe we should pause the memberships"
+(`plans/53-memberships-paused-with-an-account.md`). Now, in the same step as the account's
+pause, each membership it has (as a host and as a member) is paused with the reason "one of the
+two accounts was paused" (`pauseForAccount`, `pauseMembershipsOf` in
+`src/lib/membership/state.ts`). The month is settled exactly as after an ending
+(`src/lib/membership/ending.ts`): coming member calls cancelled at no charge, the time not used
+in a month that was paid for paid back to the card, a month that was only held given up. The
+member keeps their place, their own price and their own time, and resumes by themselves once
+the account's pause is lifted; they get an email then (`liftPause`). Resuming is a new agreement
+and a new month, as from any pause, and waits until the old month is settled.
+
+An invitation nobody accepted still ends. A closed account, a block, a suspended host and a
+bank dispute still end a membership for good. Monthly contributions to a project still end with
+a pause.
+
+**The pause the app makes by itself (plan 52) is switched on.** The `AUTO_PAUSE` switch is gone;
+the helper runs the round about every 10 minutes. Before it was switched on, the shared test
+database was looked at (read only): nobody in it is at either line.
+
+**Also changed.** The tidying-up after any pause ends only requests and calls that were there
+at the moment of the pause (a booking made after a lift is never ended by it). A cut in a
+host's hours leaves a membership alone that was paused or ended in the same instant.
+
+**Whose decisions.** The founder's: memberships are paused, not ended, and after that the
+automatic pause is switched on. The builder's: everything else (which memberships, the money as
+after an ending, who is told what, that resuming is the member's own step, that contributions
+still end).
+
+**Reviews.** Astra (Codex, effort high): "not ready", 14 points; 11 taken, 3 not, with reasons
+at the end of the plan. CodeRabbit: see the pull request.
+
+**Checks.** The automatic tests, lint and types. `scripts/membership-check.ts`: journey 14 (now
+expects a pause for a paused account) and a new journey 27 against Stripe's test area: paused
+not ended, the member keeps their terms, the money back and the books agreeing with Stripe, a
+held month let go, an invitation ended, the emails, no resume during the pause or before the
+old month is settled, the lift and its email, the resume, a late clean-up beside a resume, a
+second pause in the new period, a member who never resumes at the month's end, the member's
+own account paused, and an ending after such a pause. The whole membership check, `safety-check`
+and `auto-pause-check` were run again after Astra's points.
+
+**What was not tried.** The pages in a browser (the member's page and the host's member list
+with a membership paused this way). The helper running the automatic round by itself for days.
+
+**Before real people use it** (the founder's): the lawyer's answers in `docs/for-the-lawyer.md`,
+sections 26 and 27; a real support address.
+

@@ -56,13 +56,13 @@ function stoppedAt(membership: Pick<Membership, "status" | "pausedReason" | "pau
  * alone, and must never touch a call of a month that began while it was under way. The clean-up after an ending
  * leaves it out: then every coming call of the membership goes.
  */
-export async function cancelUpcomingMemberCalls(membershipId: string, now: Date, onlyMonthId?: string, reason = "the membership ended"): Promise<boolean> {
+export async function cancelUpcomingMemberCalls(membershipId: string, now: Date, onlyMonthId?: string, reason = "the membership ended", upToPeriod?: number): Promise<boolean> {
   const upcoming = await db
     .select({ call: schema.calls, payment: schema.payments })
     .from(schema.payments)
     .innerJoin(months, eq(months.id, schema.payments.monthId))
     .innerJoin(schema.calls, eq(schema.calls.id, schema.payments.callId))
-    .where(and(eq(months.membershipId, membershipId), onlyMonthId ? eq(months.id, onlyMonthId) : undefined, eq(schema.payments.kind, "member_call"), isNull(schema.payments.extensionId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
+    .where(and(eq(months.membershipId, membershipId), onlyMonthId ? eq(months.id, onlyMonthId) : undefined, upToPeriod === undefined ? undefined : lte(months.period, upToPeriod), eq(schema.payments.kind, "member_call"), isNull(schema.payments.extensionId), isNull(schema.calls.cancelledAt), gt(schema.calls.startsAt, now)));
   let noneLeft = true;
   for (const { call, payment } of upcoming) {
     try {
@@ -106,13 +106,17 @@ export async function cleanUpEnding(membershipId: string, now: Date = new Date()
   const [membership] = await db.select().from(schema.memberships).where(eq(schema.memberships.id, membershipId));
   if (!membership || !stoppedAtOnce(membership) || membership.cleanupDoneAt) return true;
   const paused = pausedWithAccount(membership);
+  // An ended membership is over: everything of it is tidied up. A paused one can be resumed, and then has a new
+  // period with a month and calls of its own. So after a pause only what belongs to the period that was paused is
+  // touched: a clean-up that runs late, beside a resume, must never give up the new month or cancel a new call.
+  const ofThisStop = paused ? lte(months.period, membership.period) : undefined;
 
-  const open = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"])));
+  const open = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"]), ofThisStop));
   for (const month of open) await abandonMonth(month.id, paused ? "account_paused" : "ending", now);
 
-  const callsDone = await cancelUpcomingMemberCalls(membershipId, now, undefined, paused ? "the membership was paused" : "the membership ended");
+  const callsDone = await cancelUpcomingMemberCalls(membershipId, now, undefined, paused ? "the membership was paused" : "the membership ended", paused ? membership.period : undefined);
 
-  const running = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), eq(months.status, "running")));
+  const running = await db.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), eq(months.status, "running"), ofThisStop));
   for (const month of running) {
     await db.transaction(async (tx) => owedAfterEnding(tx, await lockForMonth(tx, month.id)));
   }
@@ -120,7 +124,10 @@ export async function cleanUpEnding(membershipId: string, now: Date = new Date()
   return db.transaction(async (tx) => {
     const locked = await lockMembership(tx, membershipId);
     if (locked.cleanupDoneAt || !stoppedAtOnce(locked)) return true;
-    const [stillOpen] = await tx.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"]))).limit(1);
+    // Only the stop this clean-up was begun for is marked as done: not a later pause of the same membership, which
+    // has its own clean-up to come.
+    if (pausedWithAccount(locked) !== paused || (paused && (locked.period !== membership.period || locked.pausedAt?.getTime() !== membership.pausedAt?.getTime()))) return false;
+    const [stillOpen] = await tx.select({ id: months.id }).from(months).where(and(eq(months.membershipId, membershipId), inArray(months.status, ["to_pay", "held"]), ofThisStop)).limit(1);
     if (stillOpen || !callsDone) return false;
     await tx.update(schema.memberships).set({ cleanupDoneAt: now, updatedAt: now }).where(eq(schema.memberships.id, membershipId));
     return true;

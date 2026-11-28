@@ -58,8 +58,12 @@ Everything else below is the builder's.
    for when it ends: they can start one again. Said to the founder.
 10. **A pause that is lifted at once. (builder; left over from Astra's check of plan 52)** The
     tidying-up after a pause (ending waiting requests, cancelling calls) looks first whether the
-    account is still paused or closed. If a person has lifted the pause in between, it does
-    nothing: it must not end a booking that was made after the lift.
+    account is still paused or closed, and it only ends what was there at the moment of the
+    pause. A request or a call that was made after a person lifted the pause is never ended by
+    it, however late the tidying-up runs.
+10a. **A late clean-up never touches a resumed membership. (builder, after Astra)** The clean-up
+    after a pause keeps to the period that was paused. If the member has resumed meanwhile, the
+    new month and its calls are left alone, and a later pause has a clean-up of its own.
 11. **The pause by the app itself is switched on. (the founder)** The switch `AUTO_PAUSE` is taken
     out: the helper runs the round about every 10 minutes. What is still open before real people
     use Connect is in `docs/for-the-lawyer.md`, section 26.
@@ -100,3 +104,42 @@ Everything else below is the builder's.
 - The membership terms say what happens to a membership when an account is paused: they must
   follow.
 - Money paid back on a pause that is later lifted: nothing is owed either way?
+
+## Astra's check of the build (27 November 2026): "not ready", 14 points
+
+Taken:
+
+- **A cut in the host's hours, in the same instant as the pause**, wrote the host's own stop onto
+  the paused membership and wiped the reason of its pause, and with it the pay-back of its
+  month. A cut now leaves a membership alone that was paused or ended since the cut was worked
+  out (`src/lib/booking/calendar.ts`).
+- **A clean-up that ran late, beside a resume**, could give up the new month or cancel a new
+  call, and could mark a later pause as tidied up. It now keeps to the period that was paused
+  and marks only the pause it was begun for (decision 10a).
+- **A lift in the instant between "is the account still paused?" and the ending of its requests
+  and calls** (decision 10: only what was there at the moment of the pause is ended).
+- **The founder's list of 14-day requests** showed a request as "settle by hand" after a pause
+  with an account had already paid the first month's unused money back, which invited a second
+  payment. The pay-back is now read there.
+- **The health check** did not see a pause's clean-up that was late. It does now.
+- **Sentences**: the member's page said "you can still book like any customer" during a pause
+  with an account; the email promised a pay-back also where the month was only held, and said
+  "nothing is charged" where a charge already under way can still finish and is then paid back;
+  the email at the lift promised that resuming would work.
+- **Checks**: the wait for the clean-up before a resume, the host's own email, a second pause in
+  a later period, a late clean-up after a resume.
+
+Not taken, and why:
+
+- **A member call that reaches its start before the tidying-up has run, and a late cancellation
+  by the member in the second between the pause and the cancelling of the call.** Both were so
+  before this plan (a paused account's calls are cancelled a moment after the pause, and the
+  helper cancels a call "as of the moment of the pause" when it finishes late, so that nobody
+  pays for waiting: `endCallsOf`). Not made worse here; a follow-up of its own if wanted.
+- **Two accounts of one membership paused, and both pauses lifted in the same instant**: each
+  lift may see the other account as still paused and send no email. Holding both accounts'
+  rows there could leave two lifts waiting on each other. The member's page still offers
+  "Resume".
+- **A second "you can resume" email** when the member's own pause is lifted later: true, and
+  harmless.
+

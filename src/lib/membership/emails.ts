@@ -105,13 +105,13 @@ export async function queuePausedEmail(tx: Writer, membership: Membership, reaso
       to: member.email,
       key: `${key}:member`,
       subject: `Your membership with ${hostName} is paused`,
-      text: `Hi ${member.name},\n\nYour membership with ${hostName} is paused, because ${why}.\n\nMember calls that were still to come are cancelled at no charge. Membership time you had not used is paid back to your card; you get an email when that has gone through. (If your bank is disputing a payment, that month's money stays where it is until the bank has decided.)\n\nNothing is charged while it is paused. You keep your place, and you can resume once that pause is over: we will write to you then.\n\nYour membership: ${memberPage(membership)}\n`,
+      text: `Hi ${member.name},\n\nYour membership with ${hostName} is paused, because ${why}.\n\nMember calls that were still to come are cancelled at no charge. If this month was already paid for, the membership time you had not used is paid back to your card, and you get an email when that has gone through; if its amount was only held on your card, the hold is let go. (If your bank is disputing a payment, that month's money stays where it is until the bank has decided.)\n\nNo new month is started while it is paused. You keep your place, and you can resume once that pause is over: we will write to you then.\n\nYour membership: ${memberPage(membership)}\n`,
     });
     await queueEmail(tx, {
       to: host.email,
       key: `${key}:host`,
       subject: `${member.name}'s membership is paused`,
-      text: `Hi ${host.name},\n\n${member.name}'s membership with you is paused, because ${why}.\n\nTheir member calls that were still to come are cancelled, and the membership time they had not used is paid back to them. They stay in your member list as paused, and can resume by themselves once that pause is over.\n`,
+      text: `Hi ${host.name},\n\n${member.name}'s membership with you is paused, because ${why}.\n\nTheir member calls that were still to come are cancelled, and membership time they had paid for and not used is paid back to them. They stay in your member list as paused, and can resume by themselves once that pause is over.\n`,
     });
     return;
   }
@@ -142,7 +142,7 @@ export async function queueCanResumeEmail(tx: Writer, membership: Membership, at
     to: member.email,
     key: `membership-can-resume:${membership.id}:${at.getTime()}`,
     subject: `You can resume your membership with ${hostName}`,
-    text: `Hi ${member.name},\n\nYour membership with ${hostName} was paused because one of the two accounts was paused. That pause is over.\n\nYour membership is still paused, and nothing is charged until you resume it yourself. When you resume, you get ${hostName}'s membership as it is now, and a new month starts.\n\nResume here: ${memberPage(membership)}\n`,
+    text: `Hi ${member.name},\n\nYour membership with ${hostName} was paused because one of the two accounts was paused. That pause is over.\n\nYour membership is still paused, and no new month starts until you resume it yourself. When you resume, you get ${hostName}'s membership as it is then, and a new month starts. If resuming is not possible at that moment (the host's hours may be full, say), the page tells you why.\n\nYour membership: ${memberPage(membership)}\n`,
   });
 }
 

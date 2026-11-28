@@ -329,11 +329,13 @@ async function pause(input: {
   const { person, reason } = input;
   let endedMemberships: string[] = [];
   let givenUpPayments: string[] = [];
+  // The moment of this pause. What is ended after it is only what was there by this moment.
+  const pausedAt = new Date();
   const done = await db.transaction(async (tx) => {
     if (input.first && !(await input.first(tx))) return "not_first" as const;
     const [row] = await tx
       .update(schema.user)
-      .set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() })
+      .set({ pausedAt, pausedReason: reason, updatedAt: new Date() })
       .where(and(eq(schema.user.id, person.id), isNull(schema.user.pausedAt)))
       .returning({ id: schema.user.id });
     // Paused already: what `first` wrote stays written, the founder is told, and nothing else is done.
@@ -370,7 +372,10 @@ async function pause(input: {
   // closed), nothing of theirs is ended any more. What they ask for from then on is theirs to keep (plans/53,
   // decision 10). The memberships' month is settled all the same: they were paused, and stay so until resumed.
   const [still] = await db.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, person.id));
-  const callsNotEnded = still?.pausedAt || still?.closedAt ? await endRequestsAndCallsOf(person.id, new Date()) : 0;
+  // And only what was there when the account was paused is ended: a request or a call made after a lift is left
+  // alone also if the lift falls between this look and the ending itself.
+  const now = new Date();
+  const callsNotEnded = still?.pausedAt || still?.closedAt ? await endRequestsAndCallsOf(person.id, now, now, pausedAt) : 0;
   await cleanUpEndedMemberships(endedMemberships, new Date());
   await letGoAll(givenUpPayments, new Date());
   return { callsNotEnded };

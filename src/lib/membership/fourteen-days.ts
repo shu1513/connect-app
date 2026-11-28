@@ -505,6 +505,11 @@ async function openRequestOf(membership: Membership, now: Date): Promise<OpenReq
   const [month] = await db.select({ status: schema.membershipMonths.status, endsAt: schema.membershipMonths.endsAt }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, membership.fourteenMonthId));
   if (!month || month.status === "given_up") return null;
   if (membership.status === "ended" && membership.endedAt && month.endsAt && membership.endedAt < month.endsAt) return null;
+  // The same when the membership was paused with an account before that month's end (plans/53): the month's unused
+  // money was paid back then, exactly as after an ending, and that stands also once the member has resumed. The
+  // pay-back itself is the record of it.
+  const [paidBack] = await db.select({ id: schema.membershipRefunds.id }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.sourceKey, `ending:${membership.fourteenMonthId}`)).limit(1);
+  if (paidBack) return null;
   return line(MONTH_ENDED_UNFINISHED, true);
 }
 

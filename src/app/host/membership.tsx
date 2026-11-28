@@ -173,7 +173,13 @@ function Member(props: { membership: Membership; month: MembershipMonth | null; 
         {membership.ownMinutes && membership.ownPricePer15Cents ? `${timeWords(membership.ownMinutes)} a month at ${formatMoney(membership.ownPricePer15Cents)} per 15 minutes.` : ""}
       </p>
 
-      {paused && <p className="mt-1">Paused: they pay nothing and have no member time. They can resume by themselves when there is room. If you do not want them to come back, end the membership.</p>}
+      {paused && (
+        <p className="mt-1">
+          Paused: they pay nothing and have no member time.{" "}
+          {membership.pausedReason === "account" ? "It was paused because one of the two accounts was paused; they can resume by themselves once that is over and there is room." : "They can resume by themselves when there is room."} If you do
+          not want them to come back, end the membership.
+        </p>
+      )}
       {membership.status === "joining" && <p className="mt-1">Is at the card step right now.</p>}
       {membership.status === "unpaid" && <p className="mt-1">Their monthly payment did not go through. They have no member time until it does; it is tried again, and given up after 7 days. Pausing them cancels that payment and pauses them at once.</p>}
       {membership.status === "active" && openPayment && <p className="mt-1">Their payment for the next month is being taken right now. Pausing them now cancels that payment and pauses them at once.</p>}

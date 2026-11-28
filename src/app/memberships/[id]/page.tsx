@@ -7,7 +7,7 @@ import { SitePage } from "@/components/site-page";
 import { db, schema } from "@/db";
 import type { Membership, MembershipMonth, MembershipRefund } from "@/db/schema";
 import { hostForMember, membershipFor } from "@/lib/membership/access";
-import { PAUSED_WHY } from "@/lib/membership/emails";
+import { ACCOUNT_PAUSE, PAUSED_WHY } from "@/lib/membership/emails";
 import { holdTiming, isFrozen, minutesCovered, monthTotalCents, timeWords } from "@/lib/membership/rules";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
@@ -186,7 +186,8 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
         {membership.status === "paused" && (
           <>
             <p>
-              <strong>Paused{membership.pausedReason && PAUSED_WHY[membership.pausedReason] ? `, because ${PAUSED_WHY[membership.pausedReason]}` : ""}.</strong> It costs nothing and gives no member time. You can still book {hostName} like any customer.
+              <strong>Paused{membership.pausedReason && PAUSED_WHY[membership.pausedReason] ? `, because ${PAUSED_WHY[membership.pausedReason]}` : ""}.</strong> It costs nothing and gives no member time.{" "}
+              {membership.pausedReason === ACCOUNT_PAUSE ? "You can resume once that pause is over; we write to you then." : `You can still book ${hostName} like any customer.`}
             </p>
             <p className="mt-2 opacity-80">Resuming is like joining again: you get {hostName}&apos;s membership as it is then, tick the box, enter a card, and a new month starts.</p>
             {host ? (
