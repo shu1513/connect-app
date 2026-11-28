@@ -1203,10 +1203,15 @@ export async function refundStands(refundId: string, now: Date = new Date()): Pr
   const [refund] = await db.select().from(schema.refunds).where(eq(schema.refunds.id, refundId));
   if (!refund || refund.status !== "done") return false;
   if (!refund.stripeRefundId) {
-    // A member's time given back is no refund at Stripe: there is none that could fail afterwards, and its line
-    // stands while it is done. For every other payment only a refund with Stripe's own number can be shown to stand.
+    // For every payment but a member's call, only a refund with Stripe's own number can be shown to stand.
     const [payment] = await db.select({ kind: schema.payments.kind }).from(schema.payments).where(eq(schema.payments.id, refund.paymentId));
-    return payment?.kind === "member_call";
+    if (payment?.kind !== "member_call") return false;
+    // A member's time given back after the host collected is no refund of the call at Stripe. Its money is what the
+    // month owes back to the member's card under this give-back's name, and it stands once that has REALLY been
+    // paid: her take-back is neither written nor taken before the member has the money, nor while a pay-back that
+    // failed after all is owed again, nor for one a bank dispute on the month keeps from ever being sent.
+    const [paidBack] = await db.select({ status: schema.membershipRefunds.status }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.sourceKey, `giveback:${refund.id}`));
+    return paidBack?.status === "done";
   }
   const atStripe = await stripe().refunds.retrieve(refund.stripeRefundId);
   if (atStripe.status === "succeeded") return true;
@@ -1249,6 +1254,12 @@ export async function refundChangedAtStripe(stripeRefundId: string, now: Date = 
   if (rows.length === 0) {
     const [line] = await db.select({ id: schema.contributionRefunds.id }).from(schema.contributionRefunds).where(and(eq(schema.contributionRefunds.stripeRefundId, atStripe.id), eq(schema.contributionRefunds.status, "done")));
     if (line) await undoFailedContributionRefund(line.id, atStripe.id, atStripe.failure_reason ?? `Stripe says: ${atStripe.status}`, now);
+    // Or a membership month's pay-back to the member's card: it is owed again, and sent again by the month's own job.
+    const [payBack] = line ? [] : await db.select({ id: schema.membershipRefunds.id }).from(schema.membershipRefunds).where(and(eq(schema.membershipRefunds.stripeRefundId, atStripe.id), eq(schema.membershipRefunds.status, "done")));
+    if (payBack) {
+      const { payBackFailedLate } = await import("@/lib/membership/payback");
+      await payBackFailedLate(payBack.id, atStripe.id, atStripe.failure_reason ?? `Stripe says: ${atStripe.status}`, now);
+    }
   }
 }
 

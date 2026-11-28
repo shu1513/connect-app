@@ -142,3 +142,38 @@ A host still cannot do it herself after collecting (the rulebook says why).
 9. *The checks:* as above. **Not added:** a month's charge nearly used up and booked again
    (decision 2 takes that case away), and a part dispute on the month in both orders (under
    "Known").
+
+## As built, and what Astra found in the code (27 November 2026)
+
+Built as decided above, with no migration. Astra read the code and said **"merge after
+fixes"**, with five points. Four were taken; one is older than this part and was left, with
+a task of its own proposed.
+
+1. *The month's pay-back can be sent twice when its answer is lost and the repeat is
+   refused* (`recoverMonthOperation`, `src/lib/membership/recover.ts`). **Left.** It is so
+   today for every pay-back of a month, and it is the same weakness that was found in the
+   contributions' recovery in part 1, which is being put right on its own. This part adds no
+   new try to it. Proposed as a task of its own.
+2. *A pay-back that Stripe confirms and that fails afterwards was never noticed:* the books
+   said "paid back", the member had nothing, and the host's take-back could go through.
+   **Built:** Stripe's message about such a refund is now also looked up among the months'
+   pay-backs (`payBackFailedLate`, `payBackUndone`). It is owed again, as its next try, once;
+   the month has it "to be paid back" again; what was written as gone back is written back;
+   the month's own job sends it again.
+3. *A bank dispute on the month can keep a pay-back from ever being sent, while the host's
+   take-back for it still went through.* **Built, as a rule for all of it:** her take-back is
+   neither written nor taken before the member's money has REALLY gone back to their card
+   (`refundStands` reads the pay-back that the give-back owes, and wants it done). So a
+   pay-back that is only owed, one that failed after all and is owed again, and one a dispute
+   keeps from being sent all hold the host's side back. This replaces decision 4's "its line
+   stands while it is done".
+4. *Sentences that were not true:* the member's email said the month could no longer be
+   booked from; the founder's answer said "owed" after the money was paid. The email now says
+   why it goes to the card, and the answer says "was paid back" once it was, and before that,
+   that nothing is asked of the host until it is.
+5. *The check could be skipped, and passed without the member being paid.* It makes a
+   founder of its own now, sends the pay-back for real (one refund of 3.00 on the month's
+   charge at Stripe), and has the two new cases: nothing asked of the host while the money is
+   only owed, and a pay-back that fails after all holding the take-back until it is paid
+   again. **Not added:** the founder's page action itself is not pressed by the check (it
+   needs a founder's login); what it calls is.

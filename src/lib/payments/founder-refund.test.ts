@@ -6,7 +6,7 @@ vi.mock("@/lib/refunds/emails", () => ({ queueRefundEmail: async () => undefined
 
 import { refundAnswer, refundEstimate, refundReason, type RefundOutcome } from "./founder-refund";
 
-const done: RefundOutcome = { paymentId: "p", amountCents: 500, status: "done", stripeRefundId: "re_1", failure: null, failedAfterAll: false, afterCollection: true, hostOwesCents: 464, sentCents: 1238, takeBack: "not_yet", memberTime: null };
+const done: RefundOutcome = { paymentId: "p", amountCents: 500, status: "done", stripeRefundId: "re_1", failure: null, failedAfterAll: false, afterCollection: true, hostOwesCents: 464, sentCents: 1238, takeBack: "not_yet", memberTime: null, memberPaidBack: false };
 
 describe("what the founder is told about a refund (plans/46-part-3-money-owed.md, decision 11)", () => {
   it("says the amount that was written down, never the one a form sent", () => {
@@ -105,6 +105,13 @@ describe("a member's call on the founder's refund page", () => {
     expect(said).toContain("$5.00 of the member's time was given back: its money is owed to the member's card, and is sent there by itself, from Connect's money.");
     expect(said).toContain("The host's share shrank by $4.64. The host owes $4.64 and has been told.");
     expect(said).not.toContain("was given back to the customer");
+  });
+
+  it("once the month has really paid it back, says so; and before that, that nothing is asked of the host yet", () => {
+    expect(refundAnswer({ ...time, memberPaidBack: true }, "founder")).toContain("$5.00 of the member's time was given back: its money was paid back to the member's card, from Connect's money.");
+    const waiting = refundAnswer({ ...time, takeBack: "not_yet" }, "founder");
+    expect(waiting).toContain("What the host owes for it is worked out once that money has really reached the member's card, not before.");
+    expect(waiting).not.toContain("usually within a minute");
   });
 
   it("before collection: the time is in the membership again, and nobody owes anything", () => {

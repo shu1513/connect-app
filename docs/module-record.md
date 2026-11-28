@@ -6099,7 +6099,19 @@ collected her share of that call; after that nobody could, the founder included.
   press again answers with what the first did. The founder's answer says that it was the
   member's time and that its money is owed to the member's card.
 
+- Nothing is asked of the host before the member's money has really gone back to their card:
+  her take-back is written only then, and it is not taken while a pay-back that failed after
+  all is owed again, or while a bank dispute keeps it from being sent.
+- A month's pay-back that Stripe confirms and later says failed is noticed now (for every
+  pay-back of a month, not only these): it is owed again and sent again by the month's job.
+
+**What the reviewer found.** Astra checked the plan ("not ready": time that is free again
+could be booked twice from one payment, so after collection the money goes to the card) and
+the code ("merge after fixes", five points, four taken). Left, with a task of its own
+proposed: the month's pay-back can be sent twice when its answer is lost and the repeat is
+refused; it is so today for every pay-back of a month.
+
 **Known, and left as it is.** Connect carries the amount until the host's share is back (as
 for a card call). A bank dispute lost on a part of the month while a pay-back of that month
 is on its way can be worked out a little differently than a moment later (so today). The
-phone apps have none of it.
+founder's page action itself is not pressed by a check. The phone apps have none of it.

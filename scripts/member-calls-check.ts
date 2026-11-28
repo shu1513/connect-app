@@ -325,6 +325,8 @@ async function main() {
     }
     if (monthIds.length > 0) await quiet(() => db.delete(schema.membershipRefunds).where(inArray(schema.membershipRefunds.monthId, monthIds)));
     if (paymentIds.length > 0) {
+      // (The founders' emails about a take-back are addressed to the founders: found by the take-back, before it goes with its refund.)
+      for (const debt of await db.select({ id: schema.hostDebts.id }).from(schema.hostDebts).where(inArray(schema.hostDebts.paymentId, paymentIds))) await quiet(() => db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `takeback:${debt.id}:%`)));
       await quiet(() => db.delete(schema.refunds).where(inArray(schema.refunds.paymentId, paymentIds)));
       await quiet(() => db.delete(schema.collectionItems).where(inArray(schema.collectionItems.paymentId, paymentIds)));
       await quiet(() => db.delete(schema.payoutFees).where(inArray(schema.payoutFees.paymentId, paymentIds)));
@@ -1941,13 +1943,15 @@ async function main() {
         await audit("after collecting", m);
 
         // ---- Plan 50, part 2: the founder gives time back after she collected, and she owes her share of it back. ----
-        const [boss] = await db.select({ id: schema.admins.userId }).from(schema.admins).limit(1);
-        if (!boss) console.log("   (No admin in this database: giving time back after collection was not tried.)");
-        else {
+        // (A founder of this run's own, so that this part is never skipped; taken away again below.)
+        const boss = await person("founder");
+        await db.insert(schema.admins).values({ userId: boss.id });
+        {
           const TB = await import("../src/lib/disputes/takeback");
           const FR = await import("../src/lib/payments/founder-refund");
           const { DOCUMENTS } = await import("../src/legal/versions");
           const { currentSplit } = await import("../src/lib/payments/actions");
+          const { sendPayBack, payBackFailedLate } = await import("../src/lib/membership/payback");
           // A published Host Agreement, made up for this run and known to this process only (as owed-check does).
           const today = new Date().toISOString().slice(0, 10);
           const published = { version: `check-${randomUUID().slice(0, 8)}`, effectiveFrom: today, addedOn: today, draft: false, summary: "" };
@@ -1972,6 +1976,20 @@ async function main() {
             check("her share stays \"sent\" and is smaller; the line says what her share lost and its place, and has no refund at Stripe", paNow.transferStatus === "sent" && paNow.transferCents === pa.transferCents && paNow.refundedCents === pa.refundedCents + 300 && lost > 0 && line?.status === "done" && line.afterCollection && line.stripeRefundId === null && line.shareBeforeCents === currentSplit(pa).hostShareCents && line.shareAfterCents === currentSplit(paNow).hostShareCents && line.hostOwesCents === lost && line.afterCollectionNo === 1 && line.reason === why, line);
             const mine = { disputeIds: [], refundIds: [rid] };
             const debtNow = async () => (await db.select().from(schema.hostDebts).where(eq(schema.hostDebts.refundId, rid)))[0];
+            const owedLine = async () => (await db.select().from(schema.membershipRefunds).where(eq(schema.membershipRefunds.sourceKey, `giveback:${rid}`)));
+            // While the month only OWES the member that money, nothing is asked of the host.
+            await TB.takeBackPass(new Date(), mine);
+            const tooEarly = FR.refundAnswer(await FR.refundOutcome(rid), "founder");
+            check("nothing is asked of the host while the member's money is only owed: no take-back is written, and the founder's answer says so", (await debtNow()) === undefined && (await db.select().from(schema.refunds).where(eq(schema.refunds.id, rid)))[0].debtLookedAt === null && (await owedLine()).length === 1 && (await owedLine())[0].status === "owed" && /worked out once that money has really reached the member's card/.test(tooEarly), tooEarly);
+            // The month's own job pays it back: one refund of $3.00 on the month's charge at Stripe.
+            await sendPayBack((await owedLine())[0].id, new Date());
+            const [paid] = await owedLine();
+            const monthPaid = await M(m.monthId);
+            const atStripe = monthPaid.stripeChargeId ? await stripe().charges.retrieve(monthPaid.stripeChargeId) : null;
+            check("the month pays it back to the member's card, once: $3.00 more is refunded on the month's charge at Stripe, and the month's places say paid back", paid?.status === "done" && paid.amountCents === 300 && paid.stripeRefundId !== null && (await owedLine()).length === 1 && monthPaid.paidBackCents === monthWas.paidBackCents + 300 && monthPaid.toPayBackCents === monthWas.toPayBackCents && atStripe?.amount_refunded === monthPaid.paidBackCents, { status: paid?.status, paidBack: monthPaid.paidBackCents, atStripe: atStripe?.amount_refunded });
+            // (The month, its calls, Stripe and the money record are compared here, while they are all true: further down
+            // this script only SAYS that the pay-back failed, and the next try then really pays a second time at Stripe.)
+            await audit("after giving time back after collection, and paying it back", m);
             await TB.takeBackPass(new Date(), mine);
             let debt = await debtNow();
             debtId = debt?.id ?? null;
@@ -1982,19 +2000,31 @@ async function main() {
             debt = await debtNow();
             await TB.takeBackPass(new Date(debt.dueAt!.getTime() - 1000), mine);
             const early = (await debtNow()).status;
+            // Stripe says the pay-back failed after all (the script says so in its place): it is owed again, as its next
+            // try, and her take-back is not taken while the member is without the money, although its day has come.
+            const wrongOne = await payBackFailedLate(paid.id, "re_not_this_one", "made up by the check script");
+            const reopened = await payBackFailedLate(paid.id, paid.stripeRefundId!, "made up by the check script");
+            const twice = await payBackFailedLate(paid.id, paid.stripeRefundId!, "made up by the check script");
+            const [again2] = await owedLine();
+            const monthOpen = await M(m.monthId);
+            await TB.takeBackPass(new Date(debt.dueAt!.getTime() + 1000), mine);
+            check("a pay-back that fails after it was confirmed is owed again, once and only for that very refund; and the host's share is not taken while the member is without the money", !wrongOne && reopened && !twice && again2.status === "owed" && again2.attempt === paid.attempt + 1 && again2.stripeRefundId === null && monthOpen.toPayBackCents === monthWas.toPayBackCents + 300 && monthOpen.paidBackCents === monthWas.paidBackCents && (await debtNow()).status === "told" && (await stripe().transfers.retrieve(pa.stripeTransferId!)).amount_reversed === 0, { wrongOne, reopened, twice, status: again2.status });
+            // Its next try, an hour later at the earliest, pays it; then the take-back is taken.
+            await sendPayBack(again2.id, new Date(Date.now() + 2 * HOUR));
+            check("(the pay-back's next try went through)", (await owedLine())[0].status === "done" && (await M(m.monthId)).paidBackCents === monthWas.paidBackCents + 300);
             await TB.takeBackPass(new Date(debt.dueAt!.getTime() + 1000), mine);
             debt = await debtNow();
             const reversed = await stripe().transfers.retrieve(pa.stripeTransferId!);
             check("it gets its day 14 days after her notice arrived; a second before it nothing is taken; after it the app takes it back out of that call's transfer at Stripe", debt.dueAt?.getTime() === debt.toldAt.getTime() + 14 * DAY && early === "told" && debt.status === "taken" && reversed.amount_reversed === lost, { early, status: debt.status, refusal: debt.refusal, reversed: reversed.amount_reversed });
             const onPage = (await FR.paymentsForRefund({ callId: a.call.id })).find((one) => one.payment.id === pa.id);
             const answer = FR.refundAnswer(await FR.refundOutcome(rid), "founder");
-            check("the founder's refund page finds the member's call, and its answer says time, the member's card, and that her share of it was taken back", onPage?.memberCall === true && onPage.collected && !onPage.frozen && /of the member's time was given back: its money is owed to the member's card/.test(answer) && /has been taken back/.test(answer), answer);
-            await audit("after giving time back after collection", m, { owed: true });
+            check("the founder's refund page finds the member's call, and its answer says time, the member's card, and that her share of it was taken back", onPage?.memberCall === true && onPage.collected && !onPage.frozen && /of the member's time was given back: its money was paid back to the member's card/.test(answer) && /has been taken back/.test(answer), answer);
           } finally {
             DOCUMENTS["host-agreement"].versions.splice(DOCUMENTS["host-agreement"].versions.indexOf(published), 1);
             await db.delete(schema.agreementAcceptances).where(eq(schema.agreementAcceptances.version, published.version));
             // (The founders' emails about it are addressed to the founders, so the clean-up of this run's people does not find them.)
             if (debtId) await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `takeback:${debtId}:%`));
+            await db.delete(schema.admins).where(eq(schema.admins.userId, boss.id));
           }
         }
       } finally {

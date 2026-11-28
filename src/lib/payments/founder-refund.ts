@@ -167,6 +167,8 @@ export type RefundOutcome = {
   takeBack: "not_yet" | "nothing" | { status: string; amountCents: number };
   /** For a member's call: where its time went. Back into the membership ("free"), or its money to the member's card ("card"). Null for a call paid by card. */
   memberTime: "free" | "card" | null;
+  /** For "card": whether the month has really paid it back to the member's card by now. */
+  memberPaidBack: boolean;
 };
 
 /** What came of one refund request, read back from the record: paid back, on its way, or refused, and what the host then owes. Null when it was never written. */
@@ -175,7 +177,7 @@ export async function refundOutcome(refundId: string): Promise<RefundOutcome | n
   if (!refund) return null;
   const [payment] = await db.select({ kind: schema.payments.kind, transferStatus: schema.payments.transferStatus, transferCents: schema.payments.transferCents }).from(schema.payments).where(eq(schema.payments.id, refund.paymentId));
   // A member's time that went to the card has its own line of what the month owes back, under this give-back's name.
-  const [toCard] = payment?.kind === "member_call" ? await db.select({ id: schema.membershipRefunds.id }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.sourceKey, `giveback:${refund.id}`)) : [];
+  const [toCard] = payment?.kind === "member_call" ? await db.select({ id: schema.membershipRefunds.id, status: schema.membershipRefunds.status }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.sourceKey, `giveback:${refund.id}`)) : [];
   const [debt] = await db.select({ status: schema.hostDebts.status, amountCents: schema.hostDebts.amountCents }).from(schema.hostDebts).where(eq(schema.hostDebts.refundId, refund.id));
   return {
     paymentId: refund.paymentId,
@@ -189,6 +191,7 @@ export async function refundOutcome(refundId: string): Promise<RefundOutcome | n
     sentCents: payment?.transferStatus === "sent" ? (payment.transferCents ?? 0) : 0,
     takeBack: debt && debt.status !== "nothing" ? debt : refund.debtLookedAt ? "nothing" : "not_yet",
     memberTime: payment?.kind === "member_call" ? (toCard ? "card" : "free") : null,
+    memberPaidBack: toCard?.status === "done",
   };
 }
 
@@ -214,7 +217,7 @@ export function refundAnswer(outcome: RefundOutcome | null, as: "founder" | "hos
   if (outcome.failedAfterAll) return `The refund of ${amount} failed at Stripe after it had first gone through${outcome.failure ? ` (${outcome.failure})` : ""}: the customer did not get the money. The app is undoing its record of it, which takes a few minutes; nobody owes anything for it.`;
   // A member's call: what was given back is its time. It is in the membership again, or its money is owed to the
   // member's card (the month's own pay-back sends that, and confirms it to the member).
-  const timeWent = outcome.memberTime === "card" ? "its money is owed to the member's card, and is sent there by itself" : "it is in the member's membership again";
+  const timeWent = outcome.memberTime === "card" ? (outcome.memberPaidBack ? "its money was paid back to the member's card" : "its money is owed to the member's card, and is sent there by itself") : "it is in the member's membership again";
   if (!outcome.afterCollection) {
     if (outcome.memberTime) return `${amount} of the member's time was given back: ${timeWent}.${as === "founder" ? " The host had not collected this share, so nobody owes anything." : ""}`;
     return as === "founder" ? `${amount} was given back to the customer. The host had not collected this share, so nobody owes anything.` : `The refund of ${amount} was sent to the customer.`;
@@ -224,6 +227,8 @@ export function refundAnswer(outcome: RefundOutcome | null, as: "founder" | "hos
     : `${amount} was given back to the customer from Connect's money. The host's share shrank by ${formatMoney(outcome.hostOwesCents)}.`;
   if (outcome.takeBack === "nothing" || outcome.sentCents <= 0 || outcome.hostOwesCents <= 0) return `${shrank} Nothing can be taken back for it: nothing was sent to the host for this share, or nothing is left of what was sent.`;
   // Nothing is promised that is not known yet: earlier refunds may have used up everything that was sent.
+  // A member's time: nothing is asked of the host before the member's money has really gone back.
+  if (outcome.takeBack === "not_yet" && outcome.memberTime === "card" && !outcome.memberPaidBack) return `${shrank} What the host owes for it is worked out once that money has really reached the member's card, not before. If they then owe something, they are told, and it is listed under "Money hosts owe back".`;
   if (outcome.takeBack === "not_yet") return `${shrank} The app now works out whether the host owes anything for it (never more than is left of the ${formatMoney(outcome.sentCents)} that was sent to them), usually within a minute. If they do, they are told, and it is listed under "Money hosts owe back".`;
   const owed = formatMoney(outcome.takeBack.amountCents);
   const where = 'It is listed under "Money hosts owe back".';
