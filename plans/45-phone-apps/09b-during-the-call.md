@@ -1,7 +1,8 @@
 # Phone apps, part 09b: during the call (a locked phone, connection grades, more time, the chat)
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Made
-when Astra's check split the first draft of part 09; its points are worked in.
+when Astra's check split the first draft of part 09; its points are worked in. Brought up to
+date on 27 November 2026, after the website changed (the list is at the end).
 
 ## For the founder: what this is
 
@@ -29,8 +30,26 @@ as evidence for a refund; asking for more time; and the text chat.
   shown; the screen says which, and sends what it showed; if that has changed, nothing is
   asked and the new way and price are shown to be pressed again. The host can accept only
   once the money is ready, and only inside the time allowed.
+- **More time and a bank dispute** (plan 47, decision 9): added time paid by card is a new
+  payment. A customer whose bank has an open dispute about a Connect payment, or who won one
+  although Connect had sent its proof and has not been allowed to pay again since, cannot
+  start one
+  (`whyNoNewPayment` in `src/lib/disputes/paying.ts`, asked inside the step that writes the
+  request in `src/lib/extend/extend.ts`). The request is refused with the server's own
+  sentence. More time taken from a membership's month is not stopped.
 - **The chat** is LiveKit's own, in the website's ready-made call screen; nothing of it is
   kept after the call.
+- **"End call now"** (plan 51, built 26 and 27 November by another session, also in the app:
+  `mobile/src/room/in-call.tsx`, `mobile/src/app/room/[id].tsx`, `mobile/src/app/ended.tsx`):
+  the red button ends the call for both, and each person lands on a screen with "Report",
+  "Block" and "Neither". For more time it means two things. A request for more time that is
+  still waiting ends with the call: the server answers "This call has ended." to any further
+  step. And time that was added is charged by the same rule as the call it belongs to (plan
+  51, decision 9; `src/lib/payments/ended.ts`). What that comes to depends on who pressed,
+  how the call is billed, what the booking's words said, whether the host was in the call at
+  that moment or the call had not started, and whether a report lowered the charge. So no
+  screen of this part says an amount of its own: it shows the server's sentence. **The app's
+  part of "End call now" was typed and unit-tested, but never run on a phone** (part 09a).
 
 ## Decisions (the builder's)
 
@@ -58,13 +77,21 @@ as evidence for a refund; asking for more time; and the text chat.
    showed, and shows "checking", "waiting for the host", "the way or price changed, press
    again", "the bank did not allow it", or the new end. The time on the screen moves only
    when the server says the end has moved. The host's Accept appears only when the server
-   says the money is ready.
+   says the money is ready. **A refusal because of a bank dispute** is shown with the
+   sentence the server sends the apps (part 09a, decision 5: it names email and the website,
+   not "your messages") and nothing else: no card sheet and no "try again", since trying
+   again cannot help. A call that ends while a request waits takes the request's box off the
+   screen; the screen after the call is plan 51's, which exists.
 5. **The chat is in the app:** a person on the website may type, and the person in the app
    must be able to read it and answer. LiveKit's kit for phones carries the same chat as its
    website parts; that the two really talk to each other is tried in a mixed call before it
    is relied on. As on the website, nothing of it is kept.
 6. **The apps' switches apply here too:** with memberships off for the apps, more time for a
    member's call is offered by card only if the server offers it so; the app never decides.
+7. **Part 09a comes first.** Plan 51's screens came into the app without a phone, and reading
+   them found words about a contribution in what the app is sent. Walking those screens and
+   putting that right is part 09a, a small pull request of its own; this part is built on
+   top of it.
 
 ## How it is tried
 
@@ -72,7 +99,10 @@ as evidence for a refund; asking for more time; and the text chat.
   outside the room's time or too large; the same note sent twice is kept once and the second
   sending still succeeds; a refund request's summary for a mixed app and
   website call holds both people's grades; more time asked the app's way in each case (card,
-  membership time, free, the bank refusing, the way changed meanwhile).
+  membership time, free, the bank refusing, the way changed meanwhile); more time by card
+  refused for a customer with an open bank dispute, with the server's sentence, while the
+  same customer's more time from a membership's month still goes through; a request that
+  waits when the call is ended with "End call now" can no longer be accepted.
 - `extend-check`, `refunds-check` and `member-calls-check` unchanged and green.
 - On the Android test phone with the website as the other person, with pictures: the app sent
   to the background and brought back, with the camera off and on; the phone locked and
@@ -87,3 +117,25 @@ part 20 for the two-phone test.
 ## Keeping the 4.9%
 
 More time is more of the same one-to-one call, paid the same way as the call.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. What changed in this plan:
+
+1. *A customer with a bank dispute cannot add time by card* (plan 47). "What is there today",
+   decision 4, the check script.
+2. *"End call now" exists, in the app too, and was never run on a phone* (plan 51), and one
+   sentence of its screen names a monthly contribution. Both are part 09a's, which is built
+   first (decision 7).
+3. Nothing changed in the connection grades or the chat: `src/lib/quality/` is as it was.
+
+This plan is read against the code once more on the day it is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *The sentence about added time after "End call now" said more than the rule does.* "What is
+   there today" now names what the amount depends on, and no screen says an amount of its
+   own.
+2. *The refusal for a bank dispute points to "your messages", which in the app will be
+   something else.* Decision 4, with part 09a.
+3. *What is already built and wrong should not hide inside this part.* It is part 09a now.

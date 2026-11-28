@@ -3,6 +3,8 @@
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. It
 builds on plan 7 (the feature) and plan 39, decision 9 (how it behaves on a phone). Astra
 checked it once ("ready with changes"); its points are worked in (the list is at the end).
+Brought up to date on 27 November 2026, after the website changed (that list is at the end
+too).
 
 ## For the founder: what this is
 
@@ -29,6 +31,20 @@ saves a card and waits; the host accepts; a minute later they talk.
   per customer; a daily limit; a pause after three refused cards in a row.
 - Accepting an instant call switches the status off. A booked call coming up only limits the
   lengths offered.
+- **A customer with a bank dispute cannot ask** (plan 47, decision 9): a request for a paid
+  call, booked or instant, is refused with the server's sentence while their bank has an
+  open dispute about a Connect payment (`whyNoNewPayment`, asked in
+  `src/lib/booking/bookings.ts`).
+- **"End call now"** (plan 51) leaves an instant call's rule as it is: the time both were in
+  the call is charged, whoever ends it.
+- **A paused account** (by a person, or since plans 52 and 53 by the app itself): its status
+  goes off, its waiting requests end and its coming calls are cancelled at no charge, by the
+  tidying-up that a pause already had. **That tidying-up comes a moment after the pause.**
+  Until it has run, a request is still marked "waiting". The list of booked requests asks,
+  before it shows a customer's details, whether that customer's account is closed and
+  whether there is a block (`openAndUnblocked`, used by `src/lib/booking/waiting-list.ts`);
+  it does not ask about a pause. The list of instant requests asks none of it
+  (`src/lib/booking/now.ts`).
 - **What is loose today:** a request that runs out (`endUnanswered`) leaves the status on; a
   request is not tied to the period it was asked in, so a host who switches off and on again
   quickly can have an old request beside a fresh period. Whether a host "is available" is
@@ -69,10 +85,21 @@ saves a card and waits; the host accepts; a minute later they talk.
 4. **The clocks and limits do not change,** and no alert restarts one.
 5. **The apps' "available now" switch** (part 01) takes the host's switch and the customer's
    button out of the app together.
+5a. **A request is shown, with its customer's photo, rating and ID mark, only for two people
+   who may still act** *(added 27 November, after Astra's checks)*. The rule is part 09a's,
+   decision 6 (both accounts open, neither paused, no block), and it is the same one for the
+   booked list, the instant list and one request's own screen, on the website and in the
+   app: such a request is left out of the other person's list and of its number. The first version of this decision said the booked list already had it; it has
+   only the half about closed accounts and blocks. And **a pause ends an "until its time is
+   up" period for good:** it does not come back when the pause is lifted, even if its time
+   is not up yet.
 6. **The host's screen** shows what the website's panel shows for a waiting request, with
    Accept, Decline, and Decline and block (with "try blocking again" when only the decline
    went through). While the app is open it also sounds and vibrates for a new request.
-7. **The customer's side** is the website's: the length and price, the ID check where needed
+7. **The customer's side** is the website's: the host's "business or private" line just
+   above the terms, where she has given one (the website shows it there, and the app's
+   ordinary booking already gets that sentence from the server); the length and price, the
+   ID check where needed
    (part 06's), the consent box, Stripe's sheet, the waiting screen that updates every 2
    seconds and moves on to the hold and the call by itself, and taking the request back.
 
@@ -86,7 +113,11 @@ saves a card and waits; the host accepts; a minute later they talk.
   today still passes.
 - Check script for the app's addresses: on, off, still here, silence for 15 seconds, the
   waiting requests, ask now, each refusal (too many waiting, asked too soon, the daily limit,
-  refused cards, no length fits, blocked, no ID).
+  refused cards, no length fits, blocked, no ID, an open bank dispute); a host whose account
+  is paused cannot switch on, and a customer whose account is paused cannot ask; between a
+  pause and its tidying-up, the paused customer's waiting request is in no host's list, and
+  a paused host is sent no customer's photo, rating or ID mark; a period that lives "until
+  its time is up" is gone after a pause and still gone after the pause is lifted.
 - On the Android test phone with the website in a browser as the other person, with pictures:
   the whole instant call from switch to room; an unanswered request; a decline; a decline and
   block; the app left while available, and what it shows on coming back.
@@ -105,3 +136,32 @@ A "call now" is the same one-to-one call, paid the same way.
 4. *Missing from the draft:* taking a request back, the ID check and consent on the customer's
    side, the immediate hold on accepting, the daily limit, the pause after refused cards, what
    the host sees of a request, "try blocking again". Added.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. `src/lib/booking/now.ts` and
+`now-rules.ts` have not changed. What changed in this plan:
+
+1. *A customer with a bank dispute cannot ask for a paid call* (plan 47). "What is there
+   today" and the check script; the app shows the sentence the server sends the apps (part
+   09a, decision 5).
+2. *An account can be paused by the app itself* (plans 52 and 53). Nothing new to build: it is
+   the same pause, and the check script now plays it from the app's side.
+3. *"End call now"* changes nothing for an instant call. Said, so that nobody looks for it.
+
+This plan is read against the code once more on the day it is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *Between a pause and its tidying-up a host's list could still show the paused customer's
+   details, and the other way round.* Decision 5a.
+2. *A period that survives a locked phone could come back after a pause was lifted.*
+   Decision 5a.
+3. *The refusal for a bank dispute pointed to the wrong "messages".* Part 09a, decision 5.
+
+## Astra's second check (27 November 2026), worked in
+
+1. *The booked list does not ask about a pause either.* "What is there today"; decision 5a now
+   uses part 09a's one rule for all three places.
+2. *The host's "business or private" line belongs before the terms of an instant call too.*
+   Decision 7.

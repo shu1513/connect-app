@@ -2,6 +2,8 @@
 
 **Status:** a plan only. Written 20 November 2026 by the builder alone. Part of plan 45. Astra
 checked it once ("ready with changes"); its points are worked in (the list is at the end).
+Brought up to date on 27 November 2026, after the website changed (that list is at the end
+too).
 
 ## For the founder: what this is
 
@@ -20,9 +22,14 @@ to book again. **Following:** the hosts a person follows, and what they want to 
 - `src/app/following/page.tsx` (`followedHosts`, `followEmailsOf`): for each host whether she
   is available now, the next call with her and its link, unfollow, and the choices per host:
   "tell me when she is available", with from and to as whole hours in the follower's own
-  zone, and the diary choice. A notice when emails to followers are switched off altogether
-  (they are, until the founder sets a postal address, plan 31).
+  zone, and the diary choice. While emails to followers are switched off for everyone
+  (they are, until the founder sets a postal address, plan 31) the page shows neither those
+  email choices nor a notice. The notice "switched off" is for a person who has switched
+  such emails off for their own account while they are on for everyone.
 - `askOnlineAction` is the question on the page after a call (part 10).
+- **"Write to [name]"** (plan 49; `src/components/write-to.tsx`): on Contacts a host has this
+  button beside each person who was her customer, while messages are switched on. A
+  customer has no such button there: a customer writes around a call.
 
 ## Decisions (the builder's)
 
@@ -38,6 +45,10 @@ to book again. **Following:** the hosts a person follows, and what they want to 
    and the list is sent without that field.
 4. **A host's note is hers alone:** sent only to her, never to the customer, and in no answer
    for anyone else.
+5. **"Write to [name]" for a host's past customers** opens that conversation in the app's
+   Messages (part 17b). It is built with whichever of the two parts comes second (part 17b,
+   decision 20): until part 17b exists the app's answer has no such field. Whether the
+   button is there for one contact is the server's answer, as on the website.
 
 ## How it is tried
 
@@ -45,7 +56,9 @@ to book again. **Following:** the hosts a person follows, and what they want to 
 - Check script: contacts in both roles; a note saved and read back only by its host; a note
   too long; an older copy not overwriting a newer one; an invitation in each position of the
   membership switch; choices saved from the app leave the diary choice untouched, and the
-  list holds no diary field.
+  list holds no diary field; once part 17b exists, "Write to" is in a host's answer for a
+  past customer, absent for someone she only called as a customer, and absent for everyone
+  while messages are switched off.
 - On the Android test phone, with pictures: both lists, a note, an invitation, the hours,
   unfollow.
 
@@ -61,3 +74,13 @@ An invitation leads to a membership (part 13, behind its switch). Nothing about 
    guard for notes. Decision 1.
 3. *Following shows more:* available now, the next call, the hours, the notice that emails
    are off. Decision 2.
+
+## Brought up to date (27 November 2026)
+
+Read again against the code on `main` after pull request 123. `src/lib/people/contacts.ts`
+and the Following page have not changed. What changed in this plan:
+
+1. *A host can write to a past customer from Contacts* (plan 49). "What is there today",
+   decision 5, the check script.
+
+This plan is read against the code once more on the day it is built.

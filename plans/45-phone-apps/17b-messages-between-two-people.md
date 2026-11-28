@@ -4,7 +4,12 @@
 ("build the plan for now"). Part of plan 45. Nothing here is built, and the phone build stays
 paused (the founder's word of 20 November) until the founder says otherwise. Astra checked it
 twice (first "not ready", 16 points; then "ready with changes", 8 points); all are worked in
-or answered, and listed at the end.
+or answered, and listed at the end. Read on 27 November 2026 by the builder of the phone
+apps, after pull request 123: nothing in it had to change. Two things were added elsewhere
+that touch it. Part 12, decision 2a, proposes one notification, "Connect has written to
+you.", for a few kinds of message "From Connect" (see "Not in this part" here, which leaves those
+messages out of the apps). And parts 10 and 17 now name their "Write to" buttons from their
+side, as decision 20 here asks.
 
 ## For the founder: what this is
 
@@ -204,7 +209,11 @@ the app than on the website (decision 13). Asked on 27 November, you left it to 
    himself just sent, and the message's number; or the refusal's sentence. That is the only
    place a key appears, and only ever the sender's own, back to him.
    "Read the rules" opens the rules page the way the app's report form does today; when
-   part 18 gives the apps their own rules page, it opens that.
+   part 18 gives the apps their own rules page, it opens that. *(27 November: the rules
+   page speaks about projects, contributions, tips and diary posts, and how the apps may
+   lead to legal text at all is part 18's open decision 5. This link is one more such
+   place and waits for that answer like the others; until then the screen names the rules
+   without a link.)*
 
 7. **It stays fresh the website's way: the screen asks again 5 seconds after the last answer
    came,** only while it is the screen in front and the app is in front.
@@ -306,7 +315,9 @@ the app than on the website (decision 13). Asked on 27 November, you left it to 
     never taken away, and whether one may write is the rules' business.
     **Not built here:** the host's way from Contacts, which names a customer. It has nothing
     in the app to press until part 17, and part 17 will say how the app names a contact. It
-    is built with part 17; the button on the page after a call with part 10.
+    is built with part 17, and the button on the page after a call with part 10; or with this
+    part, for whichever of them is built before this part is (decision 20: the later of the
+    two builds what joins them).
 
 11. **Block** on the conversation's screen, with the question the app asks first, in the
     words blocking already has in the app (`BLOCK_WORDS`). The server blocks the other person
