@@ -57,21 +57,27 @@ So a pause made by mistake costs a host her members. That is the reason for the 
    different people the account had a really paid call with in those 90 days. The share is there
    for a busy account: 5 reports out of 500 customers say little, 5 out of 10 say a lot. (Uber
    and Lyft judge a driver against their recent trips, not by a bare count; the founder asked
-   how they do it.) The founder asked whether 90 days is right: with the share, the builder
-   thinks it is.
+   how they do it.) The founder asked whether 90 days is right, or 60: the builder would keep 90.
+   A shorter time mostly helps an account with few calls, which could then never gather five.
 4. **Which reports count. (builder)** A report counts when all of this is true:
-   - its reporter has had a call with the person that was really paid for (money was taken and
-     kept; a member's call counts by the part of the month that was used). A stranger's report
-     about a page, and a report from a call that was free or given back in full, do not count:
-     they cost nothing to make;
+   - it was made in the last 90 days, and after the last time a pause of the account was lifted
+     (decision 8);
+   - its reporter has had a call with the account, in those 90 days, that was really paid for
+     (decision 4a). A stranger's report about a page and a report after a free call do not
+     count: they cost nothing to make;
    - the reporter's account is not closed;
-   - the person it is about has not reported that reporter (when the two reported each other,
-     neither report counts here; a person on the team can still read both);
+   - the account has no open report of its own about that reporter from those 90 days (when the
+     two reported each other, neither report counts here; a person on the team can still read
+     both). A report of the account's that the team closed, or an old one, takes nothing out;
    - nobody on the team has closed it. A report a person has looked at and closed is settled:
-     that person could have paused the account by hand;
-   - it was made after the last time a pause of the account was lifted (decision 8).
+     that person could have paused the account by hand.
    Where a report was made from (a call, a request, a message, a page) does not matter: what
    matters is who made it.
+4a. **"Really paid for". (builder, after the automatic security check and Astra)** Money was taken
+   for the call (a member's call: a part of the month was used for it), and no bank took it
+   back: a payment with a bank dispute that is open or lost does not count. Money that the host
+   or Connect gave back afterwards does **not** undo it. Otherwise a host could give their money
+   back to the people who complained, or who rated low, and make it all disappear.
 5. **Urgent reports stay as they are. (builder)** "Someone under 18" and "threats" still email the
    team at once. One report alone never pauses anyone: that would be a weapon.
 
@@ -80,50 +86,72 @@ So a pause made by mistake costs a host her members. That is the reason for the 
 6. **An average of 2.0 or lower from at least 10 different people, counting paid calls only.
    (builder)** Counted as the shown average is (each person once, a week after the call, whole
    groups, the most recent 50), for the person as a host and as a customer, each by itself, but
-   only from ratings of calls that were really paid for: a free call costs nothing to make, and
-   reports have the same line (decision 4). Only ratings of calls that ended after the last
-   time a pause was lifted count (decision 8). So this average can differ from the one a page
-   shows, and the person is told "counting paid calls only".
-6a. **A warning first, once. (builder)** When an average falls to 2.5 or lower (from the 5 people
-   an average needs), the person gets one email: their average as a host (or as a customer) is
-   low, and an account whose average stays at 2.0 or lower from 10 or more people is paused. It
-   says nothing about any one rating. Sent once per fresh start (decision 8). Uber and Lyft warn
-   before they act on ratings. There is no such warning for reports (see "What stays").
+   only from ratings of calls that were really paid for (decision 4a): a free call costs nothing
+   to make. Only ratings of calls that started after the last time a pause was lifted count
+   (decision 8). So this average can differ from the one a page shows.
+6a. **A warning first, and then at least 14 days. (builder; Uber and Lyft warn first)** When this
+   average is 2.5 or lower, the person gets one email: their average is low, and an account at
+   2.0 or lower from 10 or more people is paused, no sooner than 14 days from now. Nobody is
+   paused for ratings without that email, and not before 14 days have passed since it: also not
+   an account that is already at the line when it is first looked at. One warning per fresh
+   start (decision 8), for the account, not for each role. There is no such warning for reports
+   (see "What stays").
 
 ### What happens
 
 7. **The same pause as by hand. (builder)** The person is told by email and on the paused page
-   why, in general words (never who reported or rated them), and where to write if they think it
-   is a mistake. The founder gets an email saying that it happened and why: nothing to do unless
-   the person writes in.
+   why, in general words, and where to write if they think it is a mistake. The founder gets an
+   email saying that it happened and why: nothing to decide unless the person writes in.
+7a. **The person is given the rule, never a number of their own. (builder, after Astra)** Not who
+   reported or rated them, not how many people reported them ("several different people"), and
+   not their average or how many people it is from ("2.0 or lower from 10 or more people"). An
+   average counted for the pause is not the one their pages show, and the two side by side could
+   give one person's stars away. The founder's email has the numbers.
 8. **Lifting a pause is a fresh start. (builder)** A person on the team lifted it, so a person has
-   looked. Reports made before that moment, and ratings of calls that ended before it, no longer
-   count toward a pause by itself. Otherwise the next round would pause the account again.
-8a. **Counted and paused in two steps, checked in the second. (builder, after the automatic
-    security check)** The round counts first and pauses after. In the pause's own database step
-    the account's row is held and its fresh start is read again: if a person lifted a pause in
-    between, what was counted is out of date and nothing is done.
+   looked. Reports made before that moment, and ratings of calls that started before it, no
+   longer count toward a pause by itself, and a new warning must come before a pause for
+   ratings. Otherwise the next round would pause the account again. Only lifting a pause that
+   is there does this: a second press of the button changes nothing. A pause that was lifted
+   before this was built counts as a fresh start too (the migration reads the admins' record).
+8a. **Counted twice. (builder, after the automatic security check and Astra)** A round counts
+   first and acts after. In the step that pauses (or warns) the account's row is held, its
+   fresh start is read again, and what was counted is counted again there. If a person lifted a
+   pause or closed a report in between, nothing is done.
 9. **Who is never paused by itself. (builder)** An admin's account; a closed account (if it is
    opened again, the next round looks at it).
-10. **When it is looked at. (builder)** By the helper, about every 10 minutes. Not at the moment
-    of the report: a report made right after a call counts only once that call's money is taken,
-    about a day later.
+10. **When it is looked at. (builder)** By the helper, about every 10 minutes, beside its other
+    work and never holding it up. Not at the moment of the report: a report made right after a
+    call counts only once that call's money is taken, about a day later.
 
 ## What stays as it is, on purpose
 
 - **An appeal needs a person.** There is no automatic way back. The law in the UK and the EU
   very likely gives a person paused by a machine the right to have a human look.
-- **No warning before the pause.** Telling someone "3 people have reported you" would tell them
-  that they were reported, which the app never does.
+- **No warning before a pause for reports.** Telling someone "3 people have reported you" would
+  tell them that they were reported, which the app never does.
 - **Memberships that ended with a pause do not come back** when it is lifted (as today).
 - **The published legal documents are not changed here.** What they should say is a question
-  for the lawyer (`docs/for-the-lawyer.md`).
+  for the lawyer (`docs/for-the-lawyer.md`, section 26).
+- **One person with several accounts.** "Different people" are different accounts. Someone who
+  opens five accounts and pays for a call with each can pause a host, and her memberships are
+  gone even if the pause is lifted. Each of those calls costs real money and the host must
+  accept each request, but it remains possible. A customer does not have to prove who they
+  are for a paid call, so the app cannot tell. Said to the founder; in the lawyer file.
+- **A paid call where the customer never came** counts as "a call with" the host: he paid.
+- **With exactly five customers, "several people reported you" names them all.** The words give
+  no number, but someone who knows the rule and has had only five paying customers can work it
+  out. In the lawyer file.
+- **The first day of the new average.** Ratings that were shown from 3 people are grouped anew
+  (first 5, then 3s), and someone who compared an old number with the new one could work out
+  one person's stars. There are no real ratings yet: Connect is not open.
+- **The results page of a call** does not say whether a rating will count toward a pause.
 
 ## What gets built
 
 - `src/lib/ratings/rules.ts`: `RATING.minPeople = 5`; `shownAverage` takes the first 5, then
   groups of 3, and shows nothing under 5.
-- `user.auto_pause_from` (migration): the moment a pause was last lifted.
+- `user.auto_pause_from` (migration 0068): the moment a pause was last lifted. `user.rating_warned_at`
+  (migration 0069, which also gives accounts whose pause was lifted in the past their fresh start).
 - `src/lib/safety/auto-pause-rules.ts`: the numbers and the plain logic.
 - `src/lib/safety/auto-pause.ts`: `runAutoPauses(now)`: who has reached a line, read from reports,
   calls, payments and ratings.
@@ -136,8 +164,10 @@ So a pause made by mistake costs a host her members. That is the reason for the 
 
 - Unit tests for `shownAverage` (5, then 3s; under 5 nothing) and the pause rules.
 - `scripts/auto-pause-check.ts` against the local database: 4 reporters do nothing, the 5th
-  pauses; each thing that makes a report not count; a lifted pause is not made again; ratings at
-  9 and at 10 people; an admin is never paused.
+  pauses; each thing that makes a report not count, and two that must not; the share; a lifted
+  pause is a fresh start and the rule works again after it; ratings warn first and pause no
+  sooner than 14 days later; a count that no longer holds at the moment of the pause; an admin
+  is never paused.
 - `scripts/ratings-check.ts`: the averages with the new minimum.
 
 ## For the lawyer (each is in `docs/for-the-lawyer.md`)
@@ -146,3 +176,25 @@ So a pause made by mistake costs a host her members. That is the reason for the 
   EU's rules for platforms on telling a person why).
 - What the Terms and the Community Rules must say about it.
 - Ending memberships for good on a pause that a machine made.
+
+## The automatic security checks and Astra's check of the build (27 November 2026)
+
+**The automatic security check of the first commit** found two things, both taken: ratings of
+free calls counted toward a pause though reports from free calls did not (decision 6), and a
+pause could be made from a count that a lifted pause had just made out of date (decision 8a).
+**On the second commit** it found that a host could give money back to the people who complained
+and so take their reports and stars out of the count (decision 4a).
+
+**Astra (Codex, effort high): "not ready", 22 points.** Taken: accounts whose pause was lifted
+in the past had no fresh start; the step that pauses did not look again at what had changed; an
+account already at the line was paused with no warning; a payment a bank took back counted as
+paid; the emails gave the person an average that, beside the one on their page, could give one
+person's stars away; any old report by the account about a reporter took that reporter out for
+good; the people with older calls were mixed into the share; the fresh start went by a call's
+booked end; a second press of "Lift the pause" moved the fresh start; one warning per role, kept
+only in the emails; a warning written from an old look; the round held up the helper's money
+work; "5 or more people reported you" named them all for someone with five customers; an empty
+"only this account" looked at every account; the founder's email said calls "are ended" before
+they were; the page's note spoke of customers only; three checks that would pass with wrong
+code. Not taken, and why: see the last five points of "What stays as it is".
+

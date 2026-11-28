@@ -484,6 +484,13 @@
       "when": 1795825804333,
       "tag": "0068_automatic_pause",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795826770920,
+      "tag": "0069_rating_warned",
+      "breakpoints": true
     }
   ]
 }

@@ -54,6 +54,11 @@ export const user = pgTable("user", {
    * the app makes by itself. Null: no pause was ever lifted.
    */
   autoPauseFrom: timestamp("auto_pause_from", { withTimezone: true }),
+  /**
+   * When this person was warned by email that their ratings are low (plans/52, decision 6a). The app pauses an
+   * account for its ratings only some days after this. Emptied when a pause is lifted: a fresh start gets a new warning.
+   */
+  ratingWarnedAt: timestamp("rating_warned_at", { withTimezone: true }),
   /** Kept by the login library: whether this person logs in with a second step (admins must). */
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   /** Reminder emails before calls and about requests. Emails about things that happened are always sent. */

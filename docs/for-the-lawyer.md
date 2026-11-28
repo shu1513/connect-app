@@ -896,15 +896,19 @@ What the app now does (`plans/52-automatic-pause.md`): about every 10 minutes it
 accounts that have reached one of two lines, and pauses them with no person deciding.
 
 - **Reports:** 5 different people reported the account within 90 days, each of them had a call
-  with it that was really paid for, and those people are at least 1 in 10 of everyone the account
-  had paid calls with in that time. A report does not count if its reporter's account is closed,
-  if the two reported each other, or if a person on the team has closed it.
-- **Ratings:** an average of 2.0 or lower from at least 10 different people. At 2.5 or lower the
-  person gets one warning email first.
+  with it in that time that was really paid for, and those people are at least 1 in 10 of
+  everyone the account had paid calls with in that time. A report does not count if its
+  reporter's account is closed, if the two reported each other, if a bank took the call's money
+  back, or if a person on the team has closed it. Money the host gave back does not take a
+  report out.
+- **Ratings:** an average of 2.0 or lower from at least 10 different people, counting only
+  ratings of calls that were paid for. At 2.5 or lower the person gets one warning email, and
+  the pause comes no sooner than 14 days after it.
 
-The person is told why in general words (never who reported or rated them) and where to write.
-The founder gets an email that it happened. Only a person can lift the pause. A pause ends the
-account's memberships and monthly contributions for good, as a pause by hand does.
+The person is told the rule that was reached, in general words: never who reported or rated
+them, how many people reported them, or what their average is. The founder gets an email that it
+happened, with the numbers. Only a person can lift the pause. A pause ends the account's
+memberships and monthly contributions for good, as a pause by hand does.
 
 The average itself changed too: it is shown from 5 different people on (before: 3), and it is a
 rolling one, worked out from the most recent 50 people or so.
@@ -940,3 +944,13 @@ Questions:
   says so to the person; the public pages say "4.8 from 48 ratings".)
 - **The draft Terms** say ratings count "in complete groups of three". Now: the first 5 people,
   then three at a time, and only the most recent 50 or so. The sentence needs to follow.
+- **One person with several accounts.** "Different people" are different accounts, and a
+  customer need not prove who they are for a paid call. Five accounts that each pay for a call
+  can have a host paused, and her memberships end for good. If that happens, who is liable for
+  her loss: the people behind the accounts, Connect, both? Should the Terms say that a pause
+  by the app can be wrong and what Connect then owes?
+- **A host with very few customers.** She is told that "several different people who had calls
+  with you" reported her. With exactly five paying customers in that time, that is all of them.
+  Is that an unlawful disclosure of who reported, and must the pause for reports be kept from
+  accounts with so few customers?
+

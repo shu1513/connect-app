@@ -5,7 +5,7 @@
  */
 import { cleanUpEndedMemberships, endMembershipsOf } from "@/lib/membership/state";
 import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
-import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { errorSummary, queueEmail } from "@/lib/email";
 import { RULES, SUPPORT_EMAIL } from "@/lib/terms";
@@ -447,6 +447,8 @@ export async function pauseUnderage(input: {
 export async function pauseByItself(input: {
   userId: string;
   expectedFrom: Date | null;
+  /** What the caller counted, counted again inside the pause's own step (with that step as the reader). False: nothing is done. */
+  stillTrue?: (tx: Tx) => Promise<boolean>;
   reason: string;
   because: string;
   founder: { subject: string; text: string; alreadyText: string };
@@ -459,7 +461,8 @@ export async function pauseByItself(input: {
     first: async (tx) => {
       const [row] = await tx.select({ from: schema.user.autoPauseFrom, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, input.userId)).for("update");
       const [isAdmin] = await tx.select({ id: schema.admins.userId }).from(schema.admins).where(eq(schema.admins.userId, input.userId));
-      return Boolean(row) && !isAdmin && row.closedAt === null && (row.from?.getTime() ?? null) === (input.expectedFrom?.getTime() ?? null);
+      if (!row || isAdmin || row.closedAt !== null || (row.from?.getTime() ?? null) !== (input.expectedFrom?.getTime() ?? null)) return false;
+      return input.stillTrue ? input.stillTrue(tx) : true;
     },
     person,
     reason: input.reason,
@@ -492,8 +495,15 @@ export function pausedListUrl(): string {
 export async function liftPause(input: { adminId: string; userId: string }): Promise<void> {
   await db.transaction(async (tx) => {
     // A person has looked at the account: what was reported and rated before this moment no longer counts toward
-    // a pause the app makes by itself (plans/52, decision 8). Without this, the next round would pause it again.
-    await tx.update(schema.user).set({ pausedAt: null, pausedReason: null, autoPauseFrom: new Date(), updatedAt: new Date() }).where(eq(schema.user.id, input.userId));
+    // a pause the app makes by itself (plans/52, decision 8), and a new warning comes before a pause for ratings.
+    // Without this, the next round would pause it again. Only an account that IS paused: a second press of the
+    // button must not move the fresh start forward and so throw away what was reported since the real lift.
+    const lifted = await tx
+      .update(schema.user)
+      .set({ pausedAt: null, pausedReason: null, autoPauseFrom: new Date(), ratingWarnedAt: null, updatedAt: new Date() })
+      .where(and(eq(schema.user.id, input.userId), isNotNull(schema.user.pausedAt)))
+      .returning({ id: schema.user.id });
+    if (lifted.length === 0) return;
     await recordAdminAction({ adminId: input.adminId, action: "pause lifted", targetUserId: input.userId }, tx);
   });
 }
