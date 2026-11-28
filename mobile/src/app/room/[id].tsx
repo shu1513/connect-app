@@ -97,6 +97,13 @@ function OneRoom({ id }: { id: string }) {
   const whereItStands = useRef<() => Promise<void>>(async () => {});
   /** "End call now" went through: the screen with the three choices (report, block, neither) is opened, now or when the person is back on this screen. */
   const [toEnded, setToEnded] = useState(false);
+  // The same when the OTHER person pressed it while this one was in the call, or had been in it on this screen
+  // (plans/51, decision 25): once the server says the call was ended for both, on to the three choices.
+  const entered = useRef(false);
+  const endedForBoth = Boolean(live?.safetyEnded && !live.cancelled);
+  useEffect(() => {
+    if (endedForBoth && entered.current && ending === "no") setToEnded(true);
+  }, [endedForBoth, ending]);
   const newest = useRef(0);
   const joiningNow = useRef(false);
   const path = `/api/app/calls/${id}`;
@@ -273,6 +280,7 @@ function OneRoom({ id }: { id: string }) {
       setClock(answer.data.serverNow, receivedAt, askedAt);
       followEnd(answer.data.endsAt);
       // (Entered with `choices` as the camera check says them at the moment the call is drawn.)
+      entered.current = true;
       setPass(answer.data);
     } else if (!answer.ok && answer.code === "not_found") {
       setGone(true);

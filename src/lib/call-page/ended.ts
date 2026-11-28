@@ -10,6 +10,7 @@ import { roomClosesAt } from "@/lib/calls";
 import { hasBlocked } from "@/lib/follows/follows";
 import { callForParticipant } from "@/lib/payments/access";
 import { ordinaryPayments } from "@/lib/payments/take";
+import { myRating, ratingStateOf } from "@/lib/ratings/ratings";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
 import { endReportPreview } from "@/lib/safety/end-report";
 import { REPORT_WORDS } from "@/lib/safety/report-words";
@@ -31,6 +32,8 @@ export type EndedScreen = {
   /** `done`: the block stands; `doneWords` says so, and nothing more (whether every call still to come was cancelled is said when the block is made). */
   block: { label: string; what: string; done: boolean; doneWords: string };
   neither: { label: string; what: string };
+  /** That the call can be rated on its page, now or a few minutes after its booked end (decision 27). Null when it cannot, or this person has rated it. */
+  rate: string | null;
 };
 
 /**
@@ -74,6 +77,8 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
     }
   }
   const blockDone = await hasBlocked(userId, otherId);
+  const rating = await ratingStateOf(call, now);
+  const rate = (rating === "open" || rating === "not_yet") && (await myRating(call.id, userId)) === null ? END_WORDS.rate(otherName, rating === "open") : null;
 
   return {
     callId: call.id,
@@ -88,5 +93,6 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
     // A block that stands can be made again: that tries once more to cancel the calls still to come, and is safe.
     block: { label: blockDone ? END_WORDS.blockAgain(otherName) : BLOCK_WORDS.label(otherName), what: blockDone ? END_WORDS.blockAgainWhat(otherName) : END_WORDS.blockWhat(otherName), done: blockDone, doneWords: END_WORDS.blocked(otherName) },
     neither: { label: END_WORDS.neither, what: END_WORDS.neitherWhat(otherName) },
+    rate,
   };
 }

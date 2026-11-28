@@ -111,6 +111,13 @@ export const END_WORDS = {
   neither: "Neither",
   neitherWhat: (name: string) => `Nothing else happens. You can still report or block ${name} later from this call's page.`,
   toResults: "See the call's page",
+  /** On the call screen, when the call was ended with the button and this screen does not go on by itself (the person was not in the call): the way to the three choices. */
+  toChoices: "See what you can do now",
+  /** Under the three choices, while the call can (still) be rated by this person. `open`: the stars can be given now. */
+  rate: (name: string, open: boolean) =>
+    open
+      ? `You can also rate ${name} on the call's page. ${name} never sees what you gave.`
+      : `A few minutes after the booked end of the call you can also rate ${name} on the call's page, if the two of you were in the call together for at least 2 minutes of its booked time. ${name} never sees what you gave.`,
 
   /**
    * What the call's page says about the money. A host is never told that she was reported: for her a lowered charge

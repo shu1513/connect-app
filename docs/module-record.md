@@ -6076,6 +6076,114 @@ describe the old button, and wait for the lawyer's words (`docs/legal/end-call-n
 `docs/for-the-lawyer.md` section 25). The app and its helper must be put out together: an older
 helper would charge a call that a customer ended by the minutes.
 
+### After the merge: the other person's screen, ratings, and both reporting each other (27 November 2026)
+
+Three points that came out of the try with two people and of the founder's questions about it
+(`plans/51-end-call-now.md`, decisions 25 to 27).
+
+- **The person who did not press now lands on "Report", "Block", "Neither" by itself**, on the
+  website and in the phone app. Before, only the presser's screen went there; the other person
+  saw "This call has ended." and a link named "See the results". The screen goes on once the
+  server says the call was ended for both, and only for someone who has been in the call on
+  that screen (`src/app/calls/[id]/call-room.tsx`, `mobile/src/app/room/[id].tsx`). Someone
+  still at the camera check keeps a link, now named "See what you can do now".
+- **Both people can rate a call ended with "End call now"**, under the usual rules (2 minutes
+  together inside the booked time, a final record, 7 days). Before, neither could, which made
+  the button a way to never be rated. The rating opens a few minutes after the BOOKED end, not
+  after the press: the call's record is final only then, and the charge reads the same record.
+  The page with the three choices says so. The tip box, the project box and the automatic
+  follow stay off; the tip box used to follow the rating's state and now has its own line
+  (`src/lib/ratings/rules.ts`, `ratings.ts`, `src/lib/contributions/tips.ts`). A call ended
+  with the old button stays without ratings.
+- **The founder's list of reports says when the two reported each other**: "Both reported each
+  other from this call" (or "this request"), or how many reports the other person has made
+  about the reporter from somewhere else. Open and closed reports count. Nothing follows from
+  it automatically, and the money still goes by who pressed (`openReports` in
+  `src/lib/safety/reports.ts`, `reportedBackWords` in `report-words.ts`).
+
+**Why both people get the choices.** Who pressed says nothing about who behaved badly. A report
+punishes nobody by itself, blocks the two from each other, and changes money in one case only
+(the customer's report after his own press, which has its guard). So a false report gains
+nothing, and hiding the choices from the one who did not press would sometimes hide them from
+the victim.
+
+**Astra's check (Codex, effort high): "not ready", 15 points, 4 of them medium.** Taken: the
+screen could miss going on when its own asking near the end of a call learnt of the press
+before the video service put the person out (now one step that follows the server's answer,
+however it was learnt); a retry after a lost connection could pull someone back who had already
+gone to another page (the step now lives and dies with the call screen); the plan claimed the
+phone app already took the other person on, which was true only for the presser (now built);
+a new check would have moved an average another check relies on (it has its own people now);
+two reports from one request were called "something else"; the id of a call was compared as it
+was spelt; and five checks that would have passed with wrong code were made sharper (time
+after the press is not time together; a room closed at the press does not open the rating
+early; the tip box is asked for itself; a closed report counts; her report changes nothing
+about his charge, compared before and after). Not taken, and why: the call's own page, opened
+later, still leads to the results ("See the details") rather than to the three choices, and
+the plan now says so; a call ended with the old button goes on the same way, and none can be
+made any more; the results page says "you can rate this call a few minutes after its booked
+end" before it is known whether the two were together for 2 minutes, as for every call.
+
+**Checks.** 1,165 automatic tests, lint and types; the phone app's lint, types and 102 tests.
+Against the local database and the running app, after Astra's points were in:
+`ratings-check` (all passed, with 9 new checks), `safety-check` (all passed, with 7 new),
+`end-now-check` and `tip-check` (all passed).
+
+**Tried in two browsers, both in one call.** The host pressed "End call now". Her screen and,
+within a few seconds and with no click, the customer's screen showed the three choices; his
+said "Hana Host ended this call for both of you" and, under the choices, that he can rate her a
+few minutes after the booked end. "Neither" led to the call's page, which said the same about
+rating and showed no tip box. Not tried: the phone app on a phone, and the founder's list in a
+browser (it is covered by `safety-check` and the word tests).
+
+## A tip's or a contribution's refund can no longer be paid twice after a lost answer (plan 50, part 1, follow-up, 27 November 2026)
+
+**What it is about.** Not a new feature and no decision of the founder's: a weakness Astra
+found on 26 November while reading plan 50, part 1, left there and fixed here. When Stripe's
+answer to a refund of a tip or a contribution was lost, the app's follow-up could wrongly
+conclude "it was not made" and send the refund again an hour later. On a part refund the
+contributor could then get the money twice.
+
+**What was built.** The follow-up now works as a call's refund already did
+(`plans/50-part-1-gifts-owed-back.md`, "The refund's follow-up, hardened"):
+
+- whoever sends a refund first has 30 seconds to do so, as one request; after that it is
+  left to the helper, so the helper never has to guess whether a first request is still on
+  its way;
+- when the helper repeats the request, it no longer believes the answer as it comes back
+  (Stripe returns the first answer, which can be out of date): it asks about the refund by
+  its own number and books what it is now;
+- when Stripe says "no" to the repeat, the helper first searches Stripe's complete list of
+  that charge's refunds. A refund that is there is booked once. Only if it is not there is
+  the refund owed again;
+- after 23 hours, when nothing can be repeated, "not on Stripe's list" only counts after 24
+  hours. Until then the refund stays open and is looked at again;
+- and as a last safeguard: before a refund is ever sent a second time, the app looks at
+  Stripe's list for the first sending. If it is there after all, it is booked and nothing
+  is sent. (Added after Astra's review: it covers two helpers working at the same moment,
+  and the Stripe library quietly sending a request twice.)
+
+Nothing else behaves differently. No change to the database.
+
+**How it was checked.** Type check, lint, 1,162 automatic tests. A new journey in
+`scripts/contribution-check.ts` (17 checks, real refunds in Stripe's test area, with the
+script answering in Stripe's place only where the test area cannot be made to refuse). The
+main case was first run against the old code, where it failed as feared: the contributor got
+5.00 twice. With the new code the contributor gets it once. The whole script with `--payouts`, and the
+call's own `owed-check` and `refunds-check`, were run again and pass.
+
+**Astra's review** said "merge after fixes", with eight points: four taken (among them the
+last safeguard above), four left and written down with the reason
+(`plans/50-part-1-gifts-owed-back.md`, at the end). The ones left were so before this change
+and are the same for calls.
+
+**What the checks cannot cover.** A real lost answer from Stripe and a real refusal of a
+repeat: both are made up by the script, in the place where Stripe's answer comes in. Two
+helpers really working at the same moment: the script sets up the state they would leave.
+
+**Left for later.** A membership's pay-back has the same weakness in its follow-up
+(`src/lib/membership/recover.ts`). It was not asked for here and is proposed as its own fix.
+
 ## A member's time given back by Connect after the host collected (plan 50, part 2, 27 November 2026)
 
 **What it is.** Until now a member call's time could be given back only until the host had

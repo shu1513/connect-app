@@ -3,7 +3,7 @@ import { averageText, countedUpTo, rateState, ratingDeadline, shownAverage, vali
 
 const endsAt = new Date("2026-11-10T20:00:00Z");
 const after = (minutes: number) => new Date(endsAt.getTime() + minutes * 60_000);
-const good = { source: "customer", cancelled: false, safetyEnded: false, roomClosed: true, record: "complete" as const, togetherSeconds: 600, endsAt, now: after(5) };
+const good = { source: "customer", cancelled: false, oldStop: false, roomClosed: true, record: "complete" as const, togetherSeconds: 600, endsAt, now: after(5) };
 
 describe("which calls can be rated, and when", () => {
   it("a call that really happened can be rated once its record is final", () => {
@@ -25,7 +25,7 @@ describe("which calls can be rated, and when", () => {
   });
   it("never a cancelled call, one ended with End call and report, or a test call", () => {
     expect(rateState({ ...good, cancelled: true })).toBe("never");
-    expect(rateState({ ...good, safetyEnded: true })).toBe("never");
+    expect(rateState({ ...good, oldStop: true })).toBe("never");
     expect(rateState({ ...good, source: "admin" })).toBe("never");
     expect(rateState({ ...good, source: null })).toBe("never");
   });
