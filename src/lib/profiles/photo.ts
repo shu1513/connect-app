@@ -31,8 +31,9 @@ import { createHash } from "node:crypto";
 import { and, eq, exists, gt, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
-import { hasAskedHost, haveAskedHost } from "@/lib/people/contacts";
+import { haveAskedHost } from "@/lib/people/contacts";
 import { askInOrder } from "@/lib/projects/checks/order";
+import { mayActWith } from "@/lib/safety/may-act";
 import { recordAnswers, services, turnsFor } from "@/lib/projects/checks/services";
 import type { Checker } from "@/lib/projects/checks/types";
 import { makeCopy, type Copy } from "@/lib/projects/copy";
@@ -694,8 +695,9 @@ export type Viewer = { id: string; admin: boolean } | null;
  *
  * "A host the owner has asked" is the rule a host's notes go by (hasAskedHost): the owner really
  * sent this viewer a request, neither has blocked the other, and the owner's account is not
- * closed. It is asked afresh each time, after the read that brought the bytes: a "yes" that
- * became a "no" in between is at most a moment old.
+ * closed. For a photo there is one thing more (`handedTo`): the owner's account is not paused
+ * either. It is asked afresh each time, after the read that brought the bytes: a "yes" that
+ * became a "no" in between is at most a moment old (a phone may still hold the photo's id).
  *
  * `open` says whether the answer went to someone who could see the photo without being logged
  * in; only such an answer may be kept by a browser. A photo that was replaced or removed has no
@@ -714,8 +716,21 @@ export async function photoFor(viewer: Viewer, photoId: string): Promise<{ bytes
   if (!row) return null;
   const open = row.status === "approved" && row.hidden === false && !row.closedAt;
   if (open || viewer?.id === row.userId || viewer?.admin) return { bytes: row.bytes, open };
-  if (viewer && !row.closedAt && (await hasAskedHost(viewer.id, row.userId))) return { bytes: row.bytes, open: false };
+  if (viewer && !row.closedAt && (await handedTo(viewer.id, [row.userId])).has(row.userId)) return { bytes: row.bytes, open: false };
   return null;
+}
+
+/**
+ * Of these people, those whose private photo this host is handed: they really asked her for a call
+ * (haveAskedHost), and the two may still act with her own pause set aside: their account is open and
+ * not paused, and there is no block either way (plans/45-phone-apps/09a, decision 6). The one test
+ * for the photo's own address and for the ids on a host's pages, so the two cannot differ.
+ */
+async function handedTo(hostId: string, ownerIds: string[]): Promise<Set<string>> {
+  const asked = await haveAskedHost(hostId, ownerIds);
+  if (asked.size === 0) return asked;
+  const may = await mayActWith(hostId, [...asked], undefined, { ownPauseAside: true });
+  return new Set([...asked].filter((id) => may.has(id)));
 }
 
 /**
@@ -749,14 +764,14 @@ export async function photosOf(hostIds: string[]): Promise<Map<string, string>> 
 /**
  * The ids of these people's photos, for a host's own pages (the requests, "Available now", one
  * booking): only of the people this host is handed a photo of, by the very rule the photo's
- * address goes by (hasAskedHost). Being on the host's list is never taken as proof: a host who
+ * address goes by (`handedTo`). Being on the host's list is never taken as proof: a host who
  * was blocked, or whose booking was a test call, learns nothing here, not even whether the person
  * has a photo or has changed it. Never the bytes.
  */
 export async function photosForHost(hostId: string, customerIds: string[]): Promise<Map<string, string>> {
   const all = [...(await photosOf([...new Set(customerIds)]))];
   // One check for everyone on the list (plans/38); it is the very code of the single check.
-  const handed = await haveAskedHost(
+  const handed = await handedTo(
     hostId,
     all.map(([customerId]) => customerId),
   );

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // The rules only: the half of the file that asks the database is covered by scripts/agreements-check.ts.
 vi.mock("@/db", () => ({ db: {}, schema: {} }));
 
-import { AUDIENCE, comingVersions, dayInWords, failureIsOurs, noticeDeadline, noticeEmail, noticeKeyStart, readNoticeKey, wasRefused } from "./notices";
+import { AUDIENCE, comingAtSignUp, comingVersions, dayInWords, failureIsOurs, noticeDeadline, noticeEmail, noticeKeyStart, readNoticeKey, wasRefused } from "./notices";
 import { DOCUMENT_NAMES, DOCUMENTS, type DocumentName, type DocumentVersion } from "./versions";
 
 const now = new Date("2027-03-01T12:00:00.000Z");
@@ -139,5 +139,38 @@ describe("a notice that failed", () => {
     expect(wasRefused("an earlier try is more than a day old and its outcome is unknown; not repeated. Check at the sending service", 1)).toBe(false);
     expect(wasRefused("gave up after 6 tries; the last one did not finish", 6)).toBe(false);
     expect(wasRefused(null, 0)).toBe(false);
+  });
+});
+
+describe("what the last step of signing up says about a coming version", () => {
+  it("says nothing while nothing is coming", () => {
+    expect(comingAtSignUp(now)).toEqual([]);
+  });
+
+  it("a document the step accepts: the fixed sentence, the summary for the website, the link, and that it is asked for on its day", () => {
+    add("payment-terms", { version: "2027-02-20", effectiveFrom: "2027-04-12", summary: "Section 4 says more about refunds." });
+    expect(comingAtSignUp(now)).toEqual([
+      {
+        name: "payment-terms",
+        title: "Payment Terms",
+        version: "2027-02-20",
+        effectiveFrom: "2027-04-12",
+        accepted: true,
+        href: "/payment-terms?version=2027-02-20",
+        applies: "From 12 April 2027 a new version of the Payment Terms applies.",
+        summary: "Section 4 says more about refunds.",
+        read: "Read it",
+        thenAccept: "You will be asked to accept it then.",
+      },
+    ]);
+  });
+
+  it("a document a person is only told about is said too, and nobody is asked to accept it; one for hosts alone is not said here", () => {
+    add("privacy-policy", { version: "2027-02-21", effectiveFrom: "2027-04-13" });
+    add("host-agreement", { version: "2027-02-22", effectiveFrom: "2027-04-14" });
+    const said = comingAtSignUp(now);
+    expect(said.map((one) => [one.name, one.accepted, one.thenAccept])).toEqual([["privacy-policy", false, null]]);
+    // The fixed sentence never carries what the version changes: that is the summary's, and the summary is free text.
+    expect(said[0].applies).toBe("From 13 April 2027 a new version of the Privacy Policy applies.");
   });
 });

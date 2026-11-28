@@ -33,9 +33,22 @@ export function isStart(data: unknown): data is AppStart {
   if (me === null) return true;
   if (!isThing(me) || typeof me.id !== "string" || typeof me.name !== "string" || typeof me.email !== "string" || typeof me.paused !== "boolean") return false;
   if (me.timeZone !== null && typeof me.timeZone !== "string") return false;
-  if (me.pausedReason !== null && typeof me.pausedReason !== "string") return false;
   if (me.next !== null && me.next !== "welcome") return false;
   return me.host === null || (isThing(me.host) && typeof me.host.status === "string" && typeof me.host.hidden === "boolean");
+}
+
+/**
+ * What a paused person reads on the home screen (plans/45-phone-apps/09a-what-is-built-put-right.md,
+ * decision 3), paragraph by paragraph: that the account is paused, what it can still do, where the
+ * reason is, and where to write. Never the reason itself: the server does not send it. It is typed
+ * by a person at Connect, and is in the email sent at the pause and on the website.
+ */
+export function pausedWords(supportEmail: string): string[] {
+  return [
+    "Your account is paused. You can still look at your calls, take a request back, cancel a call, and report or block someone. You cannot book, host or join calls.",
+    "The reason is in the email we sent you when your account was paused, and on the Connect website.",
+    `If you think this is a mistake, write to ${supportEmail}.`,
+  ];
 }
 
 /**

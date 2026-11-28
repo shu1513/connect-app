@@ -298,7 +298,9 @@ function OneRequest({ id }: { id: string }) {
   const takeBackLabel = page.takeBack;
   const sure = page.takeBackSure;
   const hostHandle = page.hostHandle;
-  const host = page.host;
+  // The host's part without a name: the request's details are withheld (its two people may no longer act). The page
+  // then shows its one sentence, and nothing about the person who asked.
+  const host = page.host?.customerName ? page.host : null;
   const answer = host?.answer ?? null;
   const block = page.block;
   // Only what belongs to the stage on the screen is said.
@@ -353,7 +355,8 @@ function OneRequest({ id }: { id: string }) {
           {saying ? <Notice>{saying}</Notice> : null}
           {answer?.kind === "booked" ? (
             <>
-              <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, watch(), () => void act("accept"))} />
+              {/* Without "Accept", only declining is offered (a host whose own account is paused can still decline). */}
+              {answer.accept !== null ? <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, watch(), () => void act("accept"))} /> : null}
               <Button label={answer.decline} kind="plain" busy={busy === "decline"} disabled={busy !== null} onPress={() => void act("decline")} />
             </>
           ) : answer?.elsewhere ? (

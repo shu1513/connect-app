@@ -18,6 +18,7 @@ import { bookedTotalCents, MIN_CHARGE_CENTS } from "@/lib/payments/pricing";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
 import { identityState } from "@/lib/safety/identity";
+import { mayActWith, mayStillAct } from "@/lib/safety/may-act";
 import { switches } from "@/lib/safety/switches";
 import { queueBookingEmails } from "./emails";
 import { fittingLengths, instantAnswerBy, instantPayBy, instantStart, isAvailableNow, latestInstantStart, NOW } from "./now-rules";
@@ -520,7 +521,8 @@ export async function askForCall(input: {
       await checkMayAsk(tx, current, { customerId: customer.id, startsAt: input.startsAt, lengthMinutes: input.lengthMinutes, totalCents }, now);
       // A customer with a chargeback cannot make a new agreement to pay (plans/47, decision 9). Asked here, where the new
       // request is written, and not in the shared check above, which the card step of a request already made uses too.
-      const stopped = totalCents > 0 ? await whyNoNewPayment(tx, customer.id) : null;
+      // (In the phone app the sentence names no bank and no dispute: plans/45-phone-apps/09a, decision 5.)
+      const stopped = totalCents > 0 ? await whyNoNewPayment(tx, customer.id, { forApp: input.fromApp === true }) : null;
       if (stopped) throw new BookingError(stopped);
       // Say so now, before a card is entered, if the customer is already taken at that time.
       // (The database still has the last word when the request is finally sent.)
@@ -668,6 +670,11 @@ export async function askNow(input: {
 async function cardStepFor(found: Booking, customer: Person): Promise<{ booking: Booking; clientSecret: string | null }> {
   let booking = found;
   if (booking.stage !== "card") return { booking, clientSecret: null };
+  // Nor while the two may no longer act (the host's account was paused or closed a moment ago, say, and her
+  // requests are not tidied up yet): no card is asked for on a request that can no longer be sent. Looked at here,
+  // before anything is asked of Stripe, so that every way into the card step shares it: the request's own page, and
+  // a sending that finds the request already made (plans/45-phone-apps/09a, decision 6).
+  if (!(await mayStillAct(booking.hostId, booking.customerId))) return { booking, clientSecret: null };
 
   const setup = booking.stripeSetupIntentId
     ? await stripe().setupIntents.retrieve(booking.stripeSetupIntentId)
@@ -699,6 +706,7 @@ export async function cardStepOf(input: { bookingId: string; customer: Person; n
   if (!found || found.role !== "customer" || found.booking.stage !== "card") return null;
   // Past its time the request is over, also in the moments before the helper has written that down.
   if (!cardStepOpen(found.booking.createdAt, input.now)) return null;
+  // (`cardStepFor` hands out nothing while the two may no longer act.)
   const step = await cardStepFor(found.booking, input.customer);
   return step.clientSecret ? { booking: step.booking, clientSecret: step.clientSecret } : null;
 }
@@ -1152,14 +1160,26 @@ export async function requestWithKeySettled(customerId: string, requestKey: stri
   });
 }
 
-/** The requests a host has to answer, soonest call first, so requests for the same time sit together. */
+/**
+ * The requests a host has to answer, soonest call first, so requests for the same time sit together.
+ *
+ * A request whose two people may no longer act (an account closed or paused, or a block between them) is not on
+ * the list at all, nor in its number: as if the tidying-up that ends such a request had already run
+ * (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6). So a host whose own account is paused has
+ * an empty list.
+ */
 export async function waitingForHost(hostId: string) {
-  return db
+  const waiting = await db
     .select({ booking: schema.bookings, customerName: schema.user.name })
     .from(schema.bookings)
     .innerJoin(schema.user, eq(schema.user.id, schema.bookings.customerId))
     .where(and(eq(schema.bookings.hostId, hostId), eq(schema.bookings.stage, "waiting")))
     .orderBy(asc(schema.bookings.startsAt), asc(schema.bookings.requestedAt));
+  const may = await mayActWith(
+    hostId,
+    waiting.map((row) => row.booking.customerId),
+  );
+  return waiting.filter((row) => may.has(row.booking.customerId));
 }
 
 /** A customer's requests that are still open or ended lately. */

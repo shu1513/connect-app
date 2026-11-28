@@ -628,6 +628,11 @@ async function main() {
         check('"nobody can come back in" is said only once the room is written down as closed', screen.includes("Nobody can come back in") === ((await callOf(paid.id)).closedAt !== null));
         check('it has the three choices: "Report", "Block" and "Neither", each with what it does', screen.includes(REPORT_WORDS.reportPerson(hanaPage.displayName)) && screen.includes(END_WORDS.reportWhat(hanaPage.displayName)) && screen.includes(BLOCK_WORDS.label(hanaPage.displayName)) && screen.includes(END_WORDS.blockWhat(hanaPage.displayName)) && screen.includes(END_WORDS.neither) && screen.includes(END_WORDS.neitherWhat(hanaPage.displayName)));
         check("the block's sentence says what it ends before it is pressed: other calls, a membership, a monthly contribution", /still to come are cancelled at no charge/.test(END_WORDS.blockWhat("X")) && /membership or monthly contribution between you ends/.test(END_WORDS.blockWhat("X")));
+        // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 2.) The same function gives the phone app its own
+        // sentence: the calls as on the website, never a contribution, and a membership only while memberships are on for the apps.
+        const [appOn, appOff] = [END_WORDS.blockWhat("X", { memberships: true }), END_WORDS.blockWhat("X", { memberships: false })];
+        check("the website's page shows the website's sentence, not the phone app's", !screen.includes(END_WORDS.blockWhat(hanaPage.displayName, { memberships: true })) && !screen.includes(END_WORDS.blockWhat(hanaPage.displayName, { memberships: false })));
+        check("the phone app's sentence, from the same function, names no contribution; a membership only while those are on for the apps", [appOn, appOff].every((said) => /still to come are cancelled at no charge/.test(said) && !/contribution/i.test(said)) && /any membership between you ends/.test(appOn) && !/membership/i.test(appOff), `${appOn} | ${appOff}`);
         check("it says openly that a report lowers this call's charge", screen.includes(END_WORDS.reportLowers(hanaPage.displayName, false)));
         check("he knows the host by the name on her page, never by her account name", hanaPage.displayName === hana.name || !screen.includes(hana.name));
         const form = words((await send(`/report?call=${paid.id}`, { jar: coryJar })).text);

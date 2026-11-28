@@ -18,6 +18,7 @@ import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS, newRequestKey } from "@/lib
 import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { NOTE_MAX, openAndUnblocked } from "@/lib/people/contacts";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
+import { mayActWith } from "@/lib/safety/may-act";
 import { REPORT_WORDS } from "@/lib/safety/report-words";
 import { publicProfile, sellerLine } from "@/lib/profiles/profiles";
 import { answerFor } from "./requests";
@@ -84,13 +85,39 @@ export function mayEnterCard(booking: { source: string }, switches: AppSwitches)
 }
 
 /**
+ * Whether a request's details are withheld from the one of its two people who is reading it
+ * (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6): the two may no longer act (an
+ * account closed or paused, or a block between them), and the step that ends such a request may
+ * not have run yet. The reader then gets "This request is no longer available." and nothing about
+ * the other person: no name, no step, and for the host no note.
+ *
+ * One exception, as on the website: a person whose own account is paused keeps what is theirs.
+ * They still read their requests as before, can take one back or decline one, and a host can go
+ * on with her note. **Only while that pause of their own is the one thing in the way:** if the
+ * other person's account is paused or closed as well, or there is a block between the two, the
+ * reader's own pause gives them nothing of the other person. And not at the card step: entering
+ * a card is refused to a paused person, so nothing is left to do with such a request, and its
+ * page says the one sentence.
+ *
+ * The one decision for reading the request and for saving the host's note on it.
+ */
+export async function detailsWithheld(person: { id: string; paused: boolean }, booking: { hostId: string; customerId: string; stage: string }): Promise<boolean> {
+  const otherId = person.id === booking.hostId ? booking.customerId : booking.hostId;
+  const ownPauseAside = person.paused && booking.stage !== "card";
+  return !(await mayActWith(person.id, [otherId], undefined, { ownPauseAside })).has(otherId);
+}
+
+/** The host's part of a request whose details are withheld: nothing about the person who asked, not even the name. */
+const NOBODY: NonNullable<AppBooking["host"]> = { customerName: "", photoId: null, known: false, rating: null, ratingWords: null, idConfirmed: false, words: null, note: null, answer: null };
+
+/**
  * What the host of a request may know about the person asking, her own note, and how she answers
  * (plans/45-phone-apps/07-a-hosts-requests.md, decision 1). **The rule of the list of waiting
  * requests holds here at every stage:** about a customer whose account is closed, or across a
  * block in either direction, nothing but the name is said: no rating, no "ID confirmed", no
  * photo, and not what they wrote when asking. The same for a founder's test call.
  */
-async function hostPart(found: RequestPage): Promise<NonNullable<AppBooking["host"]>> {
+async function hostPart(found: RequestPage, paused: boolean): Promise<NonNullable<AppBooking["host"]>> {
   const { booking } = found;
   const name = found.otherName ?? "";
   const known = !found.testCall && (await openAndUnblocked(booking.hostId, [booking.customerId])).has(booking.customerId);
@@ -106,7 +133,11 @@ async function hostPart(found: RequestPage): Promise<NonNullable<AppBooking["hos
     // Whether she may keep a note about this person is decided where notes are kept; here it is only shown, and
     // never beside "nothing may be said about them" (the two are asked at slightly different moments).
     note: known && found.note?.allowed ? { title: WAITING_WORDS.noteTitle(name), hint: WAITING_WORDS.noteHint, text: found.note.text, max: NOTE_MAX, save: WAITING_WORDS.noteSave, notSaved: WAITING_WORDS.noteNotSaved } : null,
-    answer: booking.stage === "waiting" ? answerFor(booking) : null,
+    // Accepting is refused to a host whose own account is paused, so it is not offered to her. Declining a booked
+    // request is not refused (it only tidies up), so she is still offered that. For a call asked for "now" she is
+    // offered nothing: it is answered on "Available now", which a paused account cannot use, and whose list no
+    // longer has the request.
+    answer: booking.stage !== "waiting" || (paused && booking.source === "now") ? null : { ...answerFor(booking), ...(paused ? { accept: null } : {}) },
   };
 }
 
@@ -115,18 +146,21 @@ async function hostPart(found: RequestPage): Promise<NonNullable<AppBooking["hos
  * for a host who was never sent it (one still at the card step, a member's booking that never
  * became a call). What only one of the two may see is filled only for that one.
  */
-export async function bookingPageFor(person: { id: string }, bookingId: string, switches: AppSwitches, now: Date, notice: string | null = null, options: { blockAgain?: boolean } = {}): Promise<AppBooking | null> {
+export async function bookingPageFor(person: { id: string; paused: boolean }, bookingId: string, switches: AppSwitches, now: Date, notice: string | null = null, options: { blockAgain?: boolean } = {}): Promise<AppBooking | null> {
   const found = await gatherRequest(person.id, bookingId, now);
   if (!found) return null;
   const { booking, role, paid } = found;
   const mine = role === "customer";
-  const waiting = booking.stage === "waiting";
+  // The two may no longer act, and this reader is told nothing about the other person: one sentence, no step, and
+  // "Report" and "Block" (for a request that was sent) under labels that name nobody.
+  const withheld = await detailsWithheld(person, booking);
+  const waiting = !withheld && booking.stage === "waiting";
   // The card can be entered from the app while the card step is open, and, for a call asked for "now" (begun on the
   // website), only while "available now" is switched on for the apps. The request itself can always be read.
   // Past the card step's time the request is over, also in the moments before the helper has ended it.
   const tooLate = mine && booking.stage === "card" && !cardStepOpen(booking.createdAt, now);
-  const atCard = mine && booking.stage === "card" && !tooLate && mayEnterCard(booking, switches);
-  const otherName = found.otherName ?? "";
+  const atCard = !withheld && mine && booking.stage === "card" && !tooLate && mayEnterCard(booking, switches);
+  const otherName = withheld ? "" : (found.otherName ?? "");
   // The button to block the other person is not offered again to someone who has blocked them already.
   const otherId = mine ? booking.hostId : booking.customerId;
   const [blockedByMe] = await db.select({ blockerId: schema.blocks.blockerId }).from(schema.blocks).where(and(eq(schema.blocks.blockerId, person.id), eq(schema.blocks.blockedId, otherId)));
@@ -149,12 +183,12 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
   return {
     id: booking.id,
     role,
-    title: requestTitle(booking, role, found.otherName),
-    hostHandle: found.hostHandle,
+    title: withheld ? REQUEST_WORDS.titleNoName : requestTitle(booking, role, found.otherName),
+    hostHandle: withheld ? null : found.hostHandle,
     stage: booking.stage,
     // Past the card step's time: said as it is, in place of "enter your card".
-    stageWords: tooLate ? REQUEST_WORDS.cardTooLate : stageWords(booking, role),
-    reason: endedWords(booking, role),
+    stageWords: withheld ? REQUEST_WORDS.noLongerAvailable : tooLate ? REQUEST_WORDS.cardTooLate : stageWords(booking, role),
+    reason: withheld ? null : endedWords(booking, role),
     startsAt: booking.startsAt.toISOString(),
     minutes: booking.lengthMinutes,
     price: requestPrice(booking),
@@ -174,15 +208,20 @@ export async function bookingPageFor(person: { id: string }, bookingId: string, 
     waitingWords: mine && waiting ? REQUEST_WORDS.waiting(paid) : null,
     takeBack: mine && waiting ? REQUEST_WORDS.takeBack : null,
     takeBackSure: mine && waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
-    host: mine ? null : await hostPart(found),
-    // As on the website's page: either of the two can report the other once the request was sent.
-    report: booking.stage !== "card" ? REPORT_WORDS.reportPerson(otherName || "this person") : null,
-    // As on the website's page: either of the two can block the other once the request was sent.
-    block: mayBlockThrough(booking) && otherName && (!blockedByMe || stillBooked || options.blockAgain) ? { label: BLOCK_WORDS.label(otherName), sure: BLOCK_WORDS.sure(otherName), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no } : null,
+    host: mine ? null : withheld ? NOBODY : await hostPart(found, person.paused),
+    // Either of the two can report the other once the request was sent, or became a call: the test of "Block"
+    // below, since a report also blocks. Not from a request that ran out at its card step: it never reached the host.
+    report: mayBlockThrough(booking) ? REPORT_WORDS.reportPerson(otherName || REQUEST_WORDS.nobody) : null,
+    // As on the website's page: either of the two can block the other once the request was sent. (Also while the
+    // details are withheld: the step itself works whoever the other person is, and the label then names nobody.)
+    block:
+      mayBlockThrough(booking) && (otherName || withheld) && (!blockedByMe || stillBooked || options.blockAgain)
+        ? { label: BLOCK_WORDS.label(otherName || REQUEST_WORDS.nobody), sure: BLOCK_WORDS.sure(otherName || REQUEST_WORDS.nobodyFirst), yes: BLOCK_WORDS.yes, no: BLOCK_WORDS.no }
+        : null,
     // What else the call's own page is for is said once the app has that page (part 08).
     call: booking.callId ? { id: booking.callId } : null,
     // (Past the card step's time the helper ends the request within moments: the page asks again until it has.)
-    refreshSeconds: waiting || (mine && booking.stage === "paying") || tooLate ? WAITING_REFRESH_SECONDS : atCard ? CARD_REFRESH_SECONDS : null,
+    refreshSeconds: withheld ? null : waiting || (mine && booking.stage === "paying") || tooLate ? WAITING_REFRESH_SECONDS : atCard ? CARD_REFRESH_SECONDS : null,
     notice,
   };
 }

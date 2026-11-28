@@ -18,7 +18,7 @@ import { config } from "dotenv";
 config({ path: ".env.local", quiet: true });
 
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, like, or } from "drizzle-orm";
+import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 import { refusalWhileDisputed, whileDisputed } from "./stopped-customer";
@@ -621,6 +621,91 @@ async function main() {
       check("the customer is never told their card failed", (await emailsTo(una.email, "needs your attention")) === 0 && (await reload(booking.id)).holdFailedAt === null);
       await cancelCall({ call, payment: held, by: "host", now: at });
       await settleCancelledCalls();
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n11b. A pause lands between the helper's two looks at the call's two people");
+    {
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6.) The helper asks whether the two may still
+      // act, claims the one try, and then the hold itself asks again and refuses before anything is asked of Stripe.
+      // A pause that lands between the two looks must not use the try up: no card was tried.
+      const { tryHoldOnce } = await import("../src/lib/booking/jobs");
+      const tia = await customer("tia");
+      const slot = await nextPaidSlot();
+      const { booking } = await ask(tia, hana.id, slot);
+      await cardFor(booking.id, "pm_card_visa");
+      await B.finishCardStep({ bookingId: booking.id, customerId: tia.id, now });
+      const { callId } = await B.accept({ bookingId: booking.id, hostId: hana.id, now });
+      const [call] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
+      const payment = async () => (await db.select().from(schema.payments).where(eq(schema.payments.callId, callId)))[0];
+      const holdTries = async () => db.select().from(schema.moneyOperations).where(and(eq(schema.moneyOperations.paymentId, (await payment()).id), eq(schema.moneyOperations.kind, "hold")));
+      const at = new Date(slot.getTime() - 47 * HOUR);
+      // Whatever happens below, this call does not stay open against the test host: it is cancelled and settled.
+      try {
+
+        // The try is held up between its first look and its claim: the booking's row is locked here, and the claim
+        // writes that row, so it waits. In that wait the customer's account is paused (written straight into the
+        // database: nothing cancels the call); then the row is let go, and the hold's own look finds the pause.
+        let rowHeld = () => {};
+        let letRowGo = () => {};
+        const isHeld = new Promise<void>((done) => (rowHeld = done));
+        const untilLetGo = new Promise<void>((done) => (letRowGo = done));
+        let holder = 0;
+        const holding = db.transaction(async (tx) => {
+          await tx.select({ id: schema.bookings.id }).from(schema.bookings).where(eq(schema.bookings.id, booking.id)).for("update");
+          holder = ((await tx.execute(sql`select pg_backend_pid() as pid`)) as unknown as { pid: number }[])[0].pid;
+          rowHeld();
+          await untilLetGo;
+        });
+        await isHeld;
+        let seenWaiting = false;
+        let outcome = "not tried";
+        let trying: ReturnType<typeof tryHoldOnce> | undefined;
+        try {
+          trying = tryHoldOnce({ booking: await reload(booking.id), call, payment: await payment() }, at);
+          for (let i = 0; i < 100 && !seenWaiting; i++) {
+            const [{ n }] = (await db.execute(sql`select count(*)::int as n from pg_stat_activity a where a.wait_event_type = 'Lock' and ${holder} = any(pg_blocking_pids(a.pid))`)) as unknown as { n: number }[];
+            seenWaiting = n > 0;
+            if (!seenWaiting) await new Promise((done) => setTimeout(done, 100));
+          }
+          await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, tia.id));
+          letRowGo();
+          await holding;
+          outcome = await trying;
+        } finally {
+          letRowGo();
+          await holding.catch(() => undefined);
+          // The try itself too, so that the cleaning-up below never cancels the call under a try that is still running.
+          await trying?.catch(() => undefined);
+        }
+        const afterPause = await reload(booking.id);
+        check("(the try was seen waiting behind the booking's row: its first look was over when the pause landed)", seenWaiting);
+        check(
+          "a pause that lands after the helper's first look: no card is tried, nothing is asked of Stripe, and the one try is not used up",
+          outcome === "unknown" && afterPause.holdTriedAt === null && afterPause.holdFailedAt === null && (await holdTries()).length === 0 && (await payment()).stripePaymentIntentId === null && (await payment()).status === "awaiting_payment",
+          `${outcome} ${String(afterPause.holdTriedAt)} ${(await holdTries()).length}`,
+        );
+        // While the pause lasts: later passes try nothing, also two minutes on, when a try without an answer is followed up.
+        await runBookingJobs(at);
+        await runBookingJobs(new Date(at.getTime() + 3 * MINUTE));
+        check("while the pause lasts nothing is tried, and nobody is told that a card failed", (await reload(booking.id)).holdTriedAt === null && (await holdTries()).length === 0 && (await emailsTo(tia.email, "needs your attention")) === 0);
+        // The pause is lifted before the call was cancelled.
+        await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, tia.id));
+        await runBookingJobs(new Date(at.getTime() + 4 * MINUTE));
+        await runBookingJobs(new Date(at.getTime() + 8 * MINUTE));
+        const held = await payment();
+        const tries = await holdTries();
+        check("with the pause lifted, the next pass makes the real try, exactly one, and the money is held", held.status === "held" && tries.length === 1 && tries[0].status === "succeeded" && (await reload(booking.id)).holdTriedAt !== null && (await stripeIntentsOf(tia.id)).length === 1, `${held.status} ${tries.length}`);
+        check("and no card email was ever written", (await emailsTo(tia.email, "needs your attention")) === 0 && (await reload(booking.id)).holdFailedAt === null);
+      } finally {
+        // The pause is lifted first, whatever becomes of the rest. Then the call is cancelled and its money settled:
+        // a failure there is not swallowed, so this check cannot pass with its call (and a hold) left open.
+        await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, tia.id));
+        if (!(await db.select({ cancelledAt: schema.calls.cancelledAt }).from(schema.calls).where(eq(schema.calls.id, callId)))[0]?.cancelledAt) await cancelCall({ call, payment: await payment(), by: "host", now: at });
+        await settleCancelledCalls();
+      }
+      // (The settling above catches a payment's own failure itself, so the payment is read once more.)
+      check("(this case left no hold behind: its payment is closed with nothing taken)", (await payment()).status === "closed_uncharged", (await payment()).status);
     }
 
     // ----------------------------------------------------------------------

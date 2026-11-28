@@ -1,5 +1,5 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
-import { shownFrom } from "@/lib/app-door/shown";
+import { comingShown, shownFrom } from "@/lib/app-door/shown";
 import type { AppWelcome, AppWelcomeDone } from "@/lib/app-door/types";
 import { timeZones } from "@/lib/time-zones";
 import { acceptedBefore, finishSigningUp, WELCOME_PROBLEMS, welcomeAgreements } from "@/lib/welcome";
@@ -11,14 +11,17 @@ import { acceptedBefore, finishSigningUp, WELCOME_PROBLEMS, welcomeAgreements } 
  * before it.
  *
  * GET: what the app needs to show the step, with the documents the step accepts and the version
- * of each (plans/46-agreements-live.md, decision 7). Reading only.
+ * of each (plans/46-agreements-live.md, decision 7), and a notice for each version that is
+ * announced and not yet in effect, in fixed words (plans/45-phone-apps/09a, decision 7). What is
+ * accepted is still today's version and nothing else. Reading only.
  */
 export async function GET(request: Request) {
   const asked = await appRequest(request, "confirmed");
   if (asked instanceof Response) return asked;
   const person = asked.person!;
-  const agreements = welcomeAgreements(new Date()).map(({ name, title, version, href }) => ({ name, title, version, href }));
-  const body: AppWelcome = { done: person.welcomed, returning: await acceptedBefore(person.id), agreements, timeZone: person.timeZone, timeZones: timeZones() };
+  const now = new Date();
+  const agreements = welcomeAgreements(now).map(({ name, title, version, href }) => ({ name, title, version, href }));
+  const body: AppWelcome = { done: person.welcomed, returning: await acceptedBefore(person.id), agreements, coming: comingShown(now), timeZone: person.timeZone, timeZones: timeZones() };
   return answer(body);
 }
 

@@ -68,9 +68,9 @@ function isHostPart(value: unknown): boolean {
   return value.answer === null || isAnswer(value.answer);
 }
 
-/** How a host answers a waiting request: the buttons, the question to ask before accepting, and where a call asked for "now" is answered. */
+/** How a host answers a waiting request: the buttons, the question to ask before accepting, and where a call asked for "now" is answered. Without `accept`, only declining is offered. */
 function isAnswer(answer: unknown): boolean {
-  return isThing(answer) && (answer.kind === "booked" || answer.kind === "now") && isText(answer.accept) && isText(answer.decline) && isSentence(answer.sure) && isText(answer.yes) && isText(answer.no) && isTextOrNull(answer.elsewhere);
+  return isThing(answer) && (answer.kind === "booked" || answer.kind === "now") && isTextOrNull(answer.accept) && isText(answer.decline) && isSentence(answer.sure) && isText(answer.yes) && isText(answer.no) && isTextOrNull(answer.elsewhere);
 }
 
 /** One waiting request on a host's list. */

@@ -22,7 +22,7 @@ import http from "node:http";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { APP_ORIGIN } from "../src/lib/auth-rules";
 import { APP_HEADER, SIGN_IN_HEADER } from "../src/lib/app-door/rules";
-import type { AppCallPage, AppCalls, AppHome, AppPayStep, Refusal } from "../src/lib/app-door/types";
+import type { AppCallPage, AppCalls, AppEndedScreen, AppHome, AppPayStep, Refusal } from "../src/lib/app-door/types";
 import { payOpensAt } from "../src/lib/payments/rules";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
@@ -451,6 +451,54 @@ async function main() {
       const charged = await paymentOf(late.call.id);
       const taken = await stripe().paymentIntents.retrieve(charged.stripePaymentIntentId!);
       check("the late charge is the booked price, taken once at Stripe", charged.status === "charged" && charged.bookedCents === 1333 && taken.status === "succeeded" && taken.amount_received === 1333, `${charged.status} ${taken.status} ${taken.amount_received}`);
+      // A call that cannot go ahead costs nothing to cancel (plans/45-phone-apps/09a-what-is-built-put-right.md,
+      // decision 6). The same kind of call: inside the host's hour, with the money held. With a block between the
+      // two (written straight into the database, so nothing has cancelled the call), the person who cancels it by
+      // hand gets what the cancelling after a block would have given: nothing is taken.
+      {
+        const stuck = await newCall(host.id, cust.id, { startsIn: 30, price: 2000, minutes: 10, freeCancel: 60 });
+        await step(stuck.call.id, "pay", cust.jar);
+        await confirmAtStripe(stuck.call.id, "pm_card_visa");
+        await step(stuck.call.id, "pay-check", cust.jar);
+        const asItStands = (await callPage(stuck.call.id, cust.jar)).body;
+        check("(without a block this very call costs the late charge, and its page says so)", (await paymentOf(stuck.call.id)).status === "held" && asItStands?.cancel?.shown === "late_charge" && asItStands.cancel.words === "Cancelling now is past the free period: the full $13.33 is charged. The host may choose to refund you.", JSON.stringify(asItStands?.cancel));
+        await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: cust.id });
+        try {
+          const quoted = (await callPage(stuck.call.id, cust.jar)).body;
+          check("with a block between the two, the page says beforehand that cancelling is free, although the free hour is over and the money is held", quoted?.cancel?.shown === "free" && quoted.cancel.words === "Cancelling now is free. Nothing is charged." && (await callPage(stuck.call.id, host.jar)).body?.cancel?.shown === "free", JSON.stringify(quoted?.cancel));
+          const webQuote = await asBrowser(`/calls/${stuck.call.id}`, { jar: cust.jar });
+          check("the website's page says the same, and its form carries it", webQuote.status === 200 && formFields(webQuote.text, "callId")?.shown === "free", `${webQuote.status}`);
+          const freed = await step(stuck.call.id, "cancel", cust.jar, { shown: "free" });
+          const freedPage = freed.status === 200 ? (freed.json as AppCallPage) : null;
+          const freedCall = await callRow(stuck.call.id);
+          check("the customer cancels: it is cancelled as a free cancellation", freedPage?.state === "cancelled" && freedPage.notice === "The call was cancelled. Nothing is charged, and the hold on the card is being let go." && freedCall.cancelledAt !== null && freedCall.cancelledBy === "customer" && freedCall.cancelledLate === false, `${freed.status} ${freed.text.slice(0, 160)}`);
+          const letGo = await paymentOf(stuck.call.id);
+          const atStripe = await stripe().paymentIntents.retrieve(letGo.stripePaymentIntentId!);
+          check("nothing is taken, and the hold is let go, here and at Stripe", letGo.status === "closed_uncharged" && (letGo.chargedCents ?? 0) === 0 && atStripe.status === "canceled" && atStripe.amount_received === 0, `${letGo.status} ${atStripe.status} ${atStripe.amount_received}`);
+        } finally {
+          await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, host.id), eq(schema.blocks.blockedId, cust.id)));
+        }
+      }
+      // The same for a host whose page was suspended: the step that suspends her cancels her coming calls at no charge,
+      // and a customer who cancels one by hand first gets what it would have given. (Written straight into the
+      // database, so nothing has cancelled the call.)
+      {
+        const hers = await newCall(host.id, cust.id, { startsIn: 30, price: 2000, minutes: 10, freeCancel: 60 });
+        await step(hers.call.id, "pay", cust.jar);
+        await confirmAtStripe(hers.call.id, "pm_card_visa");
+        await step(hers.call.id, "pay-check", cust.jar);
+        const before = (await callPage(hers.call.id, cust.jar)).body;
+        await db.update(schema.hostProfiles).set({ status: "suspended" }).where(eq(schema.hostProfiles.userId, host.id));
+        try {
+          const quoted = (await callPage(hers.call.id, cust.jar)).body;
+          check("a held call of a host whose page was suspended: late by the clock before, free to cancel once she is suspended", before?.cancel?.shown === "late_charge" && quoted?.cancel?.shown === "free", `${before?.cancel?.shown} ${quoted?.cancel?.shown}`);
+          const freed = await step(hers.call.id, "cancel", cust.jar, { shown: "free" });
+          const letGo = await paymentOf(hers.call.id);
+          check("the customer cancels it: nothing is taken, and the hold is let go", freed.status === 200 && letGo.status === "closed_uncharged" && (letGo.chargedCents ?? 0) === 0, `${freed.status} ${letGo.status}`);
+        } finally {
+          await db.update(schema.hostProfiles).set({ status: "approved" }).where(eq(schema.hostProfiles.userId, host.id));
+        }
+      }
       // The free period ends while the cancelling waits its turn (here: for the call's own lock). What it means is
       // decided when it happens, not when the button was pressed: nothing is cancelled, and the person is told.
       const edge = await newCall(host.id, cust.id, { startsIn: 60 + 16 / 60, price: 2000, minutes: 10, freeCancel: 60 });
@@ -604,6 +652,70 @@ async function main() {
       check("the website's form sent without what it showed cancels nothing, and goes back to the call's page", notSaid.status === 303 && notSaid.to.startsWith(`/calls/${soon.call.id}?`) && (await callRow(soon.call.id)).cancelledAt === null, `${notSaid.status} ${notSaid.to}`);
       const said = await postForm(`/calls/${soon.call.id}`, fields ?? {}, cust.jar);
       check("sent as the page sent it, the call is cancelled, and the website goes on to its results", said.status === 303 && said.to.startsWith(`/calls/${soon.call.id}/results`) && (await callRow(soon.call.id)).cancelledBy === "customer", `${said.status} ${said.to}`);
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n6. While a pause, a closure or a block is not tidied up yet (part 09a)");
+    {
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6. A pause, a closure and a block are written
+      // straight into the database here, so the step that cancels the calls of the people concerned has not run.)
+      const CANNOT = "This call can no longer go ahead.";
+      const setPaused = (userId: string, on: boolean) => db.update(schema.user).set({ pausedAt: on ? new Date() : null }).where(eq(schema.user.id, userId));
+      const pageOf = async (id: string, jar: Jar) => (await callPage(id, jar)).body;
+      const toPay = await newCall(host.id, cust.id, { startsIn: 25, price: 2000, minutes: 10 });
+      const open = await newCall(host.id, cust.id, { startsIn: 200 });
+      const over = await newCall(host.id, cust.id, { startsIn: -90, minutes: 30 });
+      // A paid call more than 2 days ahead: the customer is told from when it can be paid for, the host that she waits.
+      const farAhead = await newCall(host.id, cust.id, { startsIn: 4 * 24 * 60, price: 2000, minutes: 10 });
+      const asThingsStand = async () =>
+        (await pageOf(toPay.call.id, cust.jar))?.state === "pay" && (await pageOf(toPay.call.id, host.jar))?.state === "host_waits" && (await pageOf(farAhead.call.id, cust.jar))?.state === "too_early" && (await pageOf(farAhead.call.id, host.jar))?.state === "host_waits" && (await pageOf(open.call.id, cust.jar))?.state === "room" && (await pageOf(open.call.id, host.jar))?.state === "room";
+      check("(as things stand: the pay step or its date for the customer, the host waiting for it, and the way to the room for both)", await asThingsStand());
+      /** No step that would be refused: neither the pay step nor the way into the room, and one sentence in their place. Cancelling stays. */
+      const stopped = (page: AppCallPage | null) => page !== null && page.state === "blocked" && page.words?.length === 1 && page.words[0] === CANNOT && page.small === null && page.pay === null && page.room === null && page.cancel !== null && page.afterEnd === null;
+      /** Turned away at the room's door for the other person's pause or closure: the sentence, and the code "not_valid", which is what makes the phone read the room again. */
+      const refusedAtTheDoor = async (id: string, jar: Jar) => {
+        const reply = await step(id, "enter", jar);
+        return reply.status === 400 && refusal(reply) === "not_valid" && sentence(reply) === "You cannot join this call right now.";
+      };
+      /**
+       * ANOTHER call of the two, one that is over: its page still leads to "Report" and "Block". (The calls above, which
+       * can no longer go ahead, are not over: their page has no "Report" and no "Block", now as before.) The page must
+       * really have been read, and really be an ended call's.
+       */
+      const stillLeads = async (jar: Jar) => {
+        const page = await pageOf(over.call.id, jar);
+        const screen = await asApp(`/api/app/calls/${over.call.id}/ended`, { jar });
+        const body = screen.status === 200 ? (screen.json as AppEndedScreen | null) : null;
+        return page !== null && page.state === "ended" && page.afterEnd !== null && page.afterEnd.label !== "" && body !== null && Boolean(body.report?.label) && Boolean(body.block?.label);
+      };
+      try {
+        // A paused person.
+        await setPaused(cust.id, true);
+        check("a paused customer is not offered the pay step, which the address refuses: the page says that the call can no longer go ahead", stopped(await pageOf(toPay.call.id, cust.jar)) && refusal(await step(toPay.call.id, "pay", cust.jar)) === "paused", JSON.stringify(await pageOf(toPay.call.id, cust.jar)).slice(0, 200));
+        check("both people read the same about the unpaid call: the host is not told that she waits for a payment that cannot come", stopped(await pageOf(toPay.call.id, host.jar)));
+        check("nor is the customer told from when a call far ahead can be paid for, or its host that she waits", stopped(await pageOf(farAhead.call.id, cust.jar)) && stopped(await pageOf(farAhead.call.id, host.jar)));
+        check("nor is either of the two offered the way into a room nobody can enter", stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)) && refusal(await step(open.call.id, "enter", cust.jar)) === "paused" && (await refusedAtTheDoor(open.call.id, host.jar)));
+        check('another call of theirs, one that is over, still leads to "Report" and "Block", for the paused person and for the other', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
+        await setPaused(cust.id, false);
+
+        // Each of a blocked pair.
+        await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: cust.id });
+        check("across a block neither of the two is offered the pay step or the way into the room, and both read the same", stopped(await pageOf(toPay.call.id, cust.jar)) && stopped(await pageOf(toPay.call.id, host.jar)) && stopped(await pageOf(farAhead.call.id, cust.jar)) && stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)));
+        check("and the steps behind them refuse, in their own sentences", sentence(await step(toPay.call.id, "pay", cust.jar)) === "This call can no longer be paid for." && sentence(await step(open.call.id, "enter", host.jar)) === "This call has ended." && sentence(await step(open.call.id, "enter", cust.jar)) === "This call has ended." && (await paymentOf(toPay.call.id)).stripePaymentIntentId === null);
+        check('another call of theirs, one that is over, still leads to "Report" and "Block" for each of the two', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
+        await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, host.id), eq(schema.blocks.blockedId, cust.id)));
+
+        // The other account closed a moment ago.
+        await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, host.id));
+        const refusedHold = await step(toPay.call.id, "pay", cust.jar);
+        check("a call's money is not held when the other account was closed: no pay step is offered, and the step refuses", stopped(await pageOf(toPay.call.id, cust.jar)) && refusal(refusedHold) === "not_valid" && sentence(refusedHold) === "This call can no longer be paid for." && (await paymentOf(toPay.call.id)).stripePaymentIntentId === null && (await paymentOf(toPay.call.id)).status === "awaiting_payment", `${refusedHold.status} ${sentence(refusedHold)}`);
+        check("nor is its room offered or entered", stopped(await pageOf(open.call.id, cust.jar)) && (await refusedAtTheDoor(open.call.id, cust.jar)));
+      } finally {
+        await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, host.id));
+        await setPaused(cust.id, false);
+        await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, host.id), eq(schema.blocks.blockedId, cust.id)));
+      }
+      check("with all of that lifted, the steps are offered as before", await asThingsStand());
     }
   } finally {
     const ids = made.length ? made : ["-"];

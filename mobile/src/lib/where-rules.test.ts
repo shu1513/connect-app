@@ -2,7 +2,7 @@ import type { AppStart } from "../../../src/lib/app-door/types";
 import { firstTimeZone, frontStart, isWelcome, whereFor, zonesMatching } from "./where-rules";
 
 const start: AppStart = { updateNeeded: false, switches: { memberships: "on", tips: false, availableNow: true }, me: null, termsVersion: "2026-11-rules", supportEmail: "support@connect.example" };
-const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, pausedReason: null, next: null, host: null };
+const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, next: null, host: null };
 
 describe("which part of the app a person is in", () => {
   it("is the first screens when nobody is signed in", () => {
@@ -40,11 +40,18 @@ describe("the time zone on the '18 and terms' step", () => {
 
   it("takes the server's answer for the step only when it has what the screen reads", () => {
     const agreements = [{ name: "terms-of-service", title: "Terms of Service", version: "2026-11-20", href: "/terms?version=2026-11-20" }];
-    expect(isWelcome({ done: false, returning: false, agreements, timeZone: null, timeZones: accepted })).toBe(true);
-    expect(isWelcome({ done: true, returning: true, agreements: [], timeZone: "UTC", timeZones: [] })).toBe(true);
+    expect(isWelcome({ done: false, returning: false, agreements, coming: [], timeZone: null, timeZones: accepted })).toBe(true);
+    expect(isWelcome({ done: true, returning: true, agreements: [], coming: [], timeZone: "UTC", timeZones: [] })).toBe(true);
+    // A version that is announced and not yet in effect: its fixed sentence and its link, or the step is not shown.
+    const coming = { name: "payment-terms", title: "Payment Terms", version: "2026-12-10", from: "2027-01-12", accepted: true, words: "From 12 January 2027 a new version of the Payment Terms applies. You will be asked to accept it then.", link: "Read it", href: "/payment-terms?version=2026-12-10" };
+    expect(isWelcome({ done: false, returning: false, agreements, coming: [coming], timeZone: null, timeZones: accepted })).toBe(true);
+    expect(isWelcome({ done: false, returning: false, agreements, timeZone: null, timeZones: accepted })).toBe(false);
+    expect(isWelcome({ done: false, returning: false, agreements, coming: [{ ...coming, words: "" }], timeZone: null, timeZones: accepted })).toBe(false);
+    expect(isWelcome({ done: false, returning: false, agreements, coming: [{ ...coming, href: undefined }], timeZone: null, timeZones: accepted })).toBe(false);
+    expect(isWelcome({ done: false, returning: false, agreements, coming: [{ ...coming, accepted: "yes" }], timeZone: null, timeZones: accepted })).toBe(false);
     // Without the documents, or with one that does not say its version, the step could not say what was agreed to.
-    expect(isWelcome({ done: false, returning: false, timeZone: null, timeZones: accepted })).toBe(false);
-    expect(isWelcome({ done: false, returning: false, agreements: [{ name: "terms-of-service", title: "Terms of Service", href: "/terms" }], timeZone: null, timeZones: accepted })).toBe(false);
+    expect(isWelcome({ done: false, returning: false, coming: [], timeZone: null, timeZones: accepted })).toBe(false);
+    expect(isWelcome({ done: false, returning: false, agreements: [{ name: "terms-of-service", title: "Terms of Service", href: "/terms" }], coming: [], timeZone: null, timeZones: accepted })).toBe(false);
     for (const bad of [{}, null, [], { done: false, returning: false, timeZone: null }, { done: false, returning: false, timeZone: 3, timeZones: accepted }, { done: "no", returning: false, timeZone: null, timeZones: accepted }, { done: false, returning: false, timeZone: null, timeZones: ["UTC", 5] }]) {
       expect(isWelcome(bad)).toBe(false);
     }

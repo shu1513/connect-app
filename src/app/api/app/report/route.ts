@@ -1,10 +1,10 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
-import { APP_REPORT_PLACES, reportFormFor, type AppReportPlace } from "@/lib/app-door/report";
+import { APP_REPORT_PLACES, appMayReportFrom, reportFormFor, type AppReportPlace } from "@/lib/app-door/report";
 import type { AppReportSent } from "@/lib/app-door/types";
 import { isUuid } from "@/lib/booking/rules";
 import { errorSummary } from "@/lib/email";
 import { sendReportFor } from "@/lib/safety/report-form";
-import { ReportError } from "@/lib/safety/reports";
+import { ReportError, REQUEST_NOT_FOUND } from "@/lib/safety/reports";
 
 const isPlace = (value: unknown): value is AppReportPlace => typeof value === "string" && (APP_REPORT_PLACES as readonly string[]).includes(value);
 /** What names the place: an id as the database makes them for a call or a request; for a host's page her handle (short, and nothing but letters, digits, "-" and "_"). */
@@ -19,7 +19,8 @@ const isPlaceId = (place: AppReportPlace, value: unknown): value is string => ty
  *
  * For anyone signed in, a paused person too (as on the website). Who the report is about is
  * worked out on the server from the place; the app never names a person. Reporting a person
- * also blocks them, as the form says.
+ * also blocks them, as the form says. A report from a request is taken only once that request
+ * was really sent, or became a call.
  */
 export async function GET(request: Request) {
   // Also for a copy of the app that has become too old meanwhile: reporting follows "End call now", which such a copy can still press.
@@ -40,6 +41,10 @@ export async function POST(request: Request) {
   const given = (sent !== null && typeof sent === "object" ? sent : {}) as { place?: unknown; id?: unknown; reason?: unknown; text?: unknown };
   if (!isPlace(given.place) || !isPlaceId(given.place, given.id) || typeof given.reason !== "string" || (given.text !== undefined && typeof given.text !== "string")) return refuse("not_valid");
   try {
+    // A request that never reached the host (it stopped at its card step) is no place to report from: answered
+    // exactly as a request that does not exist, or is not this person's, and before the form's own checks, so the
+    // three cannot be told apart. The same test as the "Report" link on the request's page.
+    if (!(await appMayReportFrom(asked.person!, given.place, given.id))) return refuse("not_valid", REQUEST_NOT_FOUND);
     const { notice } = await sendReportFor(asked.person!.id, { context: given.place, contextId: given.id, reason: given.reason, text: typeof given.text === "string" ? given.text : "" }, new Date());
     const body: AppReportSent = { notice };
     return answer(body);

@@ -39,8 +39,11 @@ export type EndedScreen = {
 /**
  * Null for anyone who is not one of the call's two people. "not_ended" for a call that is still
  * going on, has yet to start, or was cancelled: there is nothing to say after its end.
+ *
+ * `forApp`: the reading is for the phone app, whose sentence about blocking names no contribution, and a
+ * membership only while memberships are on for the apps (see `END_WORDS.blockWhat`).
  */
-export async function endedScreenFor(userId: string, callId: string, now: Date): Promise<EndedScreen | "not_ended" | null> {
+export async function endedScreenFor(userId: string, callId: string, now: Date, forApp?: { memberships: boolean }): Promise<EndedScreen | "not_ended" | null> {
   const access = await callForParticipant(callId, userId);
   if (!access) return null;
   const { call, role } = access;
@@ -91,7 +94,7 @@ export async function endedScreenFor(userId: string, callId: string, now: Date):
     what: END_WORDS.what,
     report: { label: REPORT_WORDS.reportPerson(otherName), what: END_WORDS.reportWhat(otherName), money: reportMoney },
     // A block that stands can be made again: that tries once more to cancel the calls still to come, and is safe.
-    block: { label: blockDone ? END_WORDS.blockAgain(otherName) : BLOCK_WORDS.label(otherName), what: blockDone ? END_WORDS.blockAgainWhat(otherName) : END_WORDS.blockWhat(otherName), done: blockDone, doneWords: END_WORDS.blocked(otherName) },
+    block: { label: blockDone ? END_WORDS.blockAgain(otherName) : BLOCK_WORDS.label(otherName), what: blockDone ? END_WORDS.blockAgainWhat(otherName) : END_WORDS.blockWhat(otherName, forApp), done: blockDone, doneWords: END_WORDS.blocked(otherName) },
     neither: { label: END_WORDS.neither, what: END_WORDS.neitherWhat(otherName) },
     rate,
   };

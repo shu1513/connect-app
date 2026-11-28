@@ -11,8 +11,10 @@ import { wholeBookingSaid } from "@/lib/booking/rules";
 import type { Call, Payment } from "@/db/schema";
 import { hostNoteAbout } from "@/lib/people/contacts";
 import { callForParticipant, formatMoney } from "@/lib/payments/access";
+import { cancelOutcomeFor } from "@/lib/payments/cancel";
+import { mayActWith } from "@/lib/safety/may-act";
 import { syncHold } from "@/lib/payments/hold";
-import { cancellationOutcome, paymentBlocksJoin, payWindow, type CancellationOutcome } from "@/lib/payments/rules";
+import { paymentBlocksJoin, payWindow, type CancellationOutcome } from "@/lib/payments/rules";
 
 /** The hold may land any second when the call is this close: the page then follows it by itself. */
 const FOLLOW_WITHIN_MS = 10 * 60_000;
@@ -80,13 +82,18 @@ export async function gatherCallPage(userId: string, callId: string, now: Date, 
   const [hostProfile] = role === "customer" ? await db.select({ displayName: schema.hostProfiles.displayName }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, call.hostId)) : [];
   // The host's own note about this customer. Fetched only for the host, with the person looking as the host:
   // nothing of it is in what the customer gets.
-  const about = role === "host" ? await hostNoteAbout(userId, call.customerId) : null;
+  // Withheld while the customer's details are (src/lib/home/customer-details.ts): his account paused or closed, or a
+  // block between the two, with the host's own pause set aside. So the call's page and the room hand out nothing
+  // that her lists hold back.
+  const about = role === "host" && (await mayActWith(userId, [call.customerId], db, { ownPauseAside: true })).has(call.customerId) ? await hostNoteAbout(userId, call.customerId) : null;
   const bookedPrice = payment ? formatMoney(payment.bookedCents) : null;
   // The booking's total grows when time is added during the call; the call's own payment (the figure above, used
   // for paying and cancelling before the call) does not.
   const [booking] = payment ? await db.select({ totalCents: schema.bookings.totalCents, cardConsentVersion: schema.bookings.cardConsentVersion }).from(schema.bookings).where(eq(schema.bookings.callId, call.id)) : [];
 
-  const cancel = cancellationOutcome({ by: role, now, startsAt: call.startsAt, freeCancelMinutes: call.freeCancelMinutes, held: payment?.status === "held" });
+  // The very question the step that cancels asks, so the page never says one thing and the cancelling does another:
+  // free also past the free period when the call's two people may no longer act.
+  const cancel = await cancelOutcomeFor(db, { call, by: role, now, held: payment?.status === "held" });
   // The call's own hold against its own stretch (see the join check): the call's end moves when time is added.
   const blocked = paymentBlocksJoin({ payment, callEndsAt: payment?.coversUntil ?? call.endsAt, now });
   const unpaid = Boolean(payment) && blocked === "not_paid" && payment?.status === "awaiting_payment";

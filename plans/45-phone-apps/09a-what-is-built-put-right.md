@@ -1,6 +1,7 @@
 # Phone apps, part 09a: before going on (what is already built, put right)
 
-**Status:** a plan only. Written 27 November 2026 by the builder alone. Part of plan 45. It
+**Status:** built on 27 November 2026 (the account is at the end, "As built"). The plan was
+written that day by the builder alone. Part of plan 45. It
 was made when the plans were brought up to date after a week's pause: reading the code, and
 then Astra's check of the updated plans ("not ready"), found faults in what the apps already
 have. They are gathered here so that they are put right first, in one small pull request,
@@ -206,3 +207,291 @@ with real things behind them, so the next one is caught by a check and not by a 
 3. *A version's summary is free text and can speak of contributions.* Decision 7: the app's
    notice has fixed words.
 4. *Which disputes stop new payments* was put too widely. "What is there today", point 5.
+
+## As built (27 November 2026)
+
+**Who built it.** For the first time in this plan the first version was not written in the
+builder's own session. The founder has free credits for automated runs of Claude and asked
+for them to be used first. So a second Claude, started from the terminal with a written brief
+(this plan, the build plan's rule, and what it might and might not run), built decisions 2 to
+7 in one run of 22 minutes; it could run lint, the type check and the unit tests, and no
+check script. The builder of this plan then read every change, ran the check scripts, walked
+the phone, and made the corrections below. Astra and CodeRabbit read the result as always.
+
+**What was built,** decision by decision:
+
+- *2:* `END_WORDS.blockWhat` gives the website's sentence and the app's; the app's address for
+  the screen after "End call now" asks for the app's, in both places.
+- *3:* the app's opening answer no longer has a pause's reason at all; the home screen shows
+  fixed words (`pausedWords` in `mobile/src/lib/opening-rules.ts`).
+- *4:* the line of switches is off the Account screen.
+- *5:* `whyNoNewPayment` takes "for the app" and then gives the one sentence that names no
+  cause; `askForCall` passes it for a request from the app.
+- *6:* the rule is one small file, `src/lib/safety/may-act.ts` (`mayActWith`, `mayStillAct`).
+  It is asked by the host's list of requests (`waitingForHost`, so the website's and the
+  app's lists, numbers and calendar groups all follow), the card step, the check before a
+  call's money is held, the room's door, the look into the room, the app's page of a call,
+  and the app's page of a request with its card and note steps.
+- *7:* `comingAtSignUp` in `src/legal/notices.ts` feeds the website's page (drawn as before)
+  and the app's answer, which gets fixed words and a link and never the summary.
+
+**Where it differs from the decisions above, and why it was left so:**
+
+- **A customer's own list of requests still shows his request to a paused host;** its own
+  screen says "no longer available". After the tidying-up such a request is shown as ended,
+  it does not vanish, so taking it off his list would not be "as if the tidying-up had run".
+- **A paused person keeps their own screens:** a paused host who opens a request directly
+  still sees who asked, and can decline, but is not offered Accept. Decision 6 gives "no
+  longer available" to the other person. The one exception is a paused customer's request
+  at the card step, which shows the sentence alone.
+- **On the website, a request that already has its card step at Stripe still shows the card
+  form while the host is paused.** The request is not sent: the step that finishes it ends
+  it.
+- **The room's door asks the rule once,** before its locked step; inside that step only a
+  block is asked again, as before.
+- **A coming document version cannot be announced inside the running website** (the list of
+  documents is code), so `app-door-check` tries that case with the function the address
+  calls, as `agreements-check` does, and over the wire only checks that the field is there.
+- **New words that are the builder's:** "This call can no longer go ahead.", the heading "A
+  request for a call", the label "this person", and the paused sentence on the home screen.
+- **For later parts:** only asking for a call has a way in from the app today. More time by
+  card (part 09b) and joining a membership (part 13) must pass "for the app" to
+  `whyNoNewPayment` when they get theirs.
+
+**How it was tried.**
+
+- Lint, the type check and the unit tests, for the website (1,192 tests) and the phone app
+  (104).
+- Seventeen check scripts, against a database and a website of the builder's own: the eight
+  this part changed (`app-door`, `app-home`, `app-requests`, `app-booking`, `app-calls`,
+  `app-room`, `end-now`, `home`) and nine more that its changes could touch (`safety`,
+  `agreements`, `app-hosts`, `booking`, `verified`, `payments`, `disputes`, `journey`,
+  `accounts`). All pass. The terminal Claude had written its eight without being able to run
+  them; six passed as written.
+- **Two things were not the build's:** `app-booking-check` had expected eight points about
+  the money since before "End call now" added a ninth (pull request 111); that expectation
+  is corrected here. And one line of `photo-check` fails on `main` as it does here (it
+  compares a line of the host's page that another change rewrote); it is not this part's
+  and was left.
+- **More expectations had to turn than the three named above:** in `app-requests-check` also
+  the note refused across a block, and the page after a block, which now say "This request
+  is no longer available."
+- **On the Android test phone,** with pictures: the camera check and the call; the question
+  before "End call now"; the three choices; the question before "Block" (no contribution in
+  either place, "membership" with the switch on); "Neither", and the way back to the choices
+  from the call's page; the other person ending the call, and the phone going to the choices
+  by itself with her name; the report form opened from there; "Block" pressed for real;
+  a paused account's home screen, paused with a reason typed about a diary post (the fixed
+  words, nothing of the reason); the Account screen without the line of switches; a request
+  across a block ("A request for a call", "This request is no longer available.", "Report
+  this person").
+- **Not walked on the phone:** the question as the host (the same screen; its words are
+  checked by `end-now-check`); a paid call's sentences about the money (the walk used free
+  calls; `end-now-check` and `app-room-check` check them with real holds in Stripe's test
+  mode); "Block this person" on a request across a block (the request for the walk was put
+  into the database by hand and was not one that can be blocked through; `app-booking-check`
+  checks it for a real one); the notice of a coming document version (none is announced).
+
+## Astra's first look at the code (27 November 2026): "not ready", worked in
+
+Nine points to fix and six smaller ones. The corrections were made by the same terminal Claude
+from a second brief, then read and checked again (lint, types, tests, and fourteen check
+scripts, all passing).
+
+**Taken:**
+
+1. *A reader's own pause overrode the other person's privacy.* If both people were paused, or
+   there was a block as well, a paused host still got the customer's name, words and note.
+   The exception for a paused reader now holds only when their own pause is the one thing in
+   the way (`mayActWith` with `ownPauseAside`).
+2. *A paused host had lost "Decline" on the phone.* The server now sends an answer that offers
+   declining only, and the screens draw it.
+3. *"Report" was offered on a request that was never sent* (one that ran out at its card step),
+   and a report also blocks. The app offers it by the same test as "Block", and the app's
+   report address refuses such a report.
+4. *A second sending of the same request could still make a card step at Stripe after a
+   pause.* The rule now sits inside `cardStepFor`, which every way into the card step shares.
+5. *The phone could offer "Join" again* after an earlier answer, when the newest one said "not
+   ready". The newest answer wins (`notTheMoment` in `mobile/src/lib/room-rules.ts`).
+6. *The website's list of instant requests* (`liveForHost`) still showed a paused customer. It
+   asks the rule now. (Part 11 had this on its list; it is done here.)
+7. *The two people of an unpaid call that cannot go ahead read different things.* The rule is
+   asked for every state that speaks of paying.
+8. *A hold refused because the two may no longer act could later be told to the customer as a
+   card that failed.* This was so before this part too, for a pause or a block. The helper no
+   longer uses up its one try, and sends no card email, while the two may not act.
+9. *Four checks could pass without looking, and two could leave rows behind.* Corrected.
+10. *A comment and a check's label claimed "Report" and "Block" for a call that cannot go
+    ahead.* The app's page of a call that is not over never had them; both now say so.
+
+**Not taken:**
+
+- *Keeping the pause's reason in the opening answer for older copies of the app.* No copy is in
+  a store; until one is, the app and the server change together (part 06's rule).
+- *Hiding "When" and "Price" on a request whose details are withheld.* They say nothing about
+  the other person.
+- *Leaving a request of a just-paused customer out of the emails that gather waiting requests.*
+  The tidying-up ends it within a few minutes at the latest.
+- *A new "Report" and "Block" for a coming call that cannot go ahead.* A way to report from a
+  cancelled call is part 10's.
+
+**Found and left, said here so that it is not lost:** the website's own page of a request has
+the hole of point 3 too (it offers "Report" for a request that ran out at its card step, and the
+report is taken). Anyone can report a host from her public page as well, so it gives nothing
+that is not there already; it was not changed in this part.
+
+## Astra's second look at the code (28 November 2026): "not ready", narrower, worked in
+
+Three points to fix and five smaller ones. Corrected by the terminal Claude from a third brief;
+lint, types, tests and twelve check scripts pass, and the one changed screen was walked on the
+Android test phone.
+
+**Taken:**
+
+1. *A pause that lands between the helper's two looks used up the hold's only try,* and the
+   customer could later be told that his card had failed. The refusal for the pair rule is now
+   its own kind (`MayNotActError`), and on that refusal only the helper takes its claim back,
+   so the next pass tries again. `booking-check` plays it (section 11b): no try used and no card
+   email while the pause lasts, exactly one real try after it is lifted.
+2. *The phone could show the camera check and "Join" again with an old "ready"* after someone
+   was put out of a call that was still under way. After a lost connection, and after a refused
+   "Join", the room is read again first. Seen on the test phone: a customer paused while in a
+   call reads "Your account is paused." with "Try again" and "Back".
+3. *The app's report address answered differently for a request that was never sent and for
+   one that does not exist.* Both, and somebody else's, now get the same refusal.
+4. *A paused host was sent to "Available now" for an instant request.* She gets no answer to
+   give for an instant request; booked requests keep "decline only".
+5. *Check scripts:* fixtures removed in a `finally` of their own; the card check requires the
+   real card object; the original request is sent again with the same key while the host is
+   paused; "is not on her list" requires a list that was really read.
+
+**Not taken:** asking the website's per-host membership setting for the sentence about
+blocking. "Any membership between you ends" is true when there is none; whether the word may
+appear in the app is the apps' switch.
+
+**A thing about the test setup, not the code:** on the second walk "Join" answered only after
+15 seconds and the phone said "Cannot reach Connect." The test customer had 39 leftover calls
+from the check scripts still marked as open, and entering a call first takes a person out of
+every other one. With those marked closed, entering took a moment, as before.
+
+## Astra's third look at the code (28 November 2026): "not ready"; three points taken, four not
+
+Two points Astra counts as must-fix and five smaller ones. This time the builder of the plan
+decided against both of the first two, and says why here, so that the next reader can judge
+it. The three taken were small and made by the builder himself.
+
+**Taken:**
+
+- *The room's door said "This call has ended." when the other account had only been paused or
+  closed a moment ago,* while the call itself can still be under way. It now says "You cannot
+  join this call right now." A block still reads as "ended", as it always has.
+- *One check would have printed a card step's secret into its log if it ever caught the fault
+  it looks for.* It prints only whether one was handed out.
+- *The new case in `booking-check` could leave a call open against the test host if it failed
+  half-way.* It cancels and settles its call in a `finally`.
+
+**Not taken, with the reason:**
+
+- *A hold's claim can survive if the helper program itself stops in the instant between
+  writing its claim and learning that the two may no longer act, and the pause is then lifted
+  before the call is cancelled.* The customer would get one email asking him to pay by hand. It
+  needs a crash inside a few milliseconds and a pause lifted before the helper's next sweep
+  (which comes no sooner than two minutes later). Before this
+  part the same email went out in the far commoner case, a pause or a block at the moment of
+  the try, and that case is fixed. A transaction around the claim would narrow it further and
+  not close it; it was left.
+- *A customer's name can still be in the host's list of requests if he blocks her in the
+  instant the list is being put together.* That is the list's second look, which is older than
+  this part and says so where it is written: such a row keeps the name, the time, the length
+  and the price, and loses everything else. The name is one she was sent with the request a
+  moment before.
+- *"Use this phone" can show "Join" from an old answer,* and *an end that falls between two
+  readings skips the automatic move to the three choices.* In both, a press is refused and the
+  room is read again (the second look's fix), and the choices stay reachable from the call's
+  page.
+
+## Astra's fourth look at the code (28 November 2026): "not ready", two real points, both taken
+
+Neither needs a race of milliseconds. Corrected by the terminal Claude from a fourth brief;
+lint, types, tests and fifteen check scripts pass (`photo-check` with its one old line, as on
+`main`).
+
+1. **Cancelling a call that cannot go ahead costs nothing, whoever cancels it.** When a block
+   goes through and the cancelling of a coming call fails, the person is told to cancel it from
+   the calls page. Past the free-cancel time that page offered a late cancellation, and the
+   customer could be charged the whole booked price for a call that could never take place.
+   Now one function, `cancelOutcomeFor` (`src/lib/payments/cancel.ts`), is asked both by the
+   call's page for what it says beforehand and by the locked step that takes the money: before
+   a call's start, when its two people may no longer act, cancelling is free. A call that has
+   started keeps its rules. **This is a rule about money on the website too, and the founder
+   was told:** it is what the automatic tidying-up after a pause, a closure or a block already
+   did; the gap was only a person cancelling by hand first. `app-calls-check` plays it with a
+   real hold in Stripe's test mode: the late charge without a block, "free" on both pages with
+   one, and the hold let go with nothing taken.
+2. **A customer paused during a call that is under way still showed on the host's Home and
+   Calls with his words, ID mark and photo.** The lists' details (`customerDetailsFor`) and the
+   address of a customer's private photo (`handedTo` in `src/lib/profiles/photo.ts`) now ask
+   the pair rule, with the host's own pause set aside. The website's home page reads the same
+   function and follows; its request page no longer shows a paused customer's photo.
+
+Smaller: the new case in `booking-check` no longer swallows a failed clean-up, and the checks
+that expect "You cannot join this call right now." also assert the code the phone acts on.
+
+## Astra's fifth look at the code (28 November 2026): "not ready"; two points taken, two left, and the looking ends here
+
+Astra found the money fix of the fourth look right as far as it went, and named four more
+things. The builder of the plan made the two small ones himself and left the other two, for
+the reasons below. After five looks, each of which found something next to the last fix, the
+part goes to its pull request: what is left is older than this part and not of the apps.
+
+**Taken:**
+
+- *A call of a host whose page was suspended could still cost the late charge* if its automatic
+  cancelling had failed and the customer cancelled by hand. `cancelOutcomeFor` now also looks at
+  the page of this call's host: suspended means the call cancels for free before its start,
+  as the step that suspends her would have done. `app-calls-check` plays it with a real hold.
+- *The host's private note about a customer was still handed out by the call's own page and the
+  room* while her lists withheld his details. It follows the same rule now (`gatherCallPage`).
+- Smaller: `booking-check` reads its payment once more after cleaning up.
+
+**Left, and said here so that it is not lost:**
+
+- **A member's call after the host ended the membership.** If the clean-up that cancels the
+  member's coming calls is late or fails, the member can cancel one by hand inside its
+  late-cancel time and lose the time set aside for it, where the clean-up would have given it
+  back. This is the membership's own money path (plans 20 to 22), it is the same on the website,
+  and the right fix is in how a membership's ending and its clean-up hang together, not in a
+  rule about two people. **For the founder: a small piece of work of its own, proposed.**
+- **Home and Calls say "The room is open" for a call that is under way while one of its two
+  people was just paused.** The call's own page says that it cannot go ahead. One tap shows the
+  truth; left.
+- The website's own page still offers "Report" on a request that ran out at its card step (said
+  under the first look; Astra adds that such a report goes through even where a report of the
+  host's page would be refused because she hid it).
+
+## CodeRabbit's look at the pull request (28 November 2026)
+
+Five remarks, all marked minor. Two taken, three not.
+
+**Taken (both in check scripts):**
+
+- `app-home-check`: the first reading of the host's note now sits inside the `try`, so a
+  failed request still cleans up the identity row it made.
+- `booking-check`, section 11b: the try with the card is waited for before the cleaning-up
+  cancels the call, also when something in between throws.
+
+**Not taken, with the reasons:**
+
+- *Withhold the customer's name on the host's call page when the two may not act.* The host's
+  lists keep the name of a call that is under way (the row stays with name, time, length and
+  price; only his words, ID mark, photo and her note go). The call's page does the same, so the
+  two agree. She is in a call with him: his name is not news to her.
+- *The follow-up of a try without an answer could write "card failed" for a try that the pair
+  rule refused.* That follow-up only reads tries claimed at least two minutes ago. A try that
+  the pair rule refuses gives its claim back in the same moment, before Stripe is asked, so it
+  is never among them. (A helper that dies in that instant is the case already left under the
+  third look.)
+- *Read the other person's pause again inside the room's locked step.* Left as the plan has it
+  (the door asks the rule once, before its locked step). A pass handed out in the instant
+  before the other person's pause is the same as having entered a moment earlier: the pause
+  puts the paused person out of the room and they cannot come back in.

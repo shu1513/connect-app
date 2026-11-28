@@ -306,13 +306,13 @@ something that is sold or advertised in the app, not for arithmetic), it could n
 finished, and it would have made every money screen much dearer to build. It is withdrawn.
 The points of the fourth check that rested only on it were not taken (a call's receipt, a
 call's debt, the timing of a notification); the rule above is the one the parts are written
-to now. **If the founder wants the stricter reading after all, this is the place to say
-so.**
+to now. **The founder confirmed this on 27 November 2026: "keep the first reading".**
 
 **For the founder to decide** (nothing waits for these until the part in question is built):
 
-0. *The rule itself* ("The rule for the apps", above): by what a thing is about, as written
-   there, or the stricter reading that was withdrawn.
+0. *The rule itself* ("The rule for the apps", above). **Decided by the founder on 27
+   November 2026:** by what a thing is about, as written there. The stricter reading stays
+   withdrawn.
 1. *A notification when Connect itself writes to someone* (part 12, decision 2a). **Decided
    by the founder on 27 November 2026: yes.** The phone says only "Connect has written to
    you.", for a short list of causes (a bank dispute over a call that waits for the host's

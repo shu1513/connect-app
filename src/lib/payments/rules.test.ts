@@ -95,6 +95,19 @@ describe("cancelling", () => {
       cancellationOutcome({ ...base, by: "customer", now: at("2027-01-12T09:00:00Z"), freeCancelMinutes: 1440 }),
     ).toBe("late_charge");
   });
+  it("a call whose two people may no longer act is cancelled for free by either of them, whatever the clock says", () => {
+    const late = { ...base, by: "customer" as const, now: at("2027-01-13T08:30:00Z"), freeCancelMinutes: 1440 };
+    // Past the free period, with the money held: a late charge as things stand, and free once the two may not act.
+    expect(cancellationOutcome(late)).toBe("late_charge");
+    expect(cancellationOutcome({ ...late, cannotGoAhead: false })).toBe("late_charge");
+    expect(cancellationOutcome({ ...late, cannotGoAhead: true })).toBe("free");
+    expect(cancellationOutcome({ ...late, by: "host", cannotGoAhead: true })).toBe("free");
+  });
+  it("a call that has started is not touched by that: it can no longer be cancelled", () => {
+    for (const by of ["host", "customer"] as const) {
+      expect(cancellationOutcome({ ...base, by, now: START, freeCancelMinutes: 1440, cannotGoAhead: true })).toBe("not_allowed");
+    }
+  });
   it("charges nothing for a late cancellation when no money was held", () => {
     expect(
       cancellationOutcome({

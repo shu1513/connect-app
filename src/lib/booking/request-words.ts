@@ -108,6 +108,16 @@ export const REQUEST_WORDS = {
   cardTooLate: "The time to enter a card for this request has passed. Nothing was sent.",
   cardNotNeeded: "This request does not need a card any more.",
   takenBack: "Your request was taken back. Nothing was held or charged.",
+  /**
+   * For the phone app, when the request's two people may no longer act (an account closed or paused, or a block
+   * between them) and the one reading is not told anything about the other: the page's one sentence, and a heading
+   * and two labels that name nobody (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6).
+   */
+  noLongerAvailable: "This request is no longer available.",
+  titleNoName: "A request for a call",
+  nobody: "this person",
+  /** The same at the start of a sentence. */
+  nobodyFirst: "This person",
   callPage: "Open the call's page",
   /** What else the call's page is for, said beside its link to the customer of an accepted call; an empty string when nothing is. */
   callPageAlso: (booking: Told) => (booking.stage !== "accepted" ? "" : booking.source === "member" ? " (this is also where you can cancel it)" : booking.totalCents > 0 ? " (this is also where you can pay by hand if your card needs attention)" : ""),

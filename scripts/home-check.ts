@@ -483,6 +483,38 @@ async function main() {
       check("a customer whose account is closed: the call that is still listed shows no details", listed(closed.html, withFirst.id) && detailsOf(closed.html, withFirst.id) === "" && !closed.text.includes(`Sponsors question ${RUN}`) && (await same()).ok);
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, first.id));
 
+      // A customer paused during a call that is under way (plans/45-phone-apps/09a-what-is-built-put-right.md, decision
+      // 6): a pause cancels only calls that have not started, so the call stays on the host's home page. His words, his
+      // ID mark, her note about him and his photo are gone from it, and the photo's own address refuses her. (The
+      // website's home page and the phone app's Home and Calls read the same function, src/lib/home/customer-details.ts.
+      // The website's own calls page lists only calls that are over, which never carry a customer's details.)
+      {
+        const underWay = await call({ hostId: bri.id, customerId: regular.id, startsInMinutes: -5 });
+        await requestOf(underWay, { words: `Words during the call ${RUN}` });
+        const photoAddress = () => send(`/host-photos/${regularsPhoto.id}`, { jar: bri.jar });
+        const shown = (page0: { html: string }) => listed(page0.html, underWay.id) || page0.html.includes(`data-next-call="${underWay.id}"`);
+        try {
+          const asItIs = await page("/", bri.jar);
+          check("(as things stand, the call under way carries his words, his ID mark and his photo on the host's home page)", asItIs.status === 200 && shown(asItIs) && words(detailsOf(asItIs.html, underWay.id)).includes(`Words during the call ${RUN}`) && detailsOf(asItIs.html, underWay.id).includes("data-customer-id") && asItIs.html.includes(`/host-photos/${regularsPhoto.id}`) && (await photoAddress()).status === 200, `${asItIs.status}`);
+          await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, regular.id));
+          const during = await page("/", bri.jar);
+          check("the row of the call under way stays on her home page, without the paused customer's words, ID mark, note or photo", during.status === 200 && shown(during) && detailsOf(during.html, underWay.id) === "" && !during.text.includes(`Words during the call ${RUN}`) && !during.text.includes(noteText) && !during.text.includes(regularsPhoto.id), `${during.status} ${words(detailsOf(during.html, underWay.id)).slice(0, 120)}`);
+          check("nor do his other calls with her show anything of him while he is paused", detailsOf(during.html, withRegular.id) === "" && !during.text.includes(`Advice on my first video ${RUN}`));
+          check("and the photo's own address refuses the host", (await photoAddress()).status === 404);
+          await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, regular.id));
+          // A host whose own pause is the only thing in the way keeps what is hers.
+          await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, bri.id));
+          const hers = await page("/", bri.jar);
+          check("a paused host keeps what is hers while her own pause is the only thing in the way: the details and the photo", shown(hers) && words(detailsOf(hers.html, underWay.id)).includes(`Words during the call ${RUN}`) && (await photoAddress()).status === 200, `${hers.status}`);
+        } finally {
+          await db.update(schema.user).set({ pausedAt: null }).where(inArray(schema.user.id, [regular.id, bri.id]));
+          // The call under way goes again, so that what follows finds the home page as it was.
+          await db.delete(schema.bookings).where(eq(schema.bookings.callId, underWay.id));
+          await db.delete(schema.calls).where(eq(schema.calls.id, underWay.id));
+        }
+        check("with the pause lifted and that call gone, the details of her next call are back", detailsOf((await page("/", bri.jar)).html, withRegular.id).includes("data-host-note"));
+      }
+
       // Requests, to answer on the home page.
       const asking = [await person("ask1"), await person("ask2")];
       const sameTime = await Promise.all(asking.map((who, i) => waitingRequest(bri.id, who.id, 3 * 24 * 60, `Request words ${i} ${RUN}`)));
@@ -498,19 +530,25 @@ async function main() {
       const requestsPage = await page("/host/requests", bri.jar);
       check("the requests page shows all of them, with its own return field, and the note folded", count(requestsPage.html, "data-request=") === 8 && count(requestsPage.html, 'name="from" value="requests"') === 16 && !requestsPage.html.includes('name="from" value="home"') && requestsPage.html.includes('data-host-note="folded"'), `${count(requestsPage.html, "data-request=")} shown`);
       check("the customer who asked sees no list of requests to answer", !(await page("/", regular.jar)).html.includes("data-request-list"));
-      // A request that is still waiting although the account was closed, or a block was made (ending it can fail).
+      // A request that is still waiting although the account was closed, or a block was made (ending it can fail). Its
+      // two people may no longer act, so it is not on a list at all, nor in its number, as if it had been ended
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6). Until that part, this check expected both
+      // requests to stay on the two lists with the customer's name and nothing else; that is turned round here.
       await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, asking[1].id));
       await db.insert(schema.blocks).values({ blockerId: regular.id, blockedId: bri.id });
       for (const [path, where] of [
         ["/", "the home page"],
         ["/host/requests", "the requests page"],
       ] as const) {
-        const html = (await page(path, bri.jar)).html;
+        const shown = await page(path, bri.jar);
+        const html = shown.html;
         const rowOf = (id: string) => html.slice(html.indexOf(`data-request="${id}"`), html.indexOf("Decline", html.indexOf(`data-request="${id}"`)));
-        const [closedRow, blockedRow, openRow] = [rowOf(sameTime[1].id), rowOf(fromRegular.id), rowOf(sameTime[0].id)];
-        const bare = (row: string) => row !== "" && !row.includes("ratings") && !row.includes("ID confirmed") && !row.includes("data-host-note") && !row.includes("&ldquo;") && !row.includes("“") && !row.includes("/host-photos/");
-        check(`${where}: a request of a closed account, and one across a block, show the name, time, length and price, and nothing else about the customer`, bare(closedRow) && bare(blockedRow) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`), `${words(closedRow).slice(0, 90)} | ${words(blockedRow).slice(0, 90)}`);
-        check("  and the request beside them keeps its details", words(openRow).includes(`Request words 0 ${RUN}`) && openRow.includes("ratings"));
+        const openRow = rowOf(sameTime[0].id);
+        check(`${where}: a request of a closed account, and one across a block, are not on the list at all`, !html.includes(`data-request="${sameTime[1].id}"`) && !html.includes(`data-request="${fromRegular.id}"`) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`) && !html.includes(asking[1].name), `${count(html, "data-request=")} shown`);
+        // Eight requests waited; six are left. (The time two people asked for is now one person's.)
+        // The number the page itself says (the home page in its link to all of them, the requests page in its heading), and on the requests page the rows drawn.
+        check("  nor in its number", (path === "/" ? shown.words.includes("See all 6 requests") : shown.words.includes("Requests for calls (6)") && count(html, "data-request=") === 6) && !shown.words.includes("2 people asked for this time. Choose one."), `${count(html, "data-request=")} shown`);
+        check("  and the open request beside them is still there, with its details", html.includes(`data-request="${sameTime[0].id}"`) && words(openRow).includes(`Request words 0 ${RUN}`) && openRow.includes("ratings"));
       }
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, asking[1].id));
       await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, regular.id), eq(schema.blocks.blockedId, bri.id)));

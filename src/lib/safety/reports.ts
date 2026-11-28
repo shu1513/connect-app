@@ -41,6 +41,9 @@ export type ReportReason = (typeof REPORT_REASONS)[number]["key"];
 const TEXT_MAX = REPORT_TEXT_MAX;
 const REPORTS_PER_DAY = 10;
 
+/** What a report from a request says when the request is not this person's to report from. */
+export const REQUEST_NOT_FOUND = "Request not found.";
+
 function appUrl(): string {
   return (process.env.BETTER_AUTH_URL || "http://localhost:3000").replace(/\/$/, "");
 }
@@ -65,7 +68,7 @@ async function reportedPersonFor(reporterId: string, context: string, contextId:
   }
   if (context === "booking") {
     const [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, contextId));
-    if (!booking || (booking.hostId !== reporterId && booking.customerId !== reporterId)) throw new ReportError("Request not found.");
+    if (!booking || (booking.hostId !== reporterId && booking.customerId !== reporterId)) throw new ReportError(REQUEST_NOT_FOUND);
     const reportedId = booking.hostId === reporterId ? booking.customerId : booking.hostId;
     return {
       reportedId,

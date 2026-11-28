@@ -260,9 +260,9 @@ async function main() {
       check("signing in sends the app nowhere", signIn.json?.redirect !== true && !signIn.location, JSON.stringify(signIn.json?.redirect));
       const { reply, body } = await start(one.jar);
       check("the opening address now knows the person", reply.status === 200 && body?.me?.email === one.email, `${reply.status}`);
-      check("it says where to write to Connect, and no pause reason for someone who is not paused", typeof body?.supportEmail === "string" && body.supportEmail.includes("@") && body?.me?.pausedReason === null);
+      check("it says where to write to Connect", typeof body?.supportEmail === "string" && body.supportEmail.includes("@"));
       check("and that 18-and-terms is still to do", body?.me?.next === "welcome");
-      check("it sends exactly the fields the app needs", Object.keys(body?.me ?? {}).sort().join(",") === "email,host,id,name,next,paused,pausedReason,timeZone", Object.keys(body?.me ?? {}).join(","));
+      check("it sends exactly the fields the app needs", Object.keys(body?.me ?? {}).sort().join(",") === "email,host,id,name,next,paused,timeZone", Object.keys(body?.me ?? {}).join(","));
 
       // The "18 or older and terms" step, done from the app (plans/45-phone-apps/03-signing-in.md).
       const row = await userByEmail(one.email);
@@ -276,6 +276,43 @@ async function main() {
       const agreed = (step?.agreements ?? []).map(({ name, version }) => ({ name, version }));
       check("the step names the three general documents, each with its version and the address of exactly that version", step?.agreements.map((a) => a.name).join() === "terms-of-service,payment-terms,community-rules" && step.agreements.every((a) => a.title.length > 0 && a.href.endsWith(`?version=${a.version}`)), JSON.stringify(step?.agreements));
       check("the step tells the app what to show", shown.status === 200 && step?.done === false && step.returning === false && Array.isArray(step.timeZones) && step.timeZones.includes("America/New_York") && step.timeZones.includes("UTC"), `${shown.status}`);
+      // What is announced and not yet in effect (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 7): the
+      // step's answer has a place for it, filled from the same list as the website's page. (Normally nothing is coming.)
+      const { comingShown } = await import("../src/lib/app-door/shown");
+      check("the step has exactly the parts the app knows, with a place for versions that are announced", Object.keys(step ?? {}).sort().join(",") === "agreements,coming,done,returning,timeZone,timeZones" && Array.isArray(step?.coming), Object.keys(step ?? {}).join(","));
+      check("what it says is coming is what the list of documents says is coming, in the app's fixed words", JSON.stringify(step?.coming) === JSON.stringify(comingShown(new Date())), JSON.stringify(step?.coming).slice(0, 200));
+      {
+        // A new version cannot be announced inside the running app from here (the list of documents is part of its
+        // code). So the announcing is tried in this tool's own copy of that list, as scripts/agreements-check.ts does,
+        // with the very function the address calls: a made-up version of the Payment Terms, whose summary speaks of
+        // contributions and tips, and one of the Privacy Policy, which is told and not accepted.
+        const { DOCUMENTS, agreementsToAccept } = await import("../src/legal/versions");
+        const { comingAtSignUp } = await import("../src/legal/notices");
+        const today = new Date();
+        const day = (offsetDays: number) => new Date(today.getTime() + offsetDays * DAY).toISOString().slice(0, 10);
+        const summary = "Monthly contributions to a host's project and tips after a call are refunded in a new way.";
+        const madeUp = [
+          ["payment-terms", { version: "2099-01-01", effectiveFrom: day(40), addedOn: day(0), draft: true, summary }],
+          ["privacy-policy", { version: "2099-01-02", effectiveFrom: day(41), addedOn: day(0), draft: true, summary }],
+        ] as const;
+        const acceptedBefore = JSON.stringify(agreementsToAccept("sign_up", today));
+        for (const [name, version] of madeUp) DOCUMENTS[name].versions.push({ ...version });
+        try {
+          const sent = comingShown(today).filter((one) => one.version.startsWith("2099-"));
+          const [terms, privacy] = [sent.find((one) => one.name === "payment-terms"), sent.find((one) => one.name === "privacy-policy")];
+          check("a version that is announced is in what the app is sent: which document, from which day, and a link to exactly that version", sent.length === 2 && terms?.title === "Payment Terms" && terms.from === day(40) && terms.href === "/payment-terms?version=2099-01-01" && terms.link === "Read it" && privacy?.href === "/privacy?version=2099-01-02", JSON.stringify(sent).slice(0, 300));
+          check("whether it is one the person accepts, or one they are only told about", terms?.accepted === true && terms.words.endsWith("a new version of the Payment Terms applies. You will be asked to accept it then.") && privacy?.accepted === false && privacy.words.endsWith("a new version of the Privacy Policy applies."), `${terms?.words} | ${privacy?.words}`);
+          check("each notice has exactly the parts the app knows, and none of the summary's words: nothing of a contribution or a tip", sent.every((one) => Object.keys(one).sort().join(",") === "accepted,from,href,link,name,title,version,words") && !/contribution|project|tip|refunded/i.test(JSON.stringify(sent)), JSON.stringify(sent).slice(0, 300));
+          check("the website's page still gets the summary, from the same list", comingAtSignUp(today).filter((one) => one.version.startsWith("2099-")).every((one) => one.summary === summary));
+          check("and what the step accepts is still today's version and nothing else", JSON.stringify(agreementsToAccept("sign_up", today)) === acceptedBefore && !acceptedBefore.includes("2099-"));
+        } finally {
+          for (const [name, version] of madeUp) {
+            const versions = DOCUMENTS[name].versions;
+            versions.splice(versions.findIndex((one) => one.version === version.version), 1);
+          }
+        }
+        check("(afterwards the list of documents is as it was)", !JSON.stringify(comingShown(today)).includes("2099-"));
+      }
       check("nobody signed in is refused at the step", refusal(await asApp("/api/app/welcome")) === "not_signed_in" && refusal(await asApp("/api/app/welcome", { body: { adult: true, agreements: agreed, timeZone: "UTC" } })) === "not_signed_in");
       check("a browser cannot do the step through the app's address", refusal(await asBrowser("/api/app/welcome", { body: { adult: true, agreements: agreed, timeZone: "UTC" }, jar: browser })) === "not_the_app");
       for (const [label, body] of [
@@ -524,12 +561,19 @@ async function main() {
     await freshLimits();
     {
       const four = await newPerson("four");
-      await db.update(schema.user).set({ pausedAt: new Date(), pausedReason: "a reason, for the check" }).where(eq(schema.user.id, four.id));
-      const told = (await start(four.jar)).body?.me;
-      check("a paused account is told so, with the reason", told?.paused === true && told.pausedReason === "a reason, for the check");
-      await db.update(schema.user).set({ pausedReason: null }).where(eq(schema.user.id, four.id));
-      check("and with no reason when none was given", (await start(four.jar)).body?.me?.pausedReason === null);
-      await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, four.id));
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 3. Until that part this check expected the app to
+      // be sent the stored reason of a pause; that is turned round.) The reason is typed by a person at Connect, here
+      // about a diary post: none of its words may be anywhere in the opening answer.
+      const typed = "No scams. The diary post of 3 March asked contributors of the project for a tip outside Connect.";
+      await db.update(schema.user).set({ pausedAt: new Date(), pausedReason: typed }).where(eq(schema.user.id, four.id));
+      const pausedStart = await start(four.jar);
+      const told = pausedStart.body?.me;
+      check("a paused account is told that it is paused", pausedStart.reply.status === 200 && told?.paused === true);
+      check("and is not sent the reason: no field for it, and none of the typed words anywhere in the answer", told !== null && told !== undefined && !("pausedReason" in told) && Object.keys(told).sort().join(",") === "email,host,id,name,next,paused,timeZone" && !/scam|diary|contributor|project|\btip\b|outside Connect|3 March/i.test(pausedStart.reply.text), pausedStart.reply.text.slice(0, 200));
+      check("the answer says where to write, which the app shows a paused person", typeof pausedStart.body?.supportEmail === "string" && pausedStart.body.supportEmail.includes("@"));
+      const webPaused = await asBrowser("/paused", { jar: four.jar });
+      check("the website's own page still shows the reason as it was typed", webPaused.status === 200 && webPaused.text.includes("The diary post of 3 March asked contributors of the project for a tip outside Connect."), `${webPaused.status}`);
+      await db.update(schema.user).set({ pausedAt: null, pausedReason: null }).where(eq(schema.user.id, four.id));
 
       // What a wrong password looks like on the wire: the measure for everything a closed account gets.
       const wrong = await asApp("/api/auth/sign-in/email", { body: { email: four.email, password: strongPassword() }, jar: new Map() });

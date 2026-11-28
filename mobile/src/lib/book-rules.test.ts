@@ -130,11 +130,18 @@ describe("a request's page for its host, and her list", () => {
   it("takes the host's page, with and without what she may know", () => {
     expect(isBooking(forHost)).toBe(true);
     expect(isBooking({ ...forHost, host: { ...host, known: false, ratingWords: null, idConfirmed: false, words: null, note: null, answer: null } })).toBe(true);
+    // A request whose details are withheld (its two people may no longer act): the host's part names nobody, and the
+    // page is one sentence with "Report" and "Block" under labels that name nobody.
+    expect(isBooking({ ...forHost, title: "A request for a call", stageWords: "This request is no longer available.", host: { ...host, customerName: "", known: false, ratingWords: null, idConfirmed: false, words: null, note: null, answer: null }, report: "Report this person", block: { label: "Block this person", sure: "This person will not be able to ask you for calls any more, and any requests or future calls between you end.", yes: "Block", no: "Not now" } })).toBe(true);
   });
   it("never a host's part for the customer, nor a host's page without it", () => {
     expect(isBooking({ ...booking, host })).toBe(false);
     expect(isBooking({ ...forHost, host: null })).toBe(false);
     expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, kind: "else" } } })).toBe(false);
+    // A host whose own account is paused is offered declining only: an answer without "Accept" is still an answer.
+    expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, accept: null } } })).toBe(true);
+    expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, accept: undefined } } })).toBe(false);
+    expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, decline: null } } })).toBe(false);
     expect(isBooking({ ...forHost, host: { ...host, note: { title: "About Ann" } } })).toBe(false);
     expect(isBooking({ ...forHost, block: { label: "Block Ann" } })).toBe(false);
     expect(isBooking({ ...forHost, role: "admin" })).toBe(false);

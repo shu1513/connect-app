@@ -18,10 +18,11 @@ import { bookingMayRemoveCard } from "@/lib/membership/cards";
 import { cancelCall } from "@/lib/payments/cancel";
 import { ownPaymentOn } from "@/lib/payments/own";
 import { placeHoldWithSavedCard, syncHold } from "@/lib/payments/hold";
-import { OutcomeUnknownError } from "@/lib/payments/operations";
+import { MayNotActError, OutcomeUnknownError } from "@/lib/payments/operations";
 import { payOpensAt } from "@/lib/payments/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { refreshPayoutsReady } from "@/lib/payments/hosts";
+import { mayStillAct } from "@/lib/safety/may-act";
 import { endUnanswered, endUnfinishedCardSteps, lockCalendars, endInstantRequestsOfAbsentHosts } from "./bookings";
 import { queueBookingEmails, whenFor } from "./emails";
 import { CARD_KEPT_FOR_THE_CALL, CARD_REMINDER, CARD_REMOVED_AFTER_END_MS, cardReminderDue } from "./rules";
@@ -159,6 +160,15 @@ async function placeHolds(now: Date): Promise<void> {
  */
 export async function tryHoldOnce(found: { booking: Booking; call: Call; payment: Payment }, now: Date): Promise<"held" | "not_held" | "unknown" | "already_tried"> {
   const { booking, call, payment } = found;
+  // While the call's two people may no longer act (an account paused or closed, or a block between them), the hold
+  // would be refused before any card is tried (src/lib/payments/hold.ts). That is not a card that failed: the one
+  // try is not used up, and nothing is written down about it. Such a call is being cancelled; if it stands after
+  // all (the pause was lifted first), the try is made at the helper's next pass. (Looked at here first, so that
+  // nothing is written at every pass while it lasts. A pause that lands after this look is caught below.)
+  if (!(await mayStillAct(call.hostId, call.customerId))) {
+    log(`no hold for booking ${booking.id}: its two people may not act just now`);
+    return "unknown";
+  }
   const claimed = await db
     .update(schema.bookings)
     .set({ holdTriedAt: now })
@@ -176,6 +186,14 @@ export async function tryHoldOnce(found: { booking: Booking; call: Call; payment
     log(`the saved card did not work for booking ${booking.id}; the customer was told`);
     return "not_held";
   } catch (error) {
+    // Refused because the two may not act: a pause or a block landed between the look above and the hold's own look.
+    // No card was tried and Stripe was not asked, so this try's claim is taken back, and the next pass tries again
+    // (or finds the call cancelled). Only for this refusal: a real "no", and an answer that is not known, keep it.
+    if (error instanceof MayNotActError) {
+      await db.update(schema.bookings).set({ holdTriedAt: null }).where(and(eq(schema.bookings.id, booking.id), isNull(schema.bookings.holdFailedAt)));
+      log(`no hold for booking ${booking.id}: its two people may not act just now; the try is not used up`);
+      return "unknown";
+    }
     // Not known yet whether it worked. The payments helper finds out; noteUnsettledTries() follows up.
     if (error instanceof OutcomeUnknownError) log(`hold for booking ${booking.id} is being checked with Stripe`);
     else log(`could not try the saved card for booking ${booking.id}`, error);
@@ -205,8 +223,11 @@ async function noteUnsettledTries(now: Date): Promise<void> {
       lte(schema.bookings.holdTriedAt, new Date(now.getTime() - 2 * 60_000)),
     ),
   );
-  for (const { booking, payment } of tried) {
+  for (const { booking, call, payment } of tried) {
     if (await actionInFlight(payment.id)) continue;
+    // Nobody is told "your card needs your attention" while the call's two people may not act: such a call is being
+    // cancelled. (A try that was itself refused for that reason is not among these: its claim was taken back.)
+    if (!(await mayStillAct(call.hostId, call.customerId))) continue;
     const synced = await syncHold(payment.id, now).catch(() => null);
     if (synced && synced.status === "awaiting_payment") await noteHoldFailed(booking.id, now);
   }

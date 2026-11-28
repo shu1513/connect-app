@@ -30,7 +30,10 @@ function phoneTimeZone(): string | null {
  * step again and shows the new ones.
  *
  * The sentence that names the documents sits right above the button, and each name opens the
- * exact version the button accepts. That is what makes pressing it an acceptance.
+ * exact version the button accepts. That is what makes pressing it an acceptance. A version that
+ * is announced and not yet in effect is said above that sentence, in fixed words from the server
+ * (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 7); pressing the button accepts
+ * nothing of it.
  *
  * Whenever the server says this person does not belong on this screen (the step is done, the
  * sign-in ran out, this copy is too old), the app asks the opening question again, and that
@@ -160,6 +163,14 @@ export default function Welcome() {
         )}
       </Card>
       {problem ? <Notice>{problem}</Notice> : null}
+      {/* A version that is announced and not yet in effect, said above the button in the server's fixed words. Its
+          link is one of the step's document links, and opens as they do. What is accepted below is today's version. */}
+      {step.coming.map((coming) => (
+        <Card key={`${coming.name}@${coming.version}`}>
+          <Words>{coming.words}</Words>
+          <TextLink label={coming.link} onPress={() => void openWebsite(coming.href)} />
+        </Card>
+      ))}
       <Words>{step.returning ? "By pressing the button you agree to the updated:" : "By finishing sign-up you agree to the:"}</Words>
       {step.agreements.map((agreement) => (
         <TextLink key={agreement.name} label={agreement.title} onPress={() => void openWebsite(agreement.href)} />

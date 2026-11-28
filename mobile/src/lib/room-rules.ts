@@ -84,6 +84,47 @@ export function laterEnd(known: number, said: string): number {
 }
 
 /**
+ * After the connection to a call was lost, once the server has said where the call stands: whether the room must be
+ * read again before the camera check is shown. Not when the call has really ended (cancelled, or ended for both
+ * with the button): the screen says so itself, and leads on from there. Otherwise always: the person may have been
+ * put out of the room (their account paused, say) while the call itself goes on, and what the screen read about
+ * the room when it was opened ("ready") says nothing about now.
+ */
+export function readRoomAgainAfterLoss(live: { cancelled: boolean; safetyEnded: boolean }): boolean {
+  return !live.cancelled && !live.safetyEnded;
+}
+
+/**
+ * After "Join" was refused, by the refusal's code: whether it means that the room is no longer open to this person
+ * as the screen believes, so that the room is read again before "Join" is offered once more. "not_valid": the
+ * call's own reasons (not paid, over, the two may no longer act). "paused": this person's account. Not for calls
+ * paused across Connect ("switched_off": the room itself is as it was), and not for the refusals that the opening
+ * question answers (signed out, this copy too old).
+ */
+export function readRoomAgainAfterRefusal(code: string): boolean {
+  return code === "not_valid" || code === "paused";
+}
+
+/**
+ * Whether this is not the moment for the call's own screen, so that the call's page is shown in its place (it says
+ * why, and leads back here when the room is open): the room has not opened yet, or the server's newest answer about
+ * the room says that something stands in the way (unpaid, cancelled, over, or the call's two people may no longer
+ * act). Never for someone who holds an entry pass: they are in the call.
+ *
+ * `live`: what the screen has learned by asking where the call stands (near its end, after a lost connection); null
+ * if it never asked. The newest "not ready" wins also then: someone who left this screen and comes back (their pass
+ * is gone) is not shown the camera check and "Join" for a room nobody can enter. One thing is kept: a call that is
+ * over as far as this screen knows (its time is up, or the server said it was cancelled or ended) stays here. The
+ * screen says "ended" itself, with the way on to what follows an ended call.
+ */
+export function notTheMoment(at: { ready: boolean; opensAt: number; now: number; endsAt: number | null; inCall: boolean; live: { cancelled: boolean; safetyEnded: boolean } | null }): boolean {
+  if (at.inCall) return false;
+  if (at.live === null) return !at.ready || at.now < at.opensAt;
+  const over = at.live.cancelled || at.live.safetyEnded || (at.endsAt !== null && at.now >= at.endsAt);
+  return !at.ready && !over;
+}
+
+/**
  * The clock line of a call, by the server's clock: until the start, the time left, and in the
  * last stretch the countdown (`last`, drawn large).
  */

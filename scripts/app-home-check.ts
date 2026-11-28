@@ -20,7 +20,7 @@ import http from "node:http";
 import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { APP_ORIGIN } from "../src/lib/auth-rules";
 import { APP_HEADER, SIGN_IN_HEADER } from "../src/lib/app-door/rules";
-import type { AppHome, Refusal } from "../src/lib/app-door/types";
+import type { AppCalls, AppHome, Refusal } from "../src/lib/app-door/types";
 import { TERMS_VERSION } from "../src/lib/terms";
 import { requireLocalDatabase } from "./local-only";
 
@@ -289,6 +289,33 @@ async function main() {
       check("rule 4: a time asked for is a start, an end and a count, and two people asking for one time are one", body?.calendar.asks.length === 1 && body.calendar.asks[0].count === 2 && Object.keys(body.calendar.asks[0]).sort().join(",") === "count,endsAt,startsAt");
       check("the requests to answer: how many, at how many times, each with a name, a length, a price and a time to answer by", body?.toAnswer.count === 2 && body.toAnswer.times === 1 && body.toAnswer.shown.length === 2 && body.toAnswer.shown.every((r) => asks.some((a) => a.id === r.id) && r.minutes === 30 && r.price === "free" && typeof r.respondBy === "string"));
       check("a request in the list carries nothing more about the person who asked (that is the request's own screen)", body?.toAnswer.shown.every((r) => Object.keys(r).sort().join(",") === "endsAt,id,minutes,name,price,respondBy,startsAt") === true);
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6.) The home page's own numbers, its calendar's
+      // groups and the names on it follow the same rule as the list of requests: a request whose two people may no
+      // longer act (an account paused or closed, or a block between them, written straight into the database here, so
+      // nothing has been tidied up) is not counted, not grouped and not named.
+      {
+        const answerOf = async () => (await home(hostC.jar)).body;
+        const only = (page: Awaited<ReturnType<typeof answerOf>>, kept: { id: string }, leftOut: { name: string }) =>
+          page?.toAnswer.count === 1 && page.toAnswer.times === 1 && page.toAnswer.shown.length === 1 && page.toAnswer.shown[0].id === kept.id && !page.toAnswer.shown.some((r) => r.name === leftOut.name) && page.calendar.asks.length === 1 && page.calendar.asks[0].count === 1;
+        try {
+          await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, other.id));
+          check("a customer paused a moment ago: his request is not in the number, not in the calendar's group, and not named", only(await answerOf(), second, other));
+          await db.update(schema.user).set({ pausedAt: null, closedAt: new Date() }).where(eq(schema.user.id, other.id));
+          check("the same for a customer whose account was closed a moment ago", only(await answerOf(), second, other));
+          await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, other.id));
+          await db.insert(schema.blocks).values({ blockerId: cust.id, blockedId: hostC.id });
+          check("and across a block, whoever blocked whom", only(await answerOf(), first, cust));
+          await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, cust.id), eq(schema.blocks.blockedId, hostC.id)));
+          await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, hostC.id));
+          const hers = await answerOf();
+          check("a host paused a moment ago has nothing to answer on her home page: no number, no group, no name", hers?.toAnswer.count === 0 && hers.toAnswer.times === 0 && hers.toAnswer.shown.length === 0 && hers.calendar.asks.length === 0);
+        } finally {
+          await db.update(schema.user).set({ pausedAt: null, closedAt: null }).where(inArray(schema.user.id, [other.id, hostC.id]));
+          await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, cust.id), eq(schema.blocks.blockedId, hostC.id)));
+        }
+        const back = await answerOf();
+        check("with all of that lifted, both requests are counted, grouped and named again", back?.toAnswer.count === 2 && back.toAnswer.shown.length === 2 && back.calendar.asks[0]?.count === 2);
+      }
       check("rule 6: no star rating beside any call", !body?.calls.some((c) => "rating" in c || "stars" in c));
       check("rule 9: nothing that opens a room: no room name, no key for the video service", !text.includes(coming.roomName) && !/roomName|token/i.test([...namesIn(body)].join(",")));
       // The customer of that call sees it as theirs, with nothing about themselves.
@@ -416,6 +443,52 @@ async function main() {
       const followedNow = (await home(cust.jar)).body?.followed.hosts.find((h) => h.name === hostA.displayName);
       check("and a followed host whose page is hidden is listed by name only", followedNow !== undefined && followedNow.handle === null && followedNow.photoId === null && followedNow.available === false);
       await db.update(schema.hostProfiles).set({ hidden: false }).where(eq(schema.hostProfiles.userId, hostA.id));
+
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6.) A customer paused while a call with this host
+      // is under way: a pause cancels only calls that have not started, so the call stays on her home page and in her
+      // Calls. Nothing about him goes with it any more: not what he wrote, not his ID mark, not his photo's id. And the
+      // photo's own address refuses her, since a phone may still hold the id. (Last here: it puts a call under way.)
+      const underWay = await call({ hostId: hostC.id, customerId: cust.id, startsInMinutes: -5, words: "Written when asking for the call under way" });
+      const [idCheck] = await db.insert(schema.identityChecks).values({ userId: cust.id, stripeSessionId: `vs_check_${RUN}_underway`, status: "verified", adult: true, checkedAt: now }).returning({ id: schema.identityChecks.id });
+      const onHome = async () => (await home(hostC.jar)).body?.calls.find((c) => c.id === underWay.id);
+      const inCalls = async () => {
+        const reply = await asApp("/api/app/calls?kind=coming&page=1", { jar: hostC.jar });
+        return reply.status === 200 ? (reply.json as AppCalls).calls.find((c) => c.id === underWay.id) : undefined;
+      };
+      const photoFor = (jar: Jar) => asApp(`/api/app/photos/${custPhoto}`, { jar });
+      type Row = Awaited<ReturnType<typeof onHome>>;
+      const withDetails = (row: Row) => row !== undefined && row.hosting === true && row.about?.words === "Written when asking for the call under way" && row.about.idConfirmed === true && row.photoId === custPhoto;
+      const bare = (row: Row) => row !== undefined && row.hosting === true && row.name === cust.name && !("about" in row) && row.photoId === null;
+      // The note she keeps about him, as the call's own page hands it to her (null when it is withheld; undefined when the page could not be read).
+      await db.insert(schema.hostNotes).values({ hostId: hostC.id, customerId: cust.id, text: "A note for the call under way" }).onConflictDoNothing();
+      const noteOf = async () => {
+        const reply = await asApp(`/api/app/calls/${underWay.id}`, { jar: hostC.jar });
+        return reply.status === 200 ? ((reply.json as { about: { text: string } | null }).about?.text ?? null) : undefined;
+      };
+      try {
+        const noteOnPage = await noteOf();
+        check("(and the call's own page hands her the note she keeps about him)", typeof noteOnPage === "string" && noteOnPage.length > 0, String(noteOnPage));
+        check("(as things stand, the call under way carries what he wrote, his ID mark and his photo's id, on Home and in Calls)", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
+        await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, cust.id));
+        const during = await home(hostC.jar);
+        check("a customer paused during a call that is under way: the row stays on the host's home page, without his words, his ID mark or his photo", bare(during.body?.calls.find((c) => c.id === underWay.id)) && !during.reply.text.includes("Written when asking for the call under way") && !during.reply.text.includes(custPhoto), JSON.stringify(during.body?.calls.find((c) => c.id === underWay.id)).slice(0, 200));
+        check("the same in her Calls", bare(await inCalls()));
+        check("nor does the call's own page hand her the note she keeps about him", noteOnPage !== undefined && (await noteOf()) === null, String(await noteOf()));
+        const refusedPhoto = await photoFor(hostC.jar);
+        check("and the photo's own address refuses her, as for any photo that is not hers to see", refusedPhoto.status === 404 && refusal(refusedPhoto) === "not_found" && refusedPhoto.bytes.toString() !== "photo");
+        check("(he still gets his own photo)", (await photoFor(cust.jar)).status === 200);
+        await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
+        // A host whose own pause is the only thing in the way keeps what is hers.
+        await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, hostC.id));
+        check("a paused host keeps what is hers while her own pause is the only thing in the way: the details and the photo", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
+        await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, cust.id));
+        check("but not once the customer is paused as well", bare(await onHome()) && bare(await inCalls()) && refusal(await photoFor(hostC.jar)) === "not_found");
+        await db.update(schema.user).set({ pausedAt: null }).where(inArray(schema.user.id, [cust.id, hostC.id]));
+        check("with the pauses lifted, everything about him is back beside the call", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
+      } finally {
+        await db.update(schema.user).set({ pausedAt: null }).where(inArray(schema.user.id, [cust.id, hostC.id]));
+        await db.delete(schema.identityChecks).where(eq(schema.identityChecks.id, idCheck.id));
+      }
     }
   } finally {
     const ids = made.length ? made : ["-"];

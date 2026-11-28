@@ -34,6 +34,14 @@ export type OperationKind = "capture" | "release" | "refund" | "transfer" | "hol
 export class MoneyError extends Error {}
 
 /**
+ * The same, for one reason that whoever asked may want to tell from every other: the call's two people may not act
+ * just now (an account paused or closed, or a block between them), so no hold is placed. Nothing was asked of
+ * Stripe, and no card was tried: it says nothing about the card. For everyone who only shows the sentence it is a
+ * MoneyError like any other; the helper that owns the one try with a saved card gives that try back on it.
+ */
+export class MayNotActError extends MoneyError {}
+
+/**
  * Thrown by an action's `execute` when it decides, at the last moment, not to ask Stripe at all.
  * Nothing was sent by this process, so it is recorded like a refusal from Stripe, but only while the
  * helper cannot have picked the action up (see RECONCILE_AFTER_MS): after that the helper may have

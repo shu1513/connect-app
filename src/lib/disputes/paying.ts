@@ -23,16 +23,27 @@ type Reader = Pick<typeof db, "select">;
 export const STOPPED_WHILE_OPEN =
   "Your bank has an open dispute about a payment on Connect. Until it has ended, you cannot start anything new that costs money here. Your messages say more.";
 export const STOPPED_AFTER_LOSS = `Starting new bookings and payments is switched off for your account, after a bank dispute over a payment that Connect's record shows was right. If you think that is wrong, write to ${SUPPORT_EMAIL}.`;
+/**
+ * The same refusal as the phone app says it (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 5): it
+ * names no bank and no dispute, whichever of the two sentences above the website would say. The stop looks at every
+ * dispute of the customer's, also one about a contribution or a tip, which the apps do not have; and "your
+ * messages" in an app are the conversations between two people. So the app says only where Connect's own message is.
+ */
+export const STOPPED_IN_APP = "You cannot start anything new that costs money on Connect right now. Connect has written to you about it: the message is in your email, and on your Messages page on the website.";
 
-/** Why this person cannot make a new agreement to pay right now, in words for them, or null if they can. */
-export async function whyNoNewPayment(reader: Reader, userId: string): Promise<string | null> {
+/**
+ * Why this person cannot make a new agreement to pay right now, in words for them, or null if they can.
+ * `forApp`: the words for the phone app. The stop itself is the same for both: one question, two sentences.
+ */
+export async function whyNoNewPayment(reader: Reader, userId: string, options: { forApp?: boolean } = {}): Promise<string | null> {
   const rows = await reader
     .select({ stage: schema.disputes.stage, outcome: schema.disputes.outcome, answer: schema.disputes.answer, payingAllowedAt: schema.disputes.payingAllowedAt })
     .from(schema.disputes)
     .where(and(eq(schema.disputes.customerId, userId), eq(schema.disputes.stage, "chargeback"), or(isNull(schema.disputes.outcome), and(eq(schema.disputes.outcome, "lost"), eq(schema.disputes.answer, "proof"), isNull(schema.disputes.payingAllowedAt)))));
   const reasons = rows.map(stopsPaying);
   // An open one first: it is the one the person can do something about (their bank can withdraw it).
-  return reasons.includes("open") ? STOPPED_WHILE_OPEN : reasons.includes("lost") ? STOPPED_AFTER_LOSS : null;
+  const why = reasons.includes("open") ? STOPPED_WHILE_OPEN : reasons.includes("lost") ? STOPPED_AFTER_LOSS : null;
+  return why && options.forApp ? STOPPED_IN_APP : why;
 }
 
 /**

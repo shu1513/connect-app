@@ -13,6 +13,7 @@ import { photosForHost } from "@/lib/profiles/photo";
 import { averagesFor } from "@/lib/ratings/ratings";
 import { averageText } from "@/lib/ratings/rules";
 import { verifiedAmong } from "@/lib/safety/identity";
+import { mayActWith } from "@/lib/safety/may-act";
 import { isAvailableNow, NOW } from "./now-rules";
 import { EMAILS, followEmailsOn } from "@/lib/follows/rules";
 
@@ -96,12 +97,20 @@ export async function stillHere(hostId: string, now: Date): Promise<Availability
 /** What the host's live page shows: their availability and the instant requests waiting for them. */
 export async function liveForHost(hostId: string, now: Date) {
   const [calendar] = await db.select().from(schema.hostCalendars).where(eq(schema.hostCalendars.userId, hostId));
-  const waiting = await db
+  const rows = await db
     .select({ booking: schema.bookings, customerName: schema.user.name })
     .from(schema.bookings)
     .innerJoin(schema.user, eq(schema.user.id, schema.bookings.customerId))
     .where(and(eq(schema.bookings.hostId, hostId), eq(schema.bookings.source, "now"), eq(schema.bookings.stage, "waiting")))
     .orderBy(asc(schema.bookings.requestedAt));
+  // As on the list of booked requests (`waitingForHost`): a request whose two people may no longer act (an account
+  // closed or paused, or a block between them) is not shown, as if the tidying-up had already run. Asked before
+  // anything about a customer is gathered (plans/45-phone-apps/09a, decision 6).
+  const may = await mayActWith(
+    hostId,
+    rows.map(({ booking }) => booking.customerId),
+  );
+  const waiting = rows.filter(({ booking }) => may.has(booking.customerId));
   // How other hosts have rated these customers (at most a handful of requests wait at once): one indexed question.
   const customers = [...new Set(waiting.map(({ booking }) => booking.customerId))];
   const ratings = await averagesFor(customers, "customer", now);

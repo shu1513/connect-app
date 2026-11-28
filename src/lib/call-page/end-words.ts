@@ -99,8 +99,16 @@ export const END_WORDS = {
   reportLowers: (name: string, partly: boolean) =>
     partly ? `If you report ${name}, what has not been charged yet for this call is charged only for the time it lasted.` : `If you report ${name}, this call is charged only for the time it lasted.`,
   reportDoesNotLower: `A report does not change what this call is charged: ${SEVERAL}.`,
-  blockWhat: (name: string) =>
-    `${name} can no longer ask you for calls or write to you. Your other calls with ${name} that are still to come are cancelled at no charge, and any membership or monthly contribution between you ends. ${name} is told that those have ended, never that you blocked them.`,
+  /**
+   * What blocking ends between the two, said before it is done. One function for the website's sentence and for the
+   * phone app's, so that the two cannot drift apart (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 2).
+   * `forApp`: the app's sentence. It never names a contribution (projects are not in the apps), and names a
+   * membership only while memberships are on for the apps.
+   */
+  blockWhat: (name: string, forApp?: { memberships: boolean }) => {
+    const also = !forApp ? ", and any membership or monthly contribution between you ends" : forApp.memberships ? ", and any membership between you ends" : "";
+    return `${name} can no longer ask you for calls or write to you. Your other calls with ${name} that are still to come are cancelled at no charge${also}. ${name} is told that those have ended, never that you blocked them.`;
+  },
   /** The block stands. Nothing more is claimed: whether every call still to come was cancelled is said when the block is made. */
   blocked: (name: string) => `You have blocked ${name}.`,
   blockAgain: (name: string) => `Block ${name} again`,
