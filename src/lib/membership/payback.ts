@@ -173,6 +173,10 @@ export async function runPayBacks(now: Date): Promise<void> {
         or(isNull(lines.lastFailedAt), lte(lines.lastFailedAt, new Date(now.getTime() - RETRY_AFTER_REFUSAL_MS))),
         notInArray(schema.membershipMonths.dispute, ["open", "lost"]),
         inArray(schema.membershipMonths.status, ["running", "closed"]),
+        // A month with an action under way cannot start a pay-back now (sendPayBack is refused under the lock), so
+        // its lines never fill the batch and keep a pay-back of another month waiting. A try can stay unanswered
+        // for up to a day (recover.ts).
+        sql`not exists (select 1 from ${schema.moneyOperations} where ${schema.moneyOperations.monthId} = ${schema.membershipMonths.id} and ${schema.moneyOperations.status} = 'started')`,
       ),
     )
     .orderBy(lines.createdAt)
