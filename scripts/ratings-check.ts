@@ -66,6 +66,12 @@ async function main() {
     customer?: [number, number] | null;
     cancelled?: boolean;
     safetyEnded?: boolean;
+    /** Ended with "End call now" by this person, 5 minutes after the start (with `safetyEnded` unset, that mark is set too). */
+    endedNow?: "host" | "customer";
+    /** How many seconds after the start the button was pressed (300 unless said). */
+    pressedAt?: number;
+    /** The room is written down as closed at the press (as it really is), not a minute after the booked end. */
+    closedAtPress?: boolean;
     closed?: boolean;
   }) {
     const endsAt = new Date(Math.floor((now.getTime() - (input.endedMinutesAgo ?? 10) * MINUTE) / 1000) * 1000);
@@ -78,10 +84,12 @@ async function main() {
         startsAt,
         endsAt,
         roomName: `rate-${randomUUID()}`,
-        closedAt: input.closed === false ? null : new Date(endsAt.getTime() + MINUTE),
+        closedAt: input.closed === false ? null : input.closedAtPress ? new Date(startsAt.getTime() + (input.pressedAt ?? 300) * 1000 + 2000) : new Date(endsAt.getTime() + MINUTE),
         cancelledAt: input.cancelled ? startsAt : null,
         cancelledBy: input.cancelled ? "host" : null,
-        safetyEndedAt: input.safetyEnded ? new Date(startsAt.getTime() + 5 * MINUTE) : null,
+        safetyEndedAt: input.safetyEnded || input.endedNow ? new Date(startsAt.getTime() + (input.pressedAt ?? 300) * 1000) : null,
+        safetyEndedBy: input.endedNow ? (input.endedNow === "host" ? input.hostId : input.customerId) : null,
+        endedNowBy: input.endedNow ?? null,
       })
       .returning();
     calls.push(c.id);
@@ -136,6 +144,27 @@ async function main() {
       const state = async (input: Parameters<typeof call>[0], at = now) => R.ratingStateOf(await call(input), at);
       check("a cancelled call: never", (await state({ hostId: hana.id, customerId: bob.id, cancelled: true })) === "never");
       check("a call ended with End call and report: never", (await state({ hostId: hana.id, customerId: bob.id, safetyEnded: true })) === "never");
+      // "End call now" (plans/51, decision 27): rated like any other call, by both; the tip box stays off.
+      // (Its own host and customer, so that the averages checked further down are not moved.)
+      {
+        const eve = await host("eve", "Eve Ender", `rt${RUN}eve`);
+        const pat = await person("pat");
+        const both = { hostId: eve.id, customerId: pat.id };
+        const endedByHost = await call({ ...both, endedNow: "host", host: [0, 300], customer: [0, 300] });
+        check("a call the host ended with End call now, after 5 minutes together: can be rated", (await R.ratingStateOf(endedByHost, now)) === "open");
+        check("a call the customer ended with End call now: can be rated", (await state({ ...both, endedNow: "customer", host: [0, 300], customer: [0, 300] })) === "open");
+        check("ended after 90 seconds, though both stayed connected for 10 minutes: never (time after the press is not time together)", (await state({ ...both, endedNow: "customer", pressedAt: 90 })) === "never");
+        check("ended with End call now, record not final yet: not yet", (await state({ ...both, endedNow: "host", host: [0, 300], customer: [0, 300], endedMinutesAgo: 1 })) === "not_yet");
+        check("ended early and its room closed at the press, the booked end still 10 minutes away: not yet (the record is final after the booked end)", (await state({ ...both, endedNow: "host", host: [0, 300], customer: [0, 300], closedAtPress: true, endedMinutesAgo: -10 })) === "not_yet");
+        check("it is on the list of calls waiting for his rating", (await R.callsToRate(pat.id, now, 50)).some((c) => c.callId === endedByHost.id));
+        await R.rateCall({ callId: endedByHost.id, raterId: pat.id, stars: 5, now });
+        await R.rateCall({ callId: endedByHost.id, raterId: eve.id, stars: 2, now });
+        check("both of its people rated it", (await db.select().from(schema.ratings).where(eq(schema.ratings.callId, endedByHost.id))).length === 2);
+        const { tipFacts, tipAfterCall } = await import("../src/lib/contributions/tips");
+        const { whyNoTip } = await import("../src/lib/contributions/tip-rules");
+        check("but he is never asked for a tip, even after 5 stars: the rule refuses it for the call itself, and the results page shows no box", whyNoTip(await tipFacts(db, pat.id, endedByHost, now)) === "call" && (await tipAfterCall({ viewerId: pat.id, role: "customer", call: endedByHost, now })).ask === false);
+        check("a call ended with the old button (End call and report): still never", (await state({ ...both, safetyEnded: true, host: [0, 300], customer: [0, 300] })) === "never");
+      }
       check("a call from the admin test page: never", (await state({ hostId: hana.id, customerId: bob.id, source: "admin" })) === "never");
       check("a call only the host joined: never", (await state({ hostId: hana.id, customerId: bob.id, customer: null })) === "never");
       check("a call where the two were never in at the same moment: never", (await state({ hostId: hana.id, customerId: bob.id, host: [0, 300], customer: [400, 900] })) === "never");

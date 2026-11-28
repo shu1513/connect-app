@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import { readNotice } from "@/lib/notice";
 import { photoStates } from "@/lib/profiles/photo";
 import { unansweredRequests } from "@/lib/refunds/requests";
+import { reportedBackWords } from "@/lib/safety/report-words";
 import { openReports, REPORT_REASONS } from "@/lib/safety/reports";
 import { switches } from "@/lib/safety/switches";
 import { RULES } from "@/lib/terms";
@@ -125,7 +126,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         <p className="mt-3 text-sm opacity-70">Nothing is open.</p>
       ) : (
         <ul className="mt-3 space-y-6">
-          {reports.map(({ report, reporterName, reported, profile, earlierReports, callsTogether, actions, kept }) => {
+          {reports.map(({ report, reporterName, reported, profile, earlierReports, callsTogether, reportedBack, actions, kept }) => {
             const snapshot = JSON.parse(report.snapshot) as {
               booking?: { id?: string; note?: string } | null;
               call?: { id?: string; safetyEndedAt?: string | null; endedNowBy?: string | null } | null;
@@ -134,6 +135,8 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
               /** The photo the reported person had: on their page when the page was reported (plans/29), or theirs when they were reported from a call or a request (plans/35). */
               photoId?: string | null;
             };
+            // The two have reported each other: said, so the reader knows the story has two sides (plans/51, decision 26).
+            const bothWays = reportedBackWords(reportedBack, { reporter: reporterName, reported: reported?.name ?? "the person reported" });
             return (
               <li key={report.id} className={`rounded border p-4 text-sm ${report.urgent ? "border-red-600" : "border-neutral-400"}`}>
                 <p className="font-medium">
@@ -150,6 +153,11 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
                   <strong>From:</strong> {reporterName}. They have had {callsTogether} {callsTogether === 1 ? "call" : "calls"} together. {earlierReports} earlier{" "}
                   {earlierReports === 1 ? "report" : "reports"} about this person.
                 </p>
+                {bothWays && (
+                  <p className="mt-1 font-medium" data-reported-back>
+                    {bothWays}
+                  </p>
+                )}
                 {report.text && <p className="mt-2 whitespace-pre-line rounded bg-neutral-800/40 p-2">&ldquo;{report.text}&rdquo;</p>}
                 {/* Only THAT messages are kept, and how many. Their words come through the button, whose press is written down first. */}
                 {kept && <KeptMessages reportId={report.id} keptCount={kept.keptCount} olderLeftOut={kept.olderLeftOut} reporterName={reporterName} reportedName={reported?.name ?? "the person reported"} />}

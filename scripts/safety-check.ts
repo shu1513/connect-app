@@ -279,6 +279,23 @@ async function main() {
       check("his report after ending the call himself is written on the call: charged by the minutes, with nothing for the founder to decide", ["minutes", "minutes_uncounted"].includes((await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].endReportEffect ?? "") && (await payment()).needsReview === false);
       await unblock(cust.id, hana.id);
 
+      // Both report each other about the same call (plans/51, decision 26): the founder's list says so on each report.
+      check("with one report only, the founder's list says nothing about a report the other way", (await R.openReports()).find((o) => o.report.id === report.id)?.reportedBack.count === 0);
+      const effectBefore = (await db.select().from(schema.calls).where(eq(schema.calls.id, callId)))[0].endReportEffect;
+      // First from her page of the request, which is another place than his report's: counted, but not "the same".
+      const [itsBooking] = await db.select({ id: schema.bookings.id }).from(schema.bookings).where(eq(schema.bookings.callId, callId));
+      const fromRequest = await R.createReport({ reporterId: hana.id, context: "booking", contextId: itsBooking.id, reason: "other", text: "Check: from the request.", now: new Date() });
+      await unblock(hana.id, cust.id);
+      check("a report the other way from somewhere else is counted, and not called the same call", JSON.stringify((await R.openReports()).find((o) => o.report.id === report.id)?.reportedBack) === JSON.stringify({ count: 1, same: null }));
+      const hers = await R.createReport({ reporterId: hana.id, context: "call", contextId: callId.toUpperCase(), reason: "other", text: "Check: the other side.", now: new Date() });
+      await unblock(hana.id, cust.id);
+      const listed = await R.openReports();
+      const backOf = (ref: number) => JSON.stringify(listed.find((o) => o.report.reference === ref)?.reportedBack);
+      check("when both reported each other from one call, each of the two reports says so (however the call's id was spelt)", backOf(reference) === JSON.stringify({ count: 2, same: "call" }) && backOf(hers.reference) === JSON.stringify({ count: 1, same: "call" }), `${backOf(reference)} ${backOf(hers.reference)}`);
+      check("her report from the request says only that he reported her too, from somewhere else", backOf(fromRequest.reference) === JSON.stringify({ count: 1, same: null }), backOf(fromRequest.reference));
+      const [callAfter] = await db.select().from(schema.calls).where(eq(schema.calls.id, callId));
+      check("and her reports changed nothing about the call's money", callAfter.endReportEffect === effectBefore && effectBefore !== null && (await payment()).needsReview === false);
+
       check("a report about a call you are not on is refused", await refused(R.createReport({ reporterId: (await person("nosy")).id, context: "call", contextId: callId, reason: "other", text: "", now: new Date() })));
       check("an unknown reason is refused", await refused(R.createReport({ reporterId: cust.id, context: "call", contextId: callId, reason: "made-up", text: "", now: new Date() })));
       const hidden = await person("hidden5");
@@ -294,6 +311,7 @@ async function main() {
       check("a warning email names the rule", (await emails("host@test.local", "reminder of the Connect rules")) >= 1);
       const open = await R.openReports();
       check("the founder's list no longer shows it", !open.some((o) => o.report.id === report.id));
+      check("a report that is closed still counts as a report the other way", JSON.stringify(open.find((o) => o.report.reference === hers.reference)?.reportedBack) === JSON.stringify({ count: 1, same: "call" }));
     }
 
     // ----------------------------------------------------------------------

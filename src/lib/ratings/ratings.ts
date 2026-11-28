@@ -30,7 +30,8 @@ export async function ratingStateOf(call: Call, now: Date, reader: Reader = db):
   return rateState({
     source: booking?.source ?? null,
     cancelled: Boolean(call.cancelledAt),
-    safetyEnded: Boolean(call.safetyEndedAt),
+    // Only the earlier button's mark keeps a call from being rated; "End call now" does not (plans/51, decision 27).
+    oldStop: call.safetyEndedAt !== null && call.endedNowBy === null,
     roomClosed: Boolean(call.closedAt),
     record: attendance.result.status,
     togetherSeconds: attendance.result.totals?.togetherSeconds ?? null,
@@ -131,7 +132,8 @@ export async function callsToRate(userId: string, now: Date, limit = 5): Promise
         or(eq(schema.calls.hostId, userId), eq(schema.calls.customerId, userId)),
         inArray(schema.bookings.source, ["customer", "now", "member"]),
         isNull(schema.calls.cancelledAt),
-        isNull(schema.calls.safetyEndedAt),
+        // Not one ended with the earlier button, "End call and report". One ended with "End call now" can be rated.
+        or(isNull(schema.calls.safetyEndedAt), isNotNull(schema.calls.endedNowBy)),
         isNotNull(schema.calls.closedAt),
         lte(schema.calls.endsAt, now),
         // Still inside the time to rate.

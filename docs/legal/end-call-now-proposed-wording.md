@@ -119,3 +119,16 @@ either person") is taken out, and a new section says what happens instead:**
 
 **Section 8.3 keeps its other grounds**, among them a charge "for a call that broke the Community
 Rules", which covers a refund we decide after reading a report.
+
+## 5. Ratings (Terms of Service, the paragraph on ratings)
+
+Added on 27 November 2026 (plan 51, decision 27). The draft says "Cancelled calls, safety-ended
+calls and calls needing attendance review cannot be rated". The app now lets both people rate a
+call that one of them ended with "End call now", under the same rules as any other call (both in
+the call together for at least two minutes, a final record, seven days from the booked end). Only
+a call ended with the old button, "End call and report", stays without ratings, and no such call
+is known outside test data. Proposed:
+
+> Cancelled calls and calls needing attendance review cannot be rated. A call that one of you
+> ended with "End call now" can be rated like any other.
+

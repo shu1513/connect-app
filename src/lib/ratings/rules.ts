@@ -31,8 +31,11 @@ export function rateState(input: {
   /** Where the call came from: "customer" (a request), "now" (a call now), "admin" (a call made by a check script), or null for a call with no booking. */
   source: string | null;
   cancelled: boolean;
-  /** Ended with the call's button ("End call now", or the earlier "End call and report"): a call that was cut short is not asked about in stars. */
-  safetyEnded: boolean;
+  /**
+   * Ended with the earlier button, "End call and report": never rated. A call ended with "End call now" is rated like
+   * any other (plans/51, decision 27): otherwise pressing the button in the last seconds would be a way to never be rated.
+   */
+  oldStop: boolean;
   /** The room is confirmed closed. */
   roomClosed: boolean;
   /** The call's attendance record, as the charge sees it. */
@@ -43,7 +46,7 @@ export function rateState(input: {
   now: Date;
 }): RateState {
   if (input.source !== "customer" && input.source !== "now" && input.source !== "member") return "never";
-  if (input.cancelled || input.safetyEnded) return "never";
+  if (input.cancelled || input.oldStop) return "never";
   if (input.now >= ratingDeadline(input.endsAt)) return "too_late";
   // A record that contradicts itself is never guessed at.
   if (input.record === "needs_review") return "never";
