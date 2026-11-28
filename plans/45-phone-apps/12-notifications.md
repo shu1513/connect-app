@@ -224,7 +224,9 @@ This plan is read against the code once more on the day it is built.
 
 ## Astra's second check (27 November 2026), worked in
 
-1. *A collection can contain a call and still happen only because of a contribution.* Decision
-   2a: only when the calls alone would have caused it.
+1. *A collection can contain a call and still happen only because of a contribution.* First
+   answered with "only when the calls alone would have caused it". **Withdrawn after the
+   fourth check** (see the build plan, "The rule for the apps"): decision 2a now says simply
+   that a collection of nothing but other earnings makes no notification.
 2. *The time for a bank dispute's choice starts when she is asked, and is stored.* Decision 2a.
 3. *"The paused screen with its reason"* said the opposite of part 09a. Decision 2b.

@@ -93,7 +93,7 @@ first: taking the request, locking the account, and deciding what happens to com
    every person sees alike, whatever they have: that deleting cancels no debt and stops no
    bank dispute, that some past payments can still be disputed by a customer's bank, and
    that the full list for her account is in the email she is sent and on the website's
-   page. Nothing on the phone may appear only because of a contribution or a tip.
+   page. Nothing on the phone is about a contribution or a tip.
 4. **Confirming:** with the password (and the two-step code if there is one). An account
    without a password (made with Google) is sent a link that works once and for a short
    time; opening it only shows the same final screen, and the deletion needs a deliberate

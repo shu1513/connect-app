@@ -139,8 +139,8 @@ left, and a host does not have to sign in again to get hers.
    that is plainly coming, the confirmation screen tells **every** host, in the same words,
    that payments made in the past can still be disputed by a customer's bank, and the
    lawyer is asked whether a payout account's closing may wait for that time. The sentence
-   is general on purpose: a count of her own payments could appear only because of a
-   contribution or a tip (part 19, decision 3).
+   is general on purpose: a count of her own payments could be about nothing but contributions or
+   tips (part 19, decision 3).
 10. **A customer's side** *(added 27 November; rewritten after Astra's check)*. A refund or a
     pay-back to a card can be owed and not yet sent, on its way, paid, or stuck: it can fail
     at Stripe, fall back to "owed", be frozen by a bank dispute, or need a person. None of

@@ -357,7 +357,8 @@ part under "Astra's second check".
 **Astra's third check, the same day: "not ready", sixteen points and three smaller.** Twelve
 points of the second check were found answered. One of the sixteen was the builder's own
 slip: an edit of the second round had cut three older decisions out of part 19; they are
-restored word for word. The others: on the earnings screen, how "the calls alone would have
+restored word for word. The others (the first of them withdrawn again by the fourth check, below): on the earnings
+screen, how "the calls alone would have
 caused it" is really asked, and three more ways a hidden collection could show (part 16,
 decision 5); a request that may no longer be acted on leaves the other person's list
 altogether, and two more steps had a weaker gate (part 09a, decision 6); a document

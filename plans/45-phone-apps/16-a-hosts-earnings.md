@@ -170,6 +170,9 @@ This plan is read against the code once more on the day it is built.
 
 ## Astra's second check (27 November 2026): "not ready", worked in
 
+*(This note and the next record steps that the fourth check undid; decision 5 as it stands
+is described in the last note of this file.)*
+
 1. *One call share in a collection does not show why the collection happened.* Decision 5 now
    asks whether the calls alone would have caused it, and says where the exception ends.
 2. *Two summaries still said the opposite of the decisions* ("nothing is sent automatically",
