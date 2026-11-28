@@ -95,13 +95,14 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
       // the line's refund. It is booked as this try's outcome, and nothing is repeated.
       refund = await earlierTryAtStripe(params as PayBackParams);
       if (refund) console.error(`[membership] pay-back ${params.refundId}: Stripe already has refund ${refund.id} of an earlier try, which had been recorded as not made. It is booked, and try ${params.attempt} is not repeated.`);
-      const ofEarlierTry = Boolean(refund);
-      // For this try's own refund, alive at Stripe: if the books do not have it (the try was written down as "not
-      // made" meanwhile, or booked with another refund), nothing is changed and the founders are told.
+      // For a refund this helper holds, alive at Stripe: if the line does not carry it once the try has an outcome
+      // (the try was written down as "not made" meanwhile, or the line was booked with another refund), nothing is
+      // changed and the founders are told.
       const sayIfNotInBooks = (alive: { id: string; status: string | null }) =>
         sayIfRefundNotInBooks({
           operationId: operation.id,
           refund: alive,
+          booked: async () => (await db.select({ stripeRefundId: schema.membershipRefunds.stripeRefundId }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.id, params.refundId)))[0]?.stripeRefundId ?? null,
           about: `a membership's pay-back of ${formatMoney(params.amountCents)} to the member's card (pay-back ${params.refundId}, try ${params.attempt}, month ${monthId})`,
           next: "if this pay-back is still waiting to be sent again, its next try (an hour after the last one failed at the earliest, and not while the charge is disputed) finds this refund at Stripe and counts it instead of sending. If a later try has already been sent, the member may have been paid twice, and Connect does nothing more about it.",
         });
@@ -157,7 +158,7 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
         const found = refund;
         await finishOwnedOperation(operation.id, owner, found.id, (locked, tx) => applyPayBackOutcome(tx, locked, payBack(found.id, outcomeStatus(found.status)), now));
         // (If another helper ended this try meanwhile, the write above changed nothing.)
-        if (!ofEarlierTry) await sayIfNotInBooks(found);
+        await sayIfNotInBooks(found);
       }
     }
     console.log(`[membership] checked unfinished ${operation.kind} on month ${monthId}`);

@@ -7,7 +7,7 @@
  *
  * And, for those two and for a call's refund alike (payments/jobs.ts): how the helper's REPEAT of
  * a refund request leaves (`repeatFromFreshLook`), and what is said when a refund turns out to be
- * alive at Stripe although the books do not have it (`sayIfRefundNotInBooks`). Why both:
+ * alive at Stripe while the books do not have it (`sayIfRefundNotInBooks`). Why both:
  * plans/50-part-1-gifts-owed-back.md, "A helper that stood still".
  */
 import { eq, sql } from "drizzle-orm";
@@ -113,18 +113,27 @@ function lockNotGiven(error: unknown): boolean {
  * What is left open after that is the instant between reading the clock and the request leaving, and the library's
  * own second sending. No check of ours can come after our last check; `sayIfRefundNotInBooks` is for that.
  */
-export async function repeatFromFreshLook<T>(operationId: string, mayRepeat: () => boolean, send: (how: typeof REPEAT_HOW) => Promise<T>): Promise<Repeated<T>> {
-  const began = Date.now();
-  let seen: { status: string } | undefined;
+/**
+ * The look at a try: its row as it stands once anybody who was writing its outcome has saved it. Waits LOOK_WAITS_MS
+ * at most; `"row_held"` when the row was not let go in that time.
+ */
+async function lookAtTry(operationId: string): Promise<{ status: string; label: string } | undefined | "row_held"> {
   try {
-    [seen] = await db.transaction(async (tx) => {
+    const [seen] = await db.transaction(async (tx) => {
       await tx.execute(sql.raw(`set local lock_timeout = ${LOOK_WAITS_MS}`));
-      return tx.select({ status: schema.moneyOperations.status }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operationId)).for("share");
+      return tx.select({ status: schema.moneyOperations.status, label: schema.moneyOperations.label }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operationId)).for("share");
     });
+    return seen;
   } catch (error) {
-    if (lockNotGiven(error)) return { sent: false, why: "row_held" };
+    if (lockNotGiven(error)) return "row_held";
     throw error;
   }
+}
+
+export async function repeatFromFreshLook<T>(operationId: string, mayRepeat: () => boolean, send: (how: typeof REPEAT_HOW) => Promise<T>): Promise<Repeated<T>> {
+  const began = Date.now();
+  const seen = await lookAtTry(operationId);
+  if (seen === "row_held") return { sent: false, why: "row_held" };
   if (seen?.status !== "started") return { sent: false, why: "ended" };
   if (Date.now() - began > LOOK_GOOD_FOR_MS) return { sent: false, why: "stood_still" };
   if (!mayRepeat()) return { sent: false, why: "too_late" };
@@ -134,34 +143,47 @@ export async function repeatFromFreshLook<T>(operationId: string, mayRepeat: () 
 const over = (status: string | null) => status === "failed" || status === "canceled";
 
 /**
- * Said out loud, once, when a helper holds a refund that is alive at Stripe and the books do not have it: its try
- * was meanwhile written down as "not made", or was booked with ANOTHER refund (an earlier try's, found on Stripe's
- * list). The helper's own late write was thrown away, rightly: an outcome is never overwritten. The books and Stripe
- * then disagree, and the money may have been paid twice. Nothing is changed here: the error log names it and every
- * founder gets one email. `about` says which money; `next` what Connect does about it by itself, if anything.
+ * Said out loud, once, when a helper holds a refund that is alive at Stripe and the books do not have it.
  *
- * The refund is asked about once more by its own number first: one that has failed at Stripe since the helper saw it
- * is no disagreement (the other helper saw the newer answer). If Stripe cannot be asked just then, it is said all the
- * same, with the last status seen. Never throws: the helper's pass goes on. (If the database cannot be read or
- * written at that moment, only the error log has it: the try is not looked at again.)
+ * A helper calls this for the refund it holds after its try has an outcome (its own write, or somebody else's, in
+ * which case its own was thrown away, rightly: an outcome is never overwritten). `booked` gives Stripe's number of
+ * the refund the books hold for this money NOW (the line's, or the call refund's), or null when they hold none. If
+ * that is this refund, all is well, whoever booked it and under whichever try. If it is not, the books and Stripe
+ * disagree: the try was written down as "not made" although Stripe made the refund, or the money was booked with
+ * another refund while this one was made as well. The money may have been paid twice. Nothing is changed here: the
+ * error log names it and every founder gets one email per refund. `about` says which money; `next` what Connect
+ * does about it by itself, if anything.
+ *
+ * Three looks come first, in this order:
+ *   - the try itself, waiting (as the look before a repeat does) for anybody who is writing its outcome down. A try
+ *     that is still open says nothing: whoever ends it books this refund or finds it;
+ *   - the books, through `booked`;
+ *   - Stripe, about the refund by its number: one that has failed since the helper saw it is no disagreement. If
+ *     Stripe cannot be asked just then, it is said all the same, with the last answer received.
+ * Never throws: the helper's pass goes on. (If the database cannot be read or written at that moment, only the error
+ * log has it: a try that has an outcome is not looked at again.)
  */
-export async function sayIfRefundNotInBooks(found: { operationId: string; refund: { id: string; status: string | null }; about: string; next: string }): Promise<void> {
+export async function sayIfRefundNotInBooks(found: { operationId: string; refund: { id: string; status: string | null }; booked: () => Promise<string | null>; about: string; next: string }): Promise<void> {
   try {
     if (over(found.refund.status)) return;
-    const [action] = await db.select({ status: schema.moneyOperations.status, label: schema.moneyOperations.label, stripeId: schema.moneyOperations.stripeId }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, found.operationId));
-    const notMade = action?.status === "failed";
-    const another = action?.status === "succeeded" && action.stripeId !== null && action.stripeId !== found.refund.id;
-    if (!action || (!notMade && !another)) return;
+    const action = await lookAtTry(found.operationId);
+    if (action === "row_held") {
+      console.error(`[payments] ${found.about}: Stripe has refund ${found.refund.id}, and whether the books have it could not be found out (somebody held the request's row for too long). Compare this payment's refunds at Stripe with the app's.`);
+      return;
+    }
+    if (!action || action.status === "started") return;
+    const booked = await found.booked();
+    if (booked === found.refund.id) return;
     let shows: string;
     try {
       const now = await stripe().refunds.retrieve(found.refund.id);
       if (over(now.status)) return;
       shows = now.status === "succeeded" ? "paid" : `not finished yet ("${now.status}")`;
     } catch {
-      shows = `"${found.refund.status}" a moment ago; Stripe could not be asked again just now`;
+      shows = `could not be checked just now. The last answer Connect received said "${found.refund.status}"`;
     }
-    const inBooks = notMade ? "is written down as not made" : `is booked with another refund, ${action.stripeId}`;
-    console.error(`[payments] ${found.about}: Stripe has refund ${found.refund.id} (${shows}) for the request "${action.label}", which ${inBooks}. Nothing was changed. Compare this payment's refunds at Stripe with the app's.`);
+    const have = booked ? `another refund for this money, ${booked}` : "no refund for this money";
+    console.error(`[payments] ${found.about}: Stripe has refund ${found.refund.id} (${shows}), made for the request "${action.label}", and the books have ${have}. Nothing was changed. Compare this payment's refunds at Stripe with the app's.`);
     await db.transaction(async (tx) => {
       const admins = await tx.select({ id: schema.user.id, email: schema.user.email }).from(schema.admins).innerJoin(schema.user, eq(schema.user.id, schema.admins.userId));
       for (const admin of admins) {
@@ -169,19 +191,20 @@ export async function sayIfRefundNotInBooks(found: { operationId: string; refund
           to: admin.email,
           subject: "A refund may have been paid twice: please look",
           text: [
-            notMade ? "Stripe has made a refund that Connect had written down as not made." : `Stripe has made a refund for a request that Connect has booked with another refund (${action.stripeId}).`,
+            "Stripe has made a refund that Connect's books do not have.",
             "",
             `Which money: ${found.about}.`,
             `Stripe's number for the refund: ${found.refund.id}`,
             `What Stripe shows for it: ${shows}.`,
+            `What Connect's books have: ${have}.`,
             "",
             "How this can happen: one of Connect's helpers stood still for a long time (a frozen or sleeping machine) and its old request reached Stripe after Connect had already moved on.",
             "",
             `What Connect does by itself: ${found.next}`,
             "",
-            "What to do: open this payment in Stripe and compare the refunds listed there with what Connect shows for it. If the customer got the same money twice, the second amount came out of Connect's balance and Connect's books do not show it.",
+            "What to do: open this payment in Stripe and compare the refunds listed there with what Connect shows for it. If two refunds for the same money both stay paid, the customer got it twice: the second amount came out of Connect's balance and Connect's books do not show it.",
           ].join("\n"),
-          key: `refund-not-in-books:${found.operationId}:${admin.id}`,
+          key: `refund-not-in-books:${found.refund.id}:${admin.id}`,
         });
       }
     });

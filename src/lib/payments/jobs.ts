@@ -230,12 +230,13 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
         // was picked up here (it found the refund, or a clear "no"). Then nothing is sent from this older look.
         const [stillOpen] = await db.select({ status: schema.moneyOperations.status }).from(schema.moneyOperations).where(eq(schema.moneyOperations.id, operation.id));
         if (stillOpen?.status !== "started") continue;
-        // For this refund, alive at Stripe: if the books do not have it (the action was written down as "not made"
-        // meanwhile), nothing is changed and the founders are told.
+        // For this refund, alive at Stripe: if its line does not carry it once the action has an outcome (the
+        // action was written down as "not made" meanwhile), nothing is changed and the founders are told.
         const sayIfNotInBooks = (alive: { id: string; status: string | null }) =>
           sayIfRefundNotInBooks({
             operationId: operation.id,
             refund: alive,
+            booked: async () => (await db.select({ stripeRefundId: schema.refunds.stripeRefundId }).from(schema.refunds).where(eq(schema.refunds.id, params.refundId)))[0]?.stripeRefundId ?? null,
             about: `a call's refund of ${formatMoney(params.amountCents)} to the customer's card (refund ${params.refundId}, payment ${payment.id})`,
             next: "nothing. Connect shows this refund as failed, and the host's share was not lowered for it. Do not refund the same amount again before you have looked.",
           });

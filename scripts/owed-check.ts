@@ -1058,13 +1058,13 @@ async function main() {
       // down while a helper looks. Each time it first makes sure that the helper really is waiting at that look.)
       const { LOOK_GOOD_FOR_MS, LOOK_WAITS_MS, sayIfRefundNotInBooks } = await import("../src/lib/payments/refund-tries");
       type Step = Parameters<Parameters<typeof db.transaction>[0]>[0];
-      /** Takes the action's own row inside `tx`, and gives back a way to wait until somebody else is waiting for what this step holds. */
+      /** Takes the action's own row inside `tx`, and gives back a way to wait until somebody's look (`for share`) is waiting for what this step holds. */
       async function hold(tx: Step, operationId: string) {
         await tx.select({ id: ops.id }).from(ops).where(eq(ops.id, operationId)).for("update");
         const [{ pid }] = (await tx.execute(sql`select pg_backend_pid() as pid`)) as unknown as { pid: number }[];
         return async () => {
           for (let tries = 0; tries < 100; tries++) {
-            const [{ n }] = (await db.execute(sql`select count(*)::int as n from pg_stat_activity a where a.wait_event_type = 'Lock' and ${pid} = any(pg_blocking_pids(a.pid))`)) as unknown as { n: number }[];
+            const [{ n }] = (await db.execute(sql`select count(*)::int as n from pg_stat_activity a where a.wait_event_type = 'Lock' and a.query ilike '%for share%' and ${pid} = any(pg_blocking_pids(a.pid))`)) as unknown as { n: number }[];
             if (n > 0) return true;
             await pause(100);
           }
@@ -1074,8 +1074,9 @@ async function main() {
       const ops = schema.moneyOperations;
       const stripeRefunds = stripe().refunds;
       const opOf = async (id: string) => (await db.select().from(ops).where(eq(ops.id, id)))[0];
-      const toldAbout = (operationId: string) => db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-not-in-books:${operationId}:%`));
-      const eachAdminOnce = (mails: Awaited<ReturnType<typeof toldAbout>>) => admins.length > 0 && mails.length === admins.length && admins.every((one) => mails.filter((mail) => mail.to === one.email).length === 1);
+      /** The founders' emails about one refund at Stripe that the books do not have. */
+      const mailsFor = (stripeRefundId: string) => db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-not-in-books:${stripeRefundId}:%`));
+      const eachAdminOnce = (mails: Awaited<ReturnType<typeof mailsFor>>) => admins.length > 0 && mails.length === admins.length && admins.every((one) => mails.filter((mail) => mail.to === one.email).length === 1);
       type Sent = { label: string; timeout?: number; maxNetworkRetries?: number };
       /** Every request to MAKE a refund that left for Stripe during `work`, with how it was sent. `before` runs first, in the instant before each one goes through. */
       async function sentDuring(work: () => Promise<unknown>, before?: () => Promise<unknown>): Promise<Sent[]> {
@@ -1143,29 +1144,32 @@ async function main() {
         await notMade(tx, t.started.operationId, t.id);
       });
       await helperT;
-      check("a helper whose last look meets another helper writing \"not made\" waits for that, sees it, and sends nothing: the customer gets nothing for a refund the app calls failed", waitedT && sentT.length === 0 && (await opOf(t.started.operationId)).status === "failed" && (await refundRow(t.id)).status === "failed" && (await atStripe(t.id)).length === 0 && (await reload(paidR.payment.id)).refundedCents === 100 && (await toldAbout(t.started.operationId)).length === 0, JSON.stringify(sentT));
+      check("a helper whose last look meets another helper writing \"not made\" waits for that, sees it, and sends nothing: the customer gets nothing for a refund the app calls failed", waitedT && sentT.length === 0 && (await opOf(t.started.operationId)).status === "failed" && (await refundRow(t.id)).status === "failed" && (await atStripe(t.id)).length === 0 && (await reload(paidR.payment.id)).refundedCents === 100, JSON.stringify(sentT));
 
       // What no look can reach: "not made" is written in the instant after the helper's last look and before its
       // request arrives. Stripe pays it. Nothing is overwritten, and it is said out loud.
       const u = await unanswered(30);
       const sentU = await sentDuring(() => look(u.started.operationId), () => db.transaction(async (tx) => (await lockPayment(tx, paidR.payment.id), notMade(tx, u.started.operationId, u.id))));
       const paidU = await atStripe(u.id);
-      let mailsU = await toldAbout(u.started.operationId);
-      check("a refund that Stripe pays although it was written down as \"not made\" changes nothing in the books, and each admin gets one email with the refund, Stripe's number for it, and that Stripe shows it as paid", sentU.length === 1 && paidU.length === 1 && paidU[0].status === "succeeded" && (await opOf(u.started.operationId)).status === "failed" && (await refundRow(u.id)).status === "failed" && (await reload(paidR.payment.id)).refundedCents === 100 && eachAdminOnce(mailsU) && mailsU.every((mail) => mail.body.includes(paidU[0].id) && mail.body.includes(u.id) && mail.body.includes("written down as not made") && mail.body.includes("What Stripe shows for it: paid.") && mail.body.includes("Do not refund the same amount again")), `${paidU.length} at Stripe, ${mailsU.length} emails for ${admins.length} admins`);
-      const sayAgain = (operationId: string) => sayIfRefundNotInBooks({ operationId, refund: paidU[0], about: "the check script's own second look", next: "nothing." });
-      await sayAgain(u.started.operationId);
-      mailsU = await toldAbout(u.started.operationId);
-      check("seen a second time, it is not said a second time", eachAdminOnce(mailsU));
-      // A refund that has failed at Stripe since the helper saw it is no disagreement: the other helper saw the newer answer.
+      let mailsU = await mailsFor(paidU[0]?.id ?? "none");
+      check("a refund that Stripe pays although it was written down as \"not made\" changes nothing in the books, and each admin gets one email: the refund, Stripe's number for it, that Stripe shows it as paid, that the books have no refund for it, and not to refund it again before looking", sentU.length === 1 && paidU.length === 1 && paidU[0].status === "succeeded" && (await opOf(u.started.operationId)).status === "failed" && (await refundRow(u.id)).status === "failed" && (await reload(paidR.payment.id)).refundedCents === 100 && eachAdminOnce(mailsU) && mailsU.every((mail) => mail.body.includes(paidU[0].id) && mail.body.includes(u.id) && mail.body.includes("What Stripe shows for it: paid.") && mail.body.includes("What Connect's books have: no refund for this money.") && mail.body.includes("Do not refund the same amount again")), `${paidU.length} at Stripe, ${mailsU.length} emails for ${admins.length} admins`);
+      await sayIfRefundNotInBooks({ operationId: u.started.operationId, refund: paidU[0], booked: async () => (await refundRow(u.id)).stripeRefundId, about: "the check script's own second sighting", next: "nothing." });
+      mailsU = await mailsFor(paidU[0].id);
+      check("seen a second time, it is not said a second time", eachAdminOnce(mailsU) && mailsU.every((mail) => !mail.body.includes("second sighting")));
+      // The same instant, but the refund fails at Stripe right after the helper has seen it alive: the second helper
+      // was right, and nothing is said. (Stripe really paid it; the script says "failed" when it is asked about a second time.)
+      const v = await unanswered(20);
+      let askedV = 0;
       const realRetrieve = stripeRefunds.retrieve;
-      stripeRefunds.retrieve = ((...args: unknown[]) => (args[0] === paidU[0].id ? Promise.resolve({ ...paidU[0], status: "failed" }) : Reflect.apply(realRetrieve, stripeRefunds, args))) as unknown as typeof stripeRefunds.retrieve;
+      stripeRefunds.retrieve = ((...args: unknown[]) => (askedV++ === 0 ? Reflect.apply(realRetrieve, stripeRefunds, args) : Promise.resolve({ id: args[0], status: "failed" }))) as unknown as typeof stripeRefunds.retrieve;
       try {
-        await sayAgain(t.started.operationId);
+        await sentDuring(() => look(v.started.operationId), () => db.transaction(async (tx) => (await lockPayment(tx, paidR.payment.id), notMade(tx, v.started.operationId, v.id))));
       } finally {
         stripeRefunds.retrieve = realRetrieve;
       }
-      check("a refund that has failed at Stripe since it was seen is not said", (await opOf(t.started.operationId)).status === "failed" && (await toldAbout(t.started.operationId)).length === 0);
-      await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-not-in-books:${u.started.operationId}:%`));
+      const paidV = await atStripe(v.id);
+      check("before anything is said, Stripe is asked about the refund once more: one that has failed since is no disagreement, and no email is written", askedV === 2 && paidV.length === 1 && (await opOf(v.started.operationId)).status === "failed" && (await refundRow(v.id)).status === "failed" && (await mailsFor(paidV[0]?.id ?? "none")).length === 0, `asked ${askedV} times, ${paidV.length} at Stripe`);
+      await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `refund-not-in-books:${paidU[0].id}:%`));
     }
   } finally {
     // What THIS run made, by the exact ids: what is left of the shares it sent is taken back, the messages, emails and

@@ -123,13 +123,14 @@ export async function recoverContributionOperation(operation: typeof schema.mone
       // the line's refund. It is booked as this try's outcome, and nothing is repeated.
       refund = await earlierTryAtStripe(params as RefundParams);
       if (refund) console.error(`[contributions] refund ${params.refundId}: Stripe already has refund ${refund.id} of an earlier try, which had been recorded as not made. It is booked, and try ${params.attempt} is not repeated.`);
-      const ofEarlierTry = Boolean(refund);
-      // For this try's own refund, alive at Stripe: if the books do not have it (the try was written down as "not
-      // made" meanwhile, or booked with another refund), nothing is changed and the founders are told.
+      // For a refund this helper holds, alive at Stripe: if the line does not carry it once the try has an outcome
+      // (the try was written down as "not made" meanwhile, or the line was booked with another refund), nothing is
+      // changed and the founders are told.
       const sayIfNotInBooks = (alive: { id: string; status: string | null }) =>
         sayIfRefundNotInBooks({
           operationId: operation.id,
           refund: alive,
+          booked: async () => (await db.select({ stripeRefundId: tables.contributionRefunds.stripeRefundId }).from(tables.contributionRefunds).where(eq(tables.contributionRefunds.id, params.refundId)))[0]?.stripeRefundId ?? null,
           about: `a tip's or a contribution's refund of ${formatMoney(params.amountCents)} to the contributor's card (refund ${params.refundId}, try ${params.attempt}, contribution payment ${paymentId})`,
           next: "if this refund is still waiting to be sent again, its next try (an hour after the last one failed at the earliest, and not while the charge is disputed) finds this refund at Stripe and counts it instead of sending. If a later try has already been sent, the contributor may have been paid twice, and Connect does nothing more about it.",
         });
@@ -185,7 +186,7 @@ export async function recoverContributionOperation(operation: typeof schema.mone
         const found = refund;
         await finishOwnedOperation(operation.id, owner, found.id, (locked, tx) => applyRefundOutcome(tx, locked, refunded(found.id, outcomeStatus(found.status)), now));
         // (If another helper ended this try meanwhile, the write above changed nothing.)
-        if (!ofEarlierTry) await sayIfNotInBooks(found);
+        await sayIfNotInBooks(found);
       }
     }
     console.log(`[contributions] checked unfinished ${operation.kind} on contribution payment ${paymentId}`);
