@@ -91,7 +91,7 @@ You asked for every feature. These are the differences that remain:
   the host's choice ("Fight it" or "Give the money back", in at most 24 hours), and the messages
   "From Connect". The phone says "Connect has written to you." for a few kinds of them (part 12,
   decision 2a; the founder said yes to it on 27 November). The founder decided on 27 November that a bank dispute gets its own page in the apps
-  (part 16c, whose plan is still to be written); until it is built, this stays so. Also the yearly
+  (part 16c); until it is built, this stays so. Also the yearly
   statement, whole (on the website it can be printed and taken as a file), and everything
   about money owed back for a contribution or a tip.
 - **Not in this build:** signing in with Google (on iPhone it would have to come with a second

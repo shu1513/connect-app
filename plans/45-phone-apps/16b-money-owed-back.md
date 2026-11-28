@@ -174,7 +174,7 @@ a project may appear.
   when the bank's deadline is near) to choose "Fight it" or "Give the money back" (plan 47),
   and that choice is on the website only. It is more urgent than
   anything here, and bigger. Proposed as a part of its own (16c). **The founder decided on
-  27 November 2026: yes.** Its plan is written before it is built.
+  27 November 2026: yes.** It is part 16c.
 - **The Messages screen** in the apps (plan 49 says "phone apps later").
 - **Someone who is no longer a host** has no earnings screen in the app. They have the email
   and the website.
