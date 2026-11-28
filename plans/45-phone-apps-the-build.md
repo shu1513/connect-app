@@ -143,7 +143,8 @@ afterwards.
     and the apps together.
 
 13. **Not built now:** the iPhone build itself (waits for the Mac's upgrade), the store listings
-    and reviews (wait for the accounts), tablets, Google or Apple sign-in, messaging.
+    and reviews (wait for the accounts), tablets, Google or Apple sign-in. (Messaging was on
+    this list until the website got it, plan 49; it is now part 17b.)
 
 ## The parts
 
@@ -176,14 +177,16 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 | 16 | A host's earnings | "Collect earnings" |
 | 16b | Money a host owes back (added 26 November, after plan 46 part 3a) | The list, one amount's screen, "I think this is wrong" |
 | 17 | Contacts, invitations, the Following page | The rest of both roles' lists |
+| 17b | Messages between a host and a customer (added 27 November, after plan 49) | Two people write to each other, one on a phone |
 | 18 | The account page, blocking, the legal pages, paused accounts | Settings |
 | 19 | Deleting your own account: the request, the lock, coming calls | Built, but shown to nobody yet |
 | 19b | Deleting your own account: settling the money | A host's last earnings reach her |
 | 19c | Deleting your own account: the wiping | The button can be switched on |
 | 20 | The whole journey, and getting ready for the iPhone build and the stores | One walk through everything |
 
-Twenty-nine parts (13c and 16b were added later, by the builder of plan 46, and are not yet
-checked by Astra). Order: 01 to 03 first, because everything stands on them. Then the
+Thirty parts (13c and 16b were added later, by the builder of plan 46, and are not yet
+checked by Astra; 17b was added on 27 November by the builder of plan 49, and needs only
+parts 01 to 09). Order: 01 to 03 first, because everything stands on them. Then the
 customer's journey to a finished call (04 to 10b), then the rest. Part 11 comes before part
 12 and works without it (in the app, "available now" then follows the website's rule); the
 locked-phone rule comes alive only when part 12 is switched on. A part can be merged while
