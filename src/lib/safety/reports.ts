@@ -221,7 +221,10 @@ export async function openReports() {
       .select({ context: schema.reports.context, contextId: schema.reports.contextId })
       .from(schema.reports)
       .where(and(eq(schema.reports.reporterId, report.reportedId), eq(schema.reports.reportedId, report.reporterId)));
-    const reportedBack: ReportedBack = { count: back.length, sameCall: report.context === "call" && back.some((other) => other.context === "call" && other.contextId === report.contextId) };
+    // "The same": made from the same call, or the same request. (An id is kept as it was sent, so its spelling is not compared.)
+    const place = report.context === "call" ? "call" : report.context === "booking" ? "request" : null;
+    const sameAsThis = place !== null && back.some((other) => other.context === report.context && other.contextId.toLowerCase() === report.contextId.toLowerCase());
+    const reportedBack: ReportedBack = { count: back.length, same: sameAsThis ? place : null };
     const actions = await db.select().from(schema.adminActions).where(eq(schema.adminActions.targetUserId, report.reportedId)).orderBy(desc(schema.adminActions.createdAt)).limit(10);
     out.push({ report, reporterName, reported: reported ?? null, profile: profile ?? null, earlierReports: earlier, callsTogether: together, reportedBack, actions, kept: kept.get(report.id) ?? null });
   }

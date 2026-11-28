@@ -81,8 +81,11 @@ export const REPORT_WORDS = {
   wrong: "Something went wrong. Please try again.",
 } as const;
 
-/** Reports the other way round: how many the reported person has made about the reporter, and whether one is from the same call. */
-export type ReportedBack = { count: number; sameCall: boolean };
+/**
+ * Reports the other way round: how many the reported person has made about the reporter, and whether one of
+ * them was made from the same call or the same request as this report.
+ */
+export type ReportedBack = { count: number; same: "call" | "request" | null };
 
 /**
  * What the founder's list says when the two have reported each other (plans/51, decision 26), or
@@ -91,8 +94,9 @@ export type ReportedBack = { count: number; sameCall: boolean };
  */
 export function reportedBackWords(back: ReportedBack, names: { reporter: string; reported: string }): string | null {
   if (back.count <= 0) return null;
-  const others = back.count - (back.sameCall ? 1 : 0);
-  const more = others === 0 ? "" : ` ${names.reported} has made ${others} other ${others === 1 ? "report" : "reports"} about ${names.reporter}.`;
-  if (back.sameCall) return `Both reported each other about this call: ${names.reported} has also reported ${names.reporter}.${more}`;
-  return `Both have reported each other: ${names.reported} has made ${back.count} ${back.count === 1 ? "report" : "reports"} about ${names.reporter}, about something else than this.`;
+  const reports = (n: number) => (n === 1 ? "report" : "reports");
+  if (back.same === null) return `Both have reported each other: ${names.reported} has made ${back.count} ${reports(back.count)} about ${names.reporter}, from somewhere else than this report.`;
+  const others = back.count - 1;
+  const more = others === 0 ? "" : ` ${names.reported} has made ${others} other ${reports(others)} about ${names.reporter}.`;
+  return `Both reported each other from this ${back.same}: ${names.reported} has also reported ${names.reporter}.${more}`;
 }

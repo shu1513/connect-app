@@ -6075,3 +6075,64 @@ connection. The helper taking the money a real day later (the scripts move the c
 describe the old button, and wait for the lawyer's words (`docs/legal/end-call-now-proposed-wording.md`,
 `docs/for-the-lawyer.md` section 25). The app and its helper must be put out together: an older
 helper would charge a call that a customer ended by the minutes.
+
+### After the merge: the other person's screen, ratings, and both reporting each other (27 November 2026)
+
+Three points that came out of the try with two people and of the founder's questions about it
+(`plans/51-end-call-now.md`, decisions 25 to 27).
+
+- **The person who did not press now lands on "Report", "Block", "Neither" by itself**, on the
+  website and in the phone app. Before, only the presser's screen went there; the other person
+  saw "This call has ended." and a link named "See the results". The screen goes on once the
+  server says the call was ended for both, and only for someone who has been in the call on
+  that screen (`src/app/calls/[id]/call-room.tsx`, `mobile/src/app/room/[id].tsx`). Someone
+  still at the camera check keeps a link, now named "See what you can do now".
+- **Both people can rate a call ended with "End call now"**, under the usual rules (2 minutes
+  together inside the booked time, a final record, 7 days). Before, neither could, which made
+  the button a way to never be rated. The rating opens a few minutes after the BOOKED end, not
+  after the press: the call's record is final only then, and the charge reads the same record.
+  The page with the three choices says so. The tip box, the project box and the automatic
+  follow stay off; the tip box used to follow the rating's state and now has its own line
+  (`src/lib/ratings/rules.ts`, `ratings.ts`, `src/lib/contributions/tips.ts`). A call ended
+  with the old button stays without ratings.
+- **The founder's list of reports says when the two reported each other**: "Both reported each
+  other from this call" (or "this request"), or how many reports the other person has made
+  about the reporter from somewhere else. Open and closed reports count. Nothing follows from
+  it automatically, and the money still goes by who pressed (`openReports` in
+  `src/lib/safety/reports.ts`, `reportedBackWords` in `report-words.ts`).
+
+**Why both people get the choices.** Who pressed says nothing about who behaved badly. A report
+punishes nobody by itself, blocks the two from each other, and changes money in one case only
+(the customer's report after his own press, which has its guard). So a false report gains
+nothing, and hiding the choices from the one who did not press would sometimes hide them from
+the victim.
+
+**Astra's check (Codex, effort high): "not ready", 15 points, 4 of them medium.** Taken: the
+screen could miss going on when its own asking near the end of a call learnt of the press
+before the video service put the person out (now one step that follows the server's answer,
+however it was learnt); a retry after a lost connection could pull someone back who had already
+gone to another page (the step now lives and dies with the call screen); the plan claimed the
+phone app already took the other person on, which was true only for the presser (now built);
+a new check would have moved an average another check relies on (it has its own people now);
+two reports from one request were called "something else"; the id of a call was compared as it
+was spelt; and five checks that would have passed with wrong code were made sharper (time
+after the press is not time together; a room closed at the press does not open the rating
+early; the tip box is asked for itself; a closed report counts; her report changes nothing
+about his charge, compared before and after). Not taken, and why: the call's own page, opened
+later, still leads to the results ("See the details") rather than to the three choices, and
+the plan now says so; a call ended with the old button goes on the same way, and none can be
+made any more; the results page says "you can rate this call a few minutes after its booked
+end" before it is known whether the two were together for 2 minutes, as for every call.
+
+**Checks.** 1,165 automatic tests, lint and types; the phone app's lint, types and 102 tests.
+Against the local database and the running app, after Astra's points were in:
+`ratings-check` (all passed, with 9 new checks), `safety-check` (all passed, with 7 new),
+`end-now-check` and `tip-check` (all passed).
+
+**Tried in two browsers, both in one call.** The host pressed "End call now". Her screen and,
+within a few seconds and with no click, the customer's screen showed the three choices; his
+said "Hana Host ended this call for both of you" and, under the choices, that he can rate her a
+few minutes after the booked end. "Neither" led to the call's page, which said the same about
+rating and showed no tip box. Not tried: the phone app on a phone, and the founder's list in a
+browser (it is covered by `safety-check` and the word tests).
+

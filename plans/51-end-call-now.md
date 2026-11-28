@@ -401,11 +401,18 @@ what's the best way to solve this?", answered with "do what you think is the bes
 rating appears too right for both even one person ends the call right?").
 
 25. **The person who did not press is taken to the three choices too. (builder; the founder: "do
-    what you think is the best")** On the website the person who was in the room when the other
-    pressed "End call now" saw "This call has ended." and a link named "See the results". Now
-    their screen goes to the page with "Report", "Block" and "Neither" by itself, as the
-    presser's does and as the phone app already did. Someone who opens the call's page later
-    still gets a link, now named "See what you can do now".
+    what you think is the best")** The person who was in the room when the other pressed "End
+    call now" saw "This call has ended." and a link named "See the results". Now their screen
+    goes to the page with "Report", "Block" and "Neither" by itself, as the presser's does: on
+    the website and in the phone app (where, too, only the presser's phone went on by itself).
+    It goes on once the server says that the call was ended for both, however the screen
+    learnt it (after being put out of the room, or by its own asking near the end of a call),
+    and only for someone who has been in the call on that screen. Someone who was not (still
+    at the camera check, say) keeps a link on the call screen, now named "See what you can do
+    now". The call's own page, opened later, leads to its results as before ("See the
+    details"), where "Report" and "Block" are too. A call ended with the old button goes the
+    same way (its page of choices has always said what applies to it); no such call can be
+    made any more.
     *Why both, and not only the one who pressed:* who pressed says nothing about who behaved
     badly; the rude one can press first. A report punishes nobody by itself (the team reads it;
     an account is paused only by a person), it blocks the two from each other, and it changes
@@ -413,8 +420,9 @@ rating appears too right for both even one person ends the call right?").
     and hiding the choices from the one who did not press would sometimes hide them from the
     victim.
 26. **When both reported each other, the team's list says so. (builder)** Each open report on
-    `/admin/reports` says when the person it is about has also reported the reporter: "about
-    the same call" when both reports are from one call, otherwise how many. Nothing follows
+    `/admin/reports` says when the person it is about has also reported the reporter: "from
+    this call" (or "this request") when both reports were made from the same one, otherwise
+    how many. Nothing follows
     from it automatically; it tells the reader that the story has two sides. The money goes by
     who pressed, as with one report.
 27. **A call ended with "End call now" can be rated, by both. (the founder's question; the
@@ -659,3 +667,13 @@ press) and 4 (a card step cancelled at Stripe and not yet tidied away).
 
 The security check of the same commit added: a call counts as paid only for what was kept after
 anything given back (16).
+
+## Astra's check of decisions 25 to 27 (27 November 2026): "not ready"
+
+Fifteen points, four of them medium; what was taken and what was not is in
+`docs/module-record.md`, under "After the merge". In short: the step that takes the other person
+on now follows the server's answer however the screen learnt it and ends with the call screen;
+the phone app got the same step (it had it for the presser only); the mark on the founder's
+list knows a request as well as a call and does not depend on how an id was spelt; the checks
+were sharpened. Left as it is: the call's own page, opened later, leads to its results.
+

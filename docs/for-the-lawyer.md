@@ -879,7 +879,7 @@ guard against repeated reports is the builder's choice, which the founder asked 
 - **Both people are led to "Report" and "Block", and each can report the other** (added 27
   November 2026). The person who did not press now lands on the same three choices by itself. If
   both report each other, the founder's list says so on each report ("Both reported each other
-  about this call"), and nothing follows automatically: the money goes by who pressed. Is there
+  from this call"), and nothing follows automatically: the money goes by who pressed. Is there
   any duty to tell a person that a report about them exists, or that the person they reported
   has reported them too? (The app tells neither.)
 - **Ratings after "End call now"** (added 27 November 2026). Both people can now rate such a

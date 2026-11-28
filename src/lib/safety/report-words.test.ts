@@ -46,15 +46,16 @@ describe("what a reporter reads after a report was saved", () => {
 describe("what the founder's list says when the two reported each other", () => {
   const names = { reporter: "Cory", reported: "Hana" };
   it("nothing when the reported person has made no report about the reporter", () => {
-    expect(reportedBackWords({ count: 0, sameCall: false }, names)).toBeNull();
+    expect(reportedBackWords({ count: 0, same: null }, names)).toBeNull();
   });
-  it("both from one call: said as about this call, with any further reports counted apart", () => {
-    expect(reportedBackWords({ count: 1, sameCall: true }, names)).toBe("Both reported each other about this call: Hana has also reported Cory.");
-    expect(reportedBackWords({ count: 3, sameCall: true }, names)).toBe("Both reported each other about this call: Hana has also reported Cory. Hana has made 2 other reports about Cory.");
-    expect(reportedBackWords({ count: 2, sameCall: true }, names)).toContain("1 other report about Cory.");
+  it("both from one call or one request: said so, with any further reports counted apart", () => {
+    expect(reportedBackWords({ count: 1, same: "call" }, names)).toBe("Both reported each other from this call: Hana has also reported Cory.");
+    expect(reportedBackWords({ count: 1, same: "request" }, names)).toBe("Both reported each other from this request: Hana has also reported Cory.");
+    expect(reportedBackWords({ count: 3, same: "call" }, names)).toBe("Both reported each other from this call: Hana has also reported Cory. Hana has made 2 other reports about Cory.");
+    expect(reportedBackWords({ count: 2, same: "call" }, names)).toContain("1 other report about Cory.");
   });
-  it("a report the other way about something else: said, with how many", () => {
-    expect(reportedBackWords({ count: 1, sameCall: false }, names)).toBe("Both have reported each other: Hana has made 1 report about Cory, about something else than this.");
-    expect(reportedBackWords({ count: 2, sameCall: false }, names)).toContain("2 reports about Cory");
+  it("a report the other way from somewhere else: said, with how many", () => {
+    expect(reportedBackWords({ count: 1, same: null }, names)).toBe("Both have reported each other: Hana has made 1 report about Cory, from somewhere else than this report.");
+    expect(reportedBackWords({ count: 2, same: null }, names)).toContain("2 reports about Cory");
   });
 });
