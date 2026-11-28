@@ -1002,6 +1002,16 @@ Questions:
 - **Money paid back, then a pause lifted.** The member was paid back for the time they had not
   used, and the host is back. Nothing is owed in either direction after that: correct? The
   host has lost that month's unused time through a pause that may have been wrong.
-- **Monthly contributions still end** with a pause. A contributor who wants to go on must start
-  again. Should they be treated like memberships?
+- **Monthly contributions are paused too, and carry on by themselves** (plan 54, 27 November
+  2026). While one of the two accounts is paused, no new payment is started; the months that pass
+  are never charged. (A payment that was already on its way to the bank in the very moment of
+  the pause can still land: it is then let go, or paid back in full.) When the pause is lifted, the contribution is charged again from its next
+  monthly day **without a new yes from the contributor**. They are told by email at the pause
+  ("it carries on by itself when that is over; you can stop it now") and again at the lift, with
+  the date of the next payment and the way to stop. Is the first agreement to a monthly payment
+  enough for that, in the US and in the UK and EU (rules on recurring payments and on reminders
+  before a charge after a break)? Must there be a minimum time between the email and the next
+  charge? (Today the next charge can be the same day, if the lift falls on the monthly day.)
+  A member must say yes again after such a pause; a contributor need not: is that difference
+  a problem?
 

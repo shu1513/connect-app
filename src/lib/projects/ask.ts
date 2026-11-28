@@ -89,7 +89,7 @@ export async function askAfterCall(input: {
 }
 
 /** A visitor's own contribution to a project, as far as it gets a line beside the project. */
-export type OwnContribution = { is: "monthly"; contributionId: string; amountCents: number } | { is: "card_step"; contributionId: string };
+export type OwnContribution = { is: "monthly"; contributionId: string; amountCents: number; /** It waits because one of the two accounts is paused (plans/54). */ paused: boolean } | { is: "card_step"; contributionId: string };
 
 /**
  * What a visitor is to a project. The host's page and the diary both ask this, so the two never
@@ -115,7 +115,7 @@ export async function contributionOf(viewerId: string | null, project: Project, 
     .orderBy(desc(schema.contributions.createdAt));
   const monthly = open.find((contribution) => contribution.kind === "monthly" && contribution.status === "running");
   const offered = open.some((contribution) => contribution.kind === "monthly") ? kinds.filter((kind) => kind !== "monthly") : kinds;
-  if (monthly) return { offered, own: { is: "monthly", contributionId: monthly.id, amountCents: monthly.amountCents } };
+  if (monthly) return { offered, own: { is: "monthly", contributionId: monthly.id, amountCents: monthly.amountCents, paused: monthly.accountPausedAt !== null } };
   // A card step is only worth going back to while a contribution could still be made, and while that very step
   // can still be finished: its payment waits for a card, and its 30 minutes are not over. (Only read here: what
   // became of a payment whose time ran out is asked on the contribution's own page.)

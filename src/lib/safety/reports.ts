@@ -5,7 +5,8 @@
  */
 import { ACCOUNT_PAUSE, queueCanResumeEmail } from "@/lib/membership/emails";
 import { cleanUpEndedMemberships, pauseMembershipsOf } from "@/lib/membership/state";
-import { endContributionsOf, letGoAll } from "@/lib/contributions/ending";
+import { pauseContributionsOf, resumeContributionsOf } from "@/lib/contributions/account-pause";
+import { letGoAll } from "@/lib/contributions/ending";
 import { and, desc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { errorSummary, queueEmail } from "@/lib/email";
@@ -331,9 +332,11 @@ async function pause(input: {
   let givenUpPayments: string[] = [];
   const done = await db.transaction(async (tx) => {
     if (input.first && !(await input.first(tx))) return "not_first" as const;
+    // The moment of the pause: written on the account, and on each monthly contribution that waits for it.
+    const pausedAt = new Date();
     const [row] = await tx
       .update(schema.user)
-      .set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() })
+      .set({ pausedAt, pausedReason: reason, updatedAt: new Date() })
       .where(and(eq(schema.user.id, person.id), isNull(schema.user.pausedAt)))
       .returning({ id: schema.user.id });
     // Paused already: what `first` wrote stays written, the founder is told, and nothing else is done.
@@ -346,8 +349,9 @@ async function pause(input: {
     // Their memberships, as a host and as a member, are paused in this same step (plans/53): not ended, so that
     // lifting the pause lets each member resume. (An invitation nobody accepted yet ends, as it always did.)
     endedMemberships = await pauseMembershipsOf(tx, person.id, new Date());
-    // So do their contributions, as a host and as a contributor; what was only held is let go below.
-    givenUpPayments = await endContributionsOf(tx, person.id, "paused", new Date());
+    // Their monthly contributions, as a host and as a contributor, wait in the same way (plans/54); a single
+    // payment that was not taken yet ends. What was only held is let go below.
+    givenUpPayments = await pauseContributionsOf(tx, person.id, pausedAt, new Date());
     if (input.tellPerson !== false) await queueEmail(tx, {
       to: person.email,
       subject: "Your Connect account is paused",
@@ -545,6 +549,10 @@ export async function liftPause(input: { adminId: string; userId: string; since?
       const [other] = await tx.select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt }).from(schema.user).where(eq(schema.user.id, otherId));
       if (other && !other.pausedAt && !other.closedAt) await queueCanResumeEmail(tx, membership, at);
     }
+    // Monthly contributions that waited for this account carry on by themselves (plans/54): the months that
+    // passed are skipped, and each contributor is told.
+    // (It reads the moment of the lift itself, once it holds its locks.)
+    await resumeContributionsOf(tx, input.userId);
     return true;
   });
 }

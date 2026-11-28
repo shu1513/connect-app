@@ -1,0 +1,1 @@
+ALTER TABLE "contributions" ADD COLUMN "account_paused_at" timestamp with time zone;

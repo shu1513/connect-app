@@ -128,7 +128,7 @@ export default async function HostPublicPage(props: PageProps<"/h/[handle]">) {
           {mine?.own ? (
             <p className="mt-3 text-sm" data-own-line={mine.own.is}>
               <Link href={`/contributions/${mine.own.contributionId}`} className="inline-flex min-h-11 items-center underline underline-offset-2">
-                {mine.own.is === "monthly" ? `You contribute ${formatMoney(mine.own.amountCents)} a month` : "Finish contributing"}
+                {mine.own.is === "monthly" ? (mine.own.paused ? `Your ${formatMoney(mine.own.amountCents)} a month is paused` : `You contribute ${formatMoney(mine.own.amountCents)} a month`) : "Finish contributing"}
               </Link>
             </p>
           ) : mine && mine.offered.length > 0 ? (

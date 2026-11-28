@@ -2144,6 +2144,11 @@ export const contributions = pgTable(
     skippedMonths: text("skipped_months").notNull().default("[]"),
     /** Set while the founder's switch does not cover its host (plans/25, choice 13). */
     switchOffAt: timestamp("switch_off_at", { withTimezone: true }),
+    /**
+     * Set while one of its two accounts is paused (plans/54): a monthly contribution that has begun waits, it does
+     * not end. No month is written while this stands; when it is cleared, the months whose day passed are skipped.
+     */
+    accountPausedAt: timestamp("account_paused_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     /** Why it ended, for the record and the email. */
     endedHow: text("ended_how"),

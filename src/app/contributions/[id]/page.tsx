@@ -101,6 +101,13 @@ export default async function ContributionPage(props: PageProps<"/contributions/
         </p>
       )}
 
+      {contribution.status === "running" && contribution.accountPausedAt && (
+        <p className="mt-4 rounded border border-neutral-400 p-3 text-sm" data-account-paused>
+          This monthly contribution is paused, because one of the two accounts was paused. No new payment is started while it is paused. When that pause is over it carries on by itself, and the months in
+          between are never charged; we write to you when that happens. You can stop it at any time.
+        </p>
+      )}
+
       {contribution.status === "ended" && (
         <p className="mt-4 rounded border border-neutral-400 p-3 text-sm" data-ended>
           {monthly ? "This monthly contribution has ended." : contribution.endedHow === "paid" ? `This ${tip ? "tip" : "contribution"} is complete.` : `This ${tip ? "tip" : "contribution"} has ended.`} {endedWords(contribution.endedHow)}

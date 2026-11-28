@@ -45,6 +45,8 @@ export function endedWords(how: string | null): string {
       return "The host let the payment go.";
     case "switch":
       return "It could not be taken while this was paused.";
+    case "account_paused":
+      return "It could not be taken while one of the two accounts was paused.";
     case "saved_card":
       return "The card is one that is saved for something else on Connect, so it was not used. Please type a card for it.";
     case "given_up":

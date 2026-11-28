@@ -329,7 +329,7 @@ export default async function AdminReportsPage(props: PageProps<"/admin/reports"
         An account is paused by the app itself when {AUTO_PAUSE.reporters} different people who had a paid call with it report it within {AUTO_PAUSE.withinDays} days (and they are at
         least 1 in {AUTO_PAUSE.oneIn} of the people it had paid calls with in that time), or when its average rating from paid calls is {AUTO_PAUSE.lowAverage.toFixed(1)} or lower from{" "}
         {AUTO_PAUSE.minRaters} or more people, at least {AUTO_PAUSE.warnDays} days after a warning email. A pause, by hand or by the app, pauses the account&apos;s memberships: each
-        member is paid back the time they had not used, and can resume once the pause is lifted. Lifting a pause is a fresh start: reports and ratings from before no longer count toward
+        member is paid back the time they had not used, and can resume once the pause is lifted. Its monthly contributions wait too, and carry on by themselves after the lift. Lifting a pause is a fresh start: reports and ratings from before no longer count toward
         a pause by the app.
       </p>
       {paused.length > 0 && (

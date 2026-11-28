@@ -143,12 +143,14 @@ export async function letGoAll(paymentIds: string[], now: Date = new Date()): Pr
 }
 
 /** Ends one contribution, and lets go of what was only held. */
-export async function endContribution(contributionId: string, how: string, now: Date = new Date()): Promise<void> {
+export async function endContribution(contributionId: string, how: string, now: Date = new Date(), opts: { /** Leave it alone if it waits for a paused account (plans/54): read under its lock, in this very step. */ unlessItWaits?: boolean } = {}): Promise<void> {
   const toLetGo = await db.transaction(async (tx) => {
     const [found] = await tx.select({ contributorId: schema.contributions.contributorId, hostId: schema.contributions.hostId }).from(schema.contributions).where(eq(schema.contributions.id, contributionId));
     if (!found) throw new MoneyError("Contribution not found.");
     await lockPair(tx, found.contributorId, found.hostId);
-    return endInStep(tx, await lockContribution(tx, contributionId), how, now);
+    const contribution = await lockContribution(tx, contributionId);
+    if (opts.unlessItWaits && contribution.accountPausedAt) return [];
+    return endInStep(tx, contribution, how, now);
   });
   for (const id of toLetGo) {
     await letGo(id, now).catch((error) => console.error(`[contributions] could not let go of payment ${id} yet; the helper will retry`, error));

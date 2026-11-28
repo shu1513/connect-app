@@ -241,7 +241,11 @@ export default async function AccountPage(props: PageProps<"/account">) {
                       Held on your card; taken on <LocalTime iso={latest.takeAt.toISOString()} />. You can cancel until then.
                     </>
                   ) : contribution.kind === "monthly" ? (
-                    "Running."
+                    contribution.accountPausedAt ? (
+                      "Paused with one of the two accounts; nothing is charged."
+                    ) : (
+                      "Running."
+                    )
                   ) : (
                     ""
                   )}
