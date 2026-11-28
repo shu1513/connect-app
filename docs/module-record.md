@@ -6383,9 +6383,10 @@ on pull request 118 and was not waited for; the builder read the whole change on
 instead (three small things put right, listed in the plan).
 
 **Open, and the founder's.** Whether the fifth place, the nameless notification and its
-switch are wanted as planned. Whether the app may word one sentence differently from the
-website: not "Book a call to write to Hana again", which a store could read as selling
-messages, but "You can write to Hana again around your next call." And three things a store
+switch are wanted as planned. (Settled the same day: the app words one sentence differently
+from the website, not "Book a call to write to Hana again", which a store could read as
+selling messages, but "You can write to Hana again around your next call." The founder was
+asked and left it to the builder; the website keeps its words.) And three things a store
 will ask about: a real support address, who reads reports and how fast, and that Connect has
 no filter on what people write (Apple's rule asks for one; only its review shows whether
 report, block and limits are enough). The last is in the lawyer's file too.
