@@ -660,8 +660,9 @@ async function main() {
         await isHeld;
         let seenWaiting = false;
         let outcome = "not tried";
+        let trying: ReturnType<typeof tryHoldOnce> | undefined;
         try {
-          const trying = tryHoldOnce({ booking: await reload(booking.id), call, payment: await payment() }, at);
+          trying = tryHoldOnce({ booking: await reload(booking.id), call, payment: await payment() }, at);
           for (let i = 0; i < 100 && !seenWaiting; i++) {
             const [{ n }] = (await db.execute(sql`select count(*)::int as n from pg_stat_activity a where a.wait_event_type = 'Lock' and ${holder} = any(pg_blocking_pids(a.pid))`)) as unknown as { n: number }[];
             seenWaiting = n > 0;
@@ -674,6 +675,8 @@ async function main() {
         } finally {
           letRowGo();
           await holding.catch(() => undefined);
+          // The try itself too, so that the cleaning-up below never cancels the call under a try that is still running.
+          await trying?.catch(() => undefined);
         }
         const afterPause = await reload(booking.id);
         check("(the try was seen waiting behind the booking's row: its first look was over when the pause landed)", seenWaiting);

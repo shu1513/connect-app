@@ -465,8 +465,8 @@ async function main() {
         const reply = await asApp(`/api/app/calls/${underWay.id}`, { jar: hostC.jar });
         return reply.status === 200 ? ((reply.json as { about: { text: string } | null }).about?.text ?? null) : undefined;
       };
-      const noteOnPage = await noteOf();
       try {
+        const noteOnPage = await noteOf();
         check("(and the call's own page hands her the note she keeps about him)", typeof noteOnPage === "string" && noteOnPage.length > 0, String(noteOnPage));
         check("(as things stand, the call under way carries what he wrote, his ID mark and his photo's id, on Home and in Calls)", withDetails(await onHome()) && withDetails(await inCalls()) && (await photoFor(hostC.jar)).status === 200);
         await db.update(schema.user).set({ pausedAt: new Date() }).where(eq(schema.user.id, cust.id));

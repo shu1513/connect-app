@@ -468,3 +468,30 @@ part goes to its pull request: what is left is older than this part and not of t
 - The website's own page still offers "Report" on a request that ran out at its card step (said
   under the first look; Astra adds that such a report goes through even where a report of the
   host's page would be refused because she hid it).
+
+## CodeRabbit's look at the pull request (28 November 2026)
+
+Five remarks, all marked minor. Two taken, three not.
+
+**Taken (both in check scripts):**
+
+- `app-home-check`: the first reading of the host's note now sits inside the `try`, so a
+  failed request still cleans up the identity row it made.
+- `booking-check`, section 11b: the try with the card is waited for before the cleaning-up
+  cancels the call, also when something in between throws.
+
+**Not taken, with the reasons:**
+
+- *Withhold the customer's name on the host's call page when the two may not act.* The host's
+  lists keep the name of a call that is under way (the row stays with name, time, length and
+  price; only his words, ID mark, photo and her note go). The call's page does the same, so the
+  two agree. She is in a call with him: his name is not news to her.
+- *The follow-up of a try without an answer could write "card failed" for a try that the pair
+  rule refused.* That follow-up only reads tries claimed at least two minutes ago. A try that
+  the pair rule refuses gives its claim back in the same moment, before Stripe is asked, so it
+  is never among them. (A helper that dies in that instant is the case already left under the
+  third look.)
+- *Read the other person's pause again inside the room's locked step.* Left as the plan has it
+  (the door asks the rule once, before its locked step). A pass handed out in the instant
+  before the other person's pause is the same as having entered a moment earlier: the pause
+  puts the paused person out of the room and they cannot come back in.
