@@ -97,13 +97,15 @@ in `src/lib/payments/collect.ts`:
 6. **Money owed back is part 16b,** built in the same pull request as this part or in the
    next. If this part is merged first, the app's earnings answer says one plain sentence
    whenever such a list would not be empty **for money owed back about a call** (or about a
-   membership, while they are on for the apps): "You owe money back, or money was taken back. The details are in your
-   email, and on your earnings page on the website." A debt about a contribution or a tip
+   membership, while they are on for the apps): "There is news about a past call payment. The details are in your
+   email, and on your earnings page on the website." (The first wording said "you owe money
+   back, or money was taken back"; an entry that was called off before anything was taken
+   would have made that untrue.) A debt about a contribution or a tip
    makes no sentence and no entry (part 16b, decision 9).
 7. **The yearly statement stays on the website** *(changed after Astra's check; the first
    update of 27 November had put it into the app)*. Its monthly figures, its fees column for
    tips and its split by kind cannot be shown without showing what came from projects and
-   tips, and "Other earnings" is allowed in two amounts only (decision 2). The app's
+   tips, and "Other earnings" is a nameless total, never a breakdown (decision 5). The app's
    earnings screen has one line that every host sees, whatever she earned: "Your yearly
    statement is on the website." A statement in the app made only of calls would be possible
    later; it would need its own years, sums and fees worked out from calls alone, and is not
@@ -123,7 +125,8 @@ in `src/lib/payments/collect.ts`:
   earnings" is made of; a collection of nothing but tips (shown as a collection of "Other
   earnings"); a waiting message about someone else's bank dispute (the neutral sentence);
   a host with money owed back for a call while part 16b
-  is not built (the plain sentence, and nothing more), and a host whose only debt is about
+  is not built (the plain sentence, and nothing more), and one whose only entry was called
+  off before anything was taken (the same sentence, which is still true), and a host whose only debt is about
   a contribution (no sentence); no address of the app answers with a statement, and the
   line about the statement is the same for a host with only calls and a host with only tips.
 - On the Android test phone, with pictures: each of those states.

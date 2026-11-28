@@ -209,7 +209,11 @@ the app than on the website (decision 13). Asked on 27 November, you left it to 
    himself just sent, and the message's number; or the refusal's sentence. That is the only
    place a key appears, and only ever the sender's own, back to him.
    "Read the rules" opens the rules page the way the app's report form does today; when
-   part 18 gives the apps their own rules page, it opens that.
+   part 18 gives the apps their own rules page, it opens that. *(27 November: the rules
+   page speaks about projects, contributions, tips and diary posts, and how the apps may
+   lead to legal text at all is part 18's open decision 5. This link is one more such
+   place and waits for that answer like the others; until then the screen names the rules
+   without a link.)*
 
 7. **It stays fresh the website's way: the screen asks again 5 seconds after the last answer
    came,** only while it is the screen in front and the app is in front.

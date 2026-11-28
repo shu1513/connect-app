@@ -290,6 +290,9 @@ stay out while their switch for the apps is off. Put exactly:
   works out no "as if the other money did not exist".
 - **Words that would point at a cause the app cannot name are made neutral** (a refusal
   after a bank dispute, a moment when nobody can collect).
+- **Words a person at Connect typed freely are not sent to the apps** (the reason of a
+  pause, of a refund, of a declined profile, the answer to an objection): the app says
+  where to read them.
 - The website and the emails keep everything.
 
 **Said plainly, for the founder:** in the first three checks the builder let this rule grow
@@ -380,6 +383,21 @@ that must stop expecting today's faults; the link of the sign-up notice follows 
 a typed reason in the founder's record; two expectations of the refunds check; what is
 known before and after pressing "Cancel within 14 days"; the floor under a host's price
 (parts 09a, 12, 13c, 14, 16b, 19, 19b, 19c).
+
+**Astra's closing check, the same day: "ready with changes".** Six corrections and six small
+ones, all made: a link to the rules from the Messages screen waits for the lawyer's answer
+like the other links to legal text (part 17b); words the team typed are not sent to the
+apps (parts 10, 14, 16b); part 16 and part 20 now say the same about collections; the
+sentence shown before part 16b exists is true also for an entry that was called off (part
+16); a customer still hears that a request was answered (part 12); `home-check` is named as
+a check that changes (part 09a). **Carried into the code-level review of parts 19, 19b and
+19c, as Astra listed them:** deleting during a live call, across going back into the room,
+signing out, ending and reporting, with the helper restarted; a 14-day request made in
+time, carried through a closure or a bank's hold with its first asker, its month and its
+day; a bank dispute open at the deletion, followed through a later debt, a repayment and
+the last email (a bounce included) before the kept address is let go; and the proof saved
+before a wipe compared with what the proof builder really reads, with the moment each copy
+is let go.
 
 **What stays as it was.** Each part is still read against the code on the day it is built, and
 its plan put right once more if the code has moved. Parts 13c, 14b, 16b, 19, 19b and 19c go

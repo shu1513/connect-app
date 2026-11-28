@@ -46,7 +46,10 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
 - **Refusals** come as a `MembershipError` with a sentence written for the member
   (`WHY_FOR_MEMBER`, `DAYS_OVER_FOR_MEMBER`, `MOVED_ON`). None of them names a button.
 - **"Not finished yet"** is not a refusal: `NotFinishedYet` (`CALLS_NOT_CANCELLED`,
-  `BEING_TAKEN`). The request is on record, the helper finishes it, and the button stays. Its
+  `BEING_TAKEN`). The request is on record and the helper finishes it. The button usually
+  stays; it goes if a bank or a problem with the payment stops the request meanwhile, and
+  the request then waits for a person at Connect. Two presses at the same moment can both
+  come back as done, with the request finished once. Its
   sentence says "you can also press again in a minute", which is true in the app too.
 - **Pressed twice:** the second press finds the membership ended and is refused. Nothing is
   paid back twice.

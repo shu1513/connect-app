@@ -89,6 +89,12 @@ earned, the rating, the follow box, the host's note, and the buttons that lead o
    The app's answer includes it only if both tip switches allow it, and the tip addresses
    refuse the app otherwise. The apps' switch is born off (part 01).
 6. **The receipt** is this screen; there is no file to download in this build.
+6a. **What the team typed is not sent to the apps.** Where the website shows words a person
+   at Connect typed freely (they can be about anything, a tip or a diary post included), the
+   app shows a fixed sentence in their place, "The reason is in the email we sent you, and
+   on the website.", and keeps everything else: the figures, the decision, the deadlines,
+   the right to object. On this screen that is the reason the team gave
+   for a refund.
 7. **"End call now" is shown with the server's sentences,** by role: who ended the call, the
    rule the charge follows, the reason on a receipt, and for the customer that his report
    lowered the charge or did not. The app's answer for a host holds nothing about a report

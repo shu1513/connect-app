@@ -22,8 +22,10 @@ to book again. **Following:** the hosts a person follows, and what they want to 
 - `src/app/following/page.tsx` (`followedHosts`, `followEmailsOf`): for each host whether she
   is available now, the next call with her and its link, unfollow, and the choices per host:
   "tell me when she is available", with from and to as whole hours in the follower's own
-  zone, and the diary choice. A notice when emails to followers are switched off altogether
-  (they are, until the founder sets a postal address, plan 31).
+  zone, and the diary choice. While emails to followers are switched off for everyone
+  (they are, until the founder sets a postal address, plan 31) the page shows neither those
+  email choices nor a notice. The notice "switched off" is for a person who has switched
+  such emails off for their own account while they are on for everyone.
 - `askOnlineAction` is the question on the page after a call (part 10).
 - **"Write to [name]"** (plan 49; `src/components/write-to.tsx`): on Contacts a host has this
   button beside each person who was her customer, while messages are switched on. A

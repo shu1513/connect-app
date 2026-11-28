@@ -42,11 +42,12 @@ this build and a real app in the two stores, each item with who can do it.
    and reads what comes back; and it makes the things happen that send notifications (a new
    diary post, a contribution paid) and reads what is written for the phones: no field, no
    line, no link and no notification that comes from those things, except what part 16, decision 5, allows on a host's
-   earnings screen: the two "Other earnings" amounts, the button that collects everything
-   ready, and the true outcome of her own press of it. The sweep plays a collection she
-   pressed herself with a contribution in it (its outcome and amount are shown, sent in
-   part and refused included) and one Connect or the founder started (shown by the same rule,
-   with who started it). *Added 27 November, and made stricter after Astra's check:*
+   earnings screen: "Other earnings" as a nameless group, counted in what is ready, what is
+   waiting and what each collection sent, whoever started it. The sweep plays a collection
+   she pressed herself, one Connect started and one the founder made, each with a
+   contribution in it, and one of nothing but other earnings: each is in the history with
+   its true amounts and who started it, none says what the group is made of, and the last
+   one makes no notification. *Added 27 November, and made stricter after Astra's check:*
    it also makes the newer things that could carry a project's or a tip's money to a phone,
    and checks that **nothing at all** comes of them there, not even without a name: a tip
    and a contribution that Connect refunded after the host collected (no take-back in any
@@ -165,7 +166,9 @@ once a real person has the app. Each is looked at again here, before anything is
 - **From bringing the plans up to date (27 November):** how legal documents are shown in the
   app is open (part 18, decision 5): no way found so far keeps the apps' rule and still
   says truthfully which document and version a person accepted. Nothing goes to a store
-  before the lawyer has answered; the walk then checks the three places that lead to legal
+  before the lawyer has answered; the walk then checks every place that leads to legal text (the three that exist today,
+  and those later parts add: the Host Agreement in part 14, "Read the rules" in part 17b)
+  against that answer. The three of today lead to legal
   text (the last step of signing up, the ID check, the report form) against that answer.
 
 ## Keeping the 4.9%

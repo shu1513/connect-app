@@ -92,6 +92,12 @@ amount owed back a "take-back".
 4. **The app's answer is built field by field** (part 16's rule), never the whole record. Left
    out: the founder's notes, Stripe's own words about a refusal, any number of Stripe's, and
    the founder's view. A founder who is also the host sees the host's view in the app.
+4a. **What the team typed is not sent to the apps.** Where the website shows words a person
+   at Connect typed freely (they can be about anything, a tip or a diary post included), the
+   app shows a fixed sentence in their place, "The reason is in the email we sent you, and
+   on the website.", and keeps everything else: the figures, the decision, the deadlines,
+   the right to object. On this screen that is the team's reason for
+   the refund and its answer to her objection. Her own objection is hers and is shown.
 5. **Two addresses:** read one take-back, and object to it. Somebody else's and one that does
    not exist look the same.
 6. **The objection.** The box is shown only when the server says an objection is possible.
@@ -112,7 +118,8 @@ amount owed back a "take-back".
      not in the list, not in a count, and asked for by its number it looks exactly like one
      that does not exist.
    - **Her way to it stays whole elsewhere:** the email, the website's page, and the
-     objection button there.
+     objection button there while the debt is "told" (one that is "waiting" goes through
+     support, as on the website).
    - **A member's call** given back by Connect is in the apps while memberships are on for
      them, named as a call; while they are off it is left out in the same way.
    - **What counts is what the refunded or disputed payment was for,** nothing else. Money

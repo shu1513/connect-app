@@ -87,6 +87,12 @@ website.
    notice (the document, the day, a link), without the version's free-text summary. The app's form for changing a profile carries "business or
    private" too, as the website's does. How the agreement's own text is shown where it speaks about
    projects is part 18's open decision 5; this part is not built before that is settled.
+6a. **What the team typed is not sent to the apps.** Where the website shows words a person
+   at Connect typed freely (they can be about anything, a tip or a diary post included), the
+   app shows a fixed sentence in their place, "The reason is in the email we sent you, and
+   on the website.", and keeps everything else: the figures, the decision, the deadlines,
+   the right to object. On the Hosting screen that is the note a
+   person at Connect writes when a profile is declined or suspended.
 7. **The price field takes the server's limit and the server's sentence** *(added 27
    November)*, for a price above her top price and for one below a member's price. The app
    knows no limit of its own.

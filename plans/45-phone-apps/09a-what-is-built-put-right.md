@@ -30,8 +30,8 @@ those screens on the test phone and puts seven small things right. Nothing new i
    anything there, a sentence about a diary post or a project included.
 4. **The Account screen is still the placeholder of part 02,** and prints what the server
    said when the app opened: "Memberships: ... Tips: off. Available now: ..."
-   (`mobile/src/app/(tabs)/account.tsx`). The word "Tips" is on every phone, signed in or
-   not.
+   (`mobile/src/app/(tabs)/account.tsx`). The word "Tips" is on the Account screen of everyone who is
+   signed in.
 5. **A refusal because of a bank dispute says so, and points to "your messages".**
    `STOPPED_WHILE_OPEN` in `src/lib/disputes/paying.ts` reads "Your bank has an open dispute
    about a payment on Connect ... Your messages say more." The app's booking address already
@@ -168,7 +168,12 @@ those screens on the test phone and puts seven small things right. Nothing new i
   - the app's last step of signing up while a new version of a document is announced, with
     a summary that speaks of contributions: the notice is in the answer, the summary's
     words are not, and accepting records today's version.
-- The app's own tests and types; the placeholder screen's test no longer expects the line.
+- **One check of the website changes too,** because decision 6 changes its lists as well:
+  `home-check` expects a closed and a blocked customer's request to be on the home page and
+  on the host's requests page. Both must now be gone from the lists and their numbers,
+  with the open request beside them still there.
+- The app's own tests and types (the test of the opening answer keeps checking the switches
+  the server sends; that the line is off the screen is seen in the walk).
 - On the Android test phone, with pictures: the walk of decision 1; a paused account's home
   screen; a blocked pair's booking.
 

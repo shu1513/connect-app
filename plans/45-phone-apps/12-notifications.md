@@ -117,7 +117,8 @@ stand-in, and no notification leaves this Mac.
    start paying again. The email that only says "it was paused" makes no notification.
    Cancelling within 14 days makes no notification (part 13c, decision 9).
 3. **Checked again at the moment of sending:** is this still that person's phone and are
-   they still signed in on it; is the request still waiting, the call not cancelled; are
+   they still signed in on it; for the host's own prompts about a request (it is waiting,
+   it is about to run out), is the request still waiting; the call not cancelled; are
    reminders still wanted; is the thing still switched on. A notification about something
    that is over is not sent. For an instant request the notification is also given a
    lifetime no longer than the time left to answer.
@@ -163,11 +164,13 @@ stand-in, and no notification leaves this Mac.
   a row whose cause is no longer allowed at the moment of sending is not sent; for each kind
   on the list, one row per phone, once; the kinds
   on the "never" list write none; reminders off means no reminder but still the notices that
-  must come; a cancelled call, an answered request and a signed-out phone get nothing at the
-  moment of sending; the locked-screen text of every kind is checked against what it must
+  must come; a cancelled call and a signed-out phone get nothing at the moment of sending;
+  a request that was answered while the host's prompt about it was still queued: the prompt
+  is not sent, and the customer's "your request was answered" is; the locked-screen text of every kind is checked against what it must
   never contain (a name, an amount, an email address, a note).
-- A stand-in for the outside service: taken and later accepted; taken and later refused (the
-  address is dropped); busy (tried again); never sent twice.
+- A stand-in for the outside service: taken and later accepted; taken and later reported
+  as a dead address (the address is dropped); taken and later refused for any other reason
+  (the address is kept); busy (tried again); never sent twice.
 - On the Android test phone: notifications made by the phone itself (no outside service
   needed) show how each one looks and sounds, the instant request's sound and vibration on a
   locked screen included, with pictures.
