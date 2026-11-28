@@ -203,8 +203,8 @@ about the person's own calls (Apple forbids using them to advertise without cons
 Read again against the code on `main` after pull request 123. What changed in this plan:
 
 1. *Connect now writes to people itself, with deadlines attached* (plans 46, 47, 50, 51).
-   Decision 2a: one sentence that names nothing, for a short list of causes. **For the
-   founder to confirm.**
+   Decision 2a: one sentence that names nothing, for a short list of causes. Confirmed by the
+   founder on 27 November.
 2. *New emails about pauses and warnings* (plans 52 and 53). Decision 2b: emails only.
 3. *An email's arrival is recorded for legal notices.* Decision 2a says a notification never
    stands in for it.
