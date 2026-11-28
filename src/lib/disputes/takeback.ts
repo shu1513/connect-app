@@ -262,10 +262,12 @@ async function tellOfRefundTotals(tx: Tx, paymentId: string, atStripeCents: numb
  */
 async function refundTotalsApart(paymentId: string): Promise<{ atStripeCents: number; inAppCents: number } | null> {
   const [share] = await db
-    .select({ chargeId: schema.payments.stripeChargeId, intentId: schema.payments.stripePaymentIntentId, refundedCents: schema.payments.refundedCents, callId: schema.payments.callId, parentId: schema.payments.contributionPaymentId })
+    .select({ kind: schema.payments.kind, chargeId: schema.payments.stripeChargeId, intentId: schema.payments.stripePaymentIntentId, refundedCents: schema.payments.refundedCents, callId: schema.payments.callId, parentId: schema.payments.contributionPaymentId })
     .from(schema.payments)
     .where(eq(schema.payments.id, paymentId));
-  if (!share?.chargeId) return null;
+  // A member's call: the charge it carries is its month's, and the month's refunds at Stripe are the month's own
+  // pay-backs. The call's "refunded" is time given back, which is no refund at Stripe: there is nothing to compare.
+  if (!share?.chargeId || share.kind === "member_call") return null;
   const [parent] = !share.callId && share.parentId ? await db.select({ intentId: schema.contributionPayments.stripePaymentIntentId, refundedCents: schema.contributionPayments.refundedCents }).from(schema.contributionPayments).where(eq(schema.contributionPayments.id, share.parentId)) : [];
   const own = parent ?? share;
   const charge = await stripe()
@@ -515,7 +517,11 @@ async function writeRefundDebt(refundId: string, now: Date): Promise<void> {
     const [ofCall] = share.callId ? await tx.select({ hostId: schema.calls.hostId }).from(schema.calls).where(eq(schema.calls.id, share.callId)) : [];
     const call = ofCall ?? (parent ? { hostId: parent.hostId } : null);
     if (!call) return;
-    const ownIntentId = parent ? parent.intentId : share.stripePaymentIntentId;
+    // A member's call (plans/50-part-2-member-time-owed-back.md): the charge it carries is its month's, so the
+    // PaymentIntent the charge must belong to is the month's. (Read, not locked: the month's locks come before the
+    // payment's, never after.)
+    const [month] = share.kind === "member_call" && share.monthId ? await tx.select({ intentId: schema.membershipMonths.stripePaymentIntentId }).from(schema.membershipMonths).where(eq(schema.membershipMonths.id, share.monthId)) : [];
+    const ownIntentId = parent ? parent.intentId : month ? month.intentId : share.stripePaymentIntentId;
     const ownRefundedCents = parent ? parent.refundedCents : share.refundedCents;
     // Both reads at once, one try each, under one limit of time: the share's payment is held meanwhile. A failure
     // here throws, and nothing is written.
@@ -539,7 +545,9 @@ async function writeRefundDebt(refundId: string, now: Date): Promise<void> {
     // Stripe's total of refunds on the charge has to be the app's: if Stripe knows of a refund the app has not
     // confirmed (or the other way round), nothing is worked out from a history that is not whole. Not marked as
     // looked at: the next pass asks again.
-    if (fits && charge!.amount_refunded !== ownRefundedCents) {
+    // (Not for a member's call: giving its time back is no refund at Stripe, and what Stripe has refunded on the
+    // month's charge is the month's own pay-backs, which the call's own total never held.)
+    if (fits && !month && charge!.amount_refunded !== ownRefundedCents) {
       await tellOfRefundTotals(tx, share.id, charge!.amount_refunded, ownRefundedCents);
       return;
     }
@@ -1193,8 +1201,18 @@ async function tellOfRefusals(now: Date, only?: Only): Promise<void> {
  */
 export async function refundStands(refundId: string, now: Date = new Date()): Promise<boolean> {
   const [refund] = await db.select().from(schema.refunds).where(eq(schema.refunds.id, refundId));
-  // Only a refund the app has confirmed, with Stripe's own number for it, can be shown to stand.
-  if (!refund || refund.status !== "done" || !refund.stripeRefundId) return false;
+  if (!refund || refund.status !== "done") return false;
+  if (!refund.stripeRefundId) {
+    // For every payment but a member's call, only a refund with Stripe's own number can be shown to stand.
+    const [payment] = await db.select({ kind: schema.payments.kind }).from(schema.payments).where(eq(schema.payments.id, refund.paymentId));
+    if (payment?.kind !== "member_call") return false;
+    // A member's time given back after the host collected is no refund of the call at Stripe. Its money is what the
+    // month owes back to the member's card under this give-back's name, and it stands once that has REALLY been
+    // paid: her take-back is neither written nor taken before the member has the money, nor while a pay-back that
+    // failed after all is owed again, nor for one a bank dispute on the month keeps from ever being sent.
+    const [paidBack] = await db.select({ status: schema.membershipRefunds.status }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.sourceKey, `giveback:${refund.id}`));
+    return paidBack?.status === "done";
+  }
   const atStripe = await stripe().refunds.retrieve(refund.stripeRefundId);
   if (atStripe.status === "succeeded") return true;
   if (atStripe.status === "failed" || atStripe.status === "canceled") await undoFailedRefund(refund.id, atStripe.failure_reason ?? `Stripe says: ${atStripe.status}`, now);
@@ -1236,6 +1254,12 @@ export async function refundChangedAtStripe(stripeRefundId: string, now: Date = 
   if (rows.length === 0) {
     const [line] = await db.select({ id: schema.contributionRefunds.id }).from(schema.contributionRefunds).where(and(eq(schema.contributionRefunds.stripeRefundId, atStripe.id), eq(schema.contributionRefunds.status, "done")));
     if (line) await undoFailedContributionRefund(line.id, atStripe.id, atStripe.failure_reason ?? `Stripe says: ${atStripe.status}`, now);
+    // Or a membership month's pay-back to the member's card: it is owed again, and sent again by the month's own job.
+    const [payBack] = line ? [] : await db.select({ id: schema.membershipRefunds.id }).from(schema.membershipRefunds).where(and(eq(schema.membershipRefunds.stripeRefundId, atStripe.id), eq(schema.membershipRefunds.status, "done")));
+    if (payBack) {
+      const { payBackFailedLate } = await import("@/lib/membership/payback");
+      await payBackFailedLate(payBack.id, atStripe.id, atStripe.failure_reason ?? `Stripe says: ${atStripe.status}`, now);
+    }
   }
 }
 
@@ -1343,6 +1367,9 @@ export async function undoFailedRefund(refundId: string, reason: string, now: Da
     const [source] = seen.sourceId ? await tx.select().from(schema.contributionRefunds).where(eq(schema.contributionRefunds.id, seen.sourceId)).for("update") : [];
     const [refund] = await tx.select().from(schema.refunds).where(eq(schema.refunds.id, refundId)).for("update");
     if (!refund || refund.status !== "done" || payment.chargedCents === null || payment.originalHostShareCents === null) return false;
+    // A member's time given back never was a refund at Stripe: nothing of it can have failed there. (Undoing it here
+    // would make the share whole and write money back that never moved, and leave the month as it is.)
+    if (payment.kind === "member_call") return false;
     // Both sides are undone, or neither: only for the very line of the contribution, still done, that carries the very
     // same refund of Stripe's. Anything else is left exactly as it is, for a person to look at.
     if (refund.contributionRefundId !== null && (!parentId || !source || source.id !== refund.contributionRefundId || source.contributionPaymentId !== parentId || source.status !== "done" || source.stripeRefundId === null || source.stripeRefundId !== refund.stripeRefundId)) {

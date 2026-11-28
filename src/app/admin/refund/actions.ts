@@ -1,6 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db";
+import { giveTimeBack } from "@/lib/membership/give-back";
 import { refundPayment } from "@/lib/payments/actions";
 import { isRefundGround, refundAnswer, refundOutcome, refundReason, refundSearchFor } from "@/lib/payments/founder-refund";
 import { MoneyError, OutcomeUnknownError } from "@/lib/payments/operations";
@@ -43,7 +46,18 @@ export async function refundAsFounderAction(formData: FormData) {
   // has its line, and the line says whether it was paid back, is on its way, or was refused.
   let said: string | null = null;
   try {
-    await refundPayment({ paymentId, amountCents, decidedBy: admin.id, decidedAs: "admin", reason: refundReason(ground as Parameters<typeof refundReason>[0], sentence), afterCollection: true, requestId });
+    const reason = refundReason(ground as Parameters<typeof refundReason>[0], sentence);
+    // What kind of payment it is decides the way, never the form: a member's call is paid from a membership's month,
+    // and what is given back is its time (plans/50-part-2-member-time-owed-back.md).
+    const [found] = await db.select({ kind: schema.payments.kind }).from(schema.payments).where(eq(schema.payments.id, paymentId));
+    if (found?.kind === "member_call") {
+      // The form says whether the host had collected when it was drawn: a press never has an outcome its form did not show.
+      const shown = formData.get("collected");
+      if (shown !== "yes" && shown !== "no") throw new MoneyError("That form is no longer valid. Reload the page and try again.");
+      await giveTimeBack({ paymentId, amountCents, decidedBy: admin.id, decidedAs: "admin", reason, requestId, afterCollection: true, shownCollected: shown === "yes" });
+    } else {
+      await refundPayment({ paymentId, amountCents, decidedBy: admin.id, decidedAs: "admin", reason, afterCollection: true, requestId });
+    }
   } catch (error) {
     if (error instanceof MoneyError) said = error.message;
     else if (!(error instanceof OutcomeUnknownError)) console.error("[refunds] the founder's refund failed", error);

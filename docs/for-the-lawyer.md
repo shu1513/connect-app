@@ -808,6 +808,12 @@ top; she never owes that fee, only what she got.
   enough where the refund was owed by law?
 - Stripe keeps its own card fee when a payment is refunded. Connect carries that today, for
   every refund. May it be put on the host where the refund was her own decision?
+- **A member's call (plan 50, part 2).** Connect can now give a member call's time back
+  after the host collected her share of it. The money for that time then goes to the
+  member's card (not back into the membership), and the host owes what her share lost, as
+  above. Is paying it to the card, when the member's month is still running and they might
+  have preferred the time, all right? (It is so because time that is free again could be
+  booked twice from one payment.)
 
 ## 25. "End call now": who pays what when a call is ended, and reports that lower a charge (new, plan 51, 26 November 2026)
 

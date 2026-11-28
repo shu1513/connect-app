@@ -6184,6 +6184,45 @@ helpers really working at the same moment: the script sets up the state they wou
 **Left for later.** A membership's pay-back has the same weakness in its follow-up
 (`src/lib/membership/recover.ts`). It was not asked for here and is proposed as its own fix.
 
+## A member's time given back by Connect after the host collected (plan 50, part 2, 27 November 2026)
+
+**What it is.** Until now a member call's time could be given back only until the host had
+collected her share of that call; after that nobody could, the founder included. The plan is
+`plans/50-part-2-member-time-owed-back.md`.
+
+**What was built.**
+
+- The founder's refund page (`/admin/refund`) also finds a member's calls. With a ground and
+  a sentence the founder gives time back, before or after the host collected.
+- After collection the money for that time always goes to the member's card, never into the
+  membership again: time that is free again could be booked a second time, and the month's
+  one charge cannot carry the host's share of it twice (Stripe sends no more from a charge
+  than was charged). Before collection nothing changes.
+- The line that `giveTimeBack` writes in `refunds` then carries what a card refund's carries
+  (her share before and after, what it lost, its place). From it the take-back that exists
+  does the rest: notice, 14 days, "I think this is wrong", then a reversal of that call's
+  transfer at Stripe. For a member's call the Host Agreement is proved by the time of the
+  month's charge, and its line "stands" without a refund at Stripe.
+- A form drawn before the host collected and pressed after it gives nothing back. The same
+  press again answers with what the first did. The founder's answer says that it was the
+  member's time and that its money is owed to the member's card.
+
+- Nothing is asked of the host before the member's money has really gone back to their card:
+  her take-back is written only then, and it is not taken while a pay-back that failed after
+  all is owed again, or while a bank dispute keeps it from being sent.
+- A month's pay-back that Stripe confirms and later says failed is noticed now (for every
+  pay-back of a month, not only these): it is owed again and sent again by the month's job.
+
+**What the reviewer found.** Astra checked the plan ("not ready": time that is free again
+could be booked twice from one payment, so after collection the money goes to the card) and
+the code ("merge after fixes", five points, four taken). Left, with a task of its own
+proposed: the month's pay-back can be sent twice when its answer is lost and the repeat is
+refused; it is so today for every pay-back of a month.
+
+**Known, and left as it is.** Connect carries the amount until the host's share is back (as
+for a card call). A bank dispute lost on a part of the month while a pay-back of that month
+is on its way can be worked out a little differently than a moment later (so today). The
+founder's page action itself is not pressed by a check. The phone apps have none of it.
 
 ## A membership's pay-back can no longer be paid twice after a lost answer (plan 20, follow-up, 27 November 2026)
 

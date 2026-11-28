@@ -23,7 +23,7 @@ import { earlierTryAtStripe } from "@/lib/payments/refund-tries";
 import { stripe } from "@/lib/payments/stripe";
 import { queuePayBackEmail } from "./emails";
 import { lockForMonth, monthOwner, type LockedMonth } from "./locks";
-import { finishIfSettled, payBackDone } from "./months";
+import { finishIfSettled, payBackDone, payBackUndone } from "./months";
 import { isFrozen } from "./rules";
 
 // Owing a pay-back once under a source key (the rulebook's "How the parts connect" hands it over from this file).
@@ -40,6 +40,21 @@ export function outcomeStatus(status: string | null): PayBackOutcome["status"] {
   if (status === "succeeded") return "done";
   if (status === "failed" || status === "canceled") return "failed";
   return "on_its_way"; // "pending", or waiting for something at Stripe
+}
+
+/**
+ * Stripe says that a pay-back it had confirmed failed after all (plans/50-part-2-member-time-owed-back.md). With the
+ * month locked, and once: it is owed again and the pay-back job sends it as a new try (an hour later at the earliest,
+ * as after any refusal). Until it is really paid, a host's take-back that rests on it is not taken
+ * (disputes/takeback.ts, refundStands).
+ */
+export async function payBackFailedLate(refundId: string, stripeRefundId: string, reason: string, now: Date = new Date()): Promise<boolean> {
+  const [seen] = await db.select({ monthId: lines.monthId }).from(lines).where(eq(lines.id, refundId));
+  if (!seen) return false;
+  return db.transaction(async (tx) => {
+    await lockForMonth(tx, seen.monthId);
+    return payBackUndone(tx, refundId, stripeRefundId, reason, now);
+  });
 }
 
 /**
