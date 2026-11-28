@@ -37,9 +37,15 @@ Everything else below is the builder's.
    coming member calls are cancelled at no charge, and the time they had not used is paid back
    to their card. Nothing of it expires. Time they used stays paid for. A month a bank is
    disputing is left as it stands.
-4. **What the member keeps. (builder)** Their place in the host's member list, their own price
-   and their own time. (As with every paused membership, "who has been a member longest" counts
-   anew from the day they resume.)
+4. **What the member keeps, and what they do not. (builder)** They keep their place in the host's
+   member list, and while the membership is paused their own price and time stay written on it.
+   But resuming is like joining again, as from every pause: the member gets the host's
+   membership **as it is on that day**, price and time included, and agrees to that. If the host
+   has raised her price since they joined, they pay the new price from then on. (Their own,
+   lower price is not carried over a pause today, whatever caused the pause. Whether a pause
+   with an account should be an exception is a question for the founder; it is not built.)
+   As with every paused membership, "who has been a member longest" counts anew from the day
+   they resume.
 5. **Resuming. (builder)** The member resumes by themselves, as from any pause: the page shows
    the host's offer as it is now, they tick the box, enter a card, and a new month starts.
    Nothing is charged without that. It works only once both accounts are active again (that
@@ -142,4 +148,13 @@ Not taken, and why:
   "Resume".
 - **A second "you can resume" email** when the member's own pause is lifted later: true, and
   harmless.
+
+## CodeRabbit (27 November 2026): one point, and the automatic security check: one
+
+- **CodeRabbit**: the plan said a paused member keeps their own price and time, and also that
+  resuming shows the host's offer as it is then. The code does the second. Decision 4 now says
+  so plainly, and the founder is told (the builder had said "keeps their price").
+- **The automatic security check**: the moment that decides what a pause ends was taken before
+  the pause's own step, which can wait; a request made during that wait would have survived the
+  pause. It is taken right after the step now.
 

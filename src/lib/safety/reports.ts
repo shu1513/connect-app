@@ -329,13 +329,11 @@ async function pause(input: {
   const { person, reason } = input;
   let endedMemberships: string[] = [];
   let givenUpPayments: string[] = [];
-  // The moment of this pause. What is ended after it is only what was there by this moment.
-  const pausedAt = new Date();
   const done = await db.transaction(async (tx) => {
     if (input.first && !(await input.first(tx))) return "not_first" as const;
     const [row] = await tx
       .update(schema.user)
-      .set({ pausedAt, pausedReason: reason, updatedAt: new Date() })
+      .set({ pausedAt: new Date(), pausedReason: reason, updatedAt: new Date() })
       .where(and(eq(schema.user.id, person.id), isNull(schema.user.pausedAt)))
       .returning({ id: schema.user.id });
     // Paused already: what `first` wrote stays written, the founder is told, and nothing else is done.
@@ -364,6 +362,11 @@ async function pause(input: {
     return "paused" as const;
   });
   if (done !== "paused") return done;
+  // The pause is saved. Everything that was made up to this moment is ended below, and nothing made after it:
+  // from here on nothing new can be made for a paused account, so what comes later can only come after a lift.
+  // (Taken now, after the step, and not before it: the step may have waited, and a request made during that wait
+  // must not slip through.)
+  const madeBy = new Date();
   // The account is paused from here on, whatever happens next. First what keeps people safe (requests and
   // calls), then the money of the memberships that were paused with it. If the server stops before this is done,
   // the helper does it: the requests and calls with finishPausesAndClosures, the money with its usual rounds.
@@ -375,7 +378,7 @@ async function pause(input: {
   // And only what was there when the account was paused is ended: a request or a call made after a lift is left
   // alone also if the lift falls between this look and the ending itself.
   const now = new Date();
-  const callsNotEnded = still?.pausedAt || still?.closedAt ? await endRequestsAndCallsOf(person.id, now, now, pausedAt) : 0;
+  const callsNotEnded = still?.pausedAt || still?.closedAt ? await endRequestsAndCallsOf(person.id, now, now, madeBy) : 0;
   await cleanUpEndedMemberships(endedMemberships, new Date());
   await letGoAll(givenUpPayments, new Date());
   return { callsNotEnded };

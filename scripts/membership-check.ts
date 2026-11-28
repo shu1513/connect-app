@@ -1772,7 +1772,7 @@ async function main() {
     const a = await MS(paid.membershipId);
     const b = await MS(onHold.membershipId);
     check("the host's account is paused: her memberships are paused in the same step, not ended", a.status === "paused" && a.pausedReason === "account" && a.endedAt === null && a.currentMonthId === null && b.status === "paused" && b.pausedReason === "account" && b.endedAt === null, `${a.status} ${b.status}`);
-    check("each member keeps their place, their own price and their own time", a.ownPricePer15Cents === was.ownPricePer15Cents && a.ownMinutes === was.ownMinutes && a.agreementId === was.agreementId && a.since?.getTime() === was.since?.getTime());
+    check("while it is paused, the membership keeps what was written on it: the member's own price, time and agreement, and since when", a.ownPricePer15Cents === was.ownPricePer15Cents && a.ownMinutes === was.ownMinutes && a.agreementId === was.agreementId && a.since?.getTime() === was.since?.getTime());
     const month = await M(paid.monthId);
     const refunds = await refundsOf(paid.monthId);
     check("a month that was paid for: all the time not used is owed back to the member's card, as after an ending, and nothing is left to expire", before.freeCents > 0 && month.freeCents === 0 && month.toPayBackCents + month.paidBackCents === before.freeCents && refunds.length === 1 && refunds[0].sourceKey === `ending:${paid.monthId}` && /was paused/.test(refunds[0].reason), `${before.freeCents} ${month.freeCents} ${month.toPayBackCents} ${month.paidBackCents}`);
