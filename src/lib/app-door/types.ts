@@ -368,8 +368,10 @@ export type AppPart = string | { bold: string } | { time: string };
  * How a host answers a request that waits for her: the two buttons, and the question the app asks
  * before it accepts (a touch by mistake would make a commitment). "now": a call asked for right
  * away, which is answered where such calls arrive, not with these buttons; `elsewhere` says where.
+ * `accept` is null when accepting is not offered and declining still is: for a host whose own
+ * account is paused, on a request's own page.
  */
-export type AppAnswer = { kind: "booked" | "now"; accept: string; decline: string; sure: AppPart[]; yes: string; no: string; elsewhere: string | null };
+export type AppAnswer = { kind: "booked" | "now"; accept: string | null; decline: string; sure: AppPart[]; yes: string; no: string; elsewhere: string | null };
 
 /**
  * The answer of GET /api/app/hosts/[handle]/book: what a customer reads before asking a host for
@@ -471,7 +473,7 @@ export type AppBooking = {
     answer: AppAnswer | null;
   } | null;
   /** Blocking the other person, for either of the two, once the request was sent: the button, and the question to ask first. */
-  /** The link to the report form ("Report Maya"), once the request was sent; null before. */
+  /** The link to the report form ("Report Maya"), once the request was sent or became a call; null for one that never reached the host. */
   report: string | null;
   block: { label: string; sure: string; yes: string; no: string } | null;
   /** While the request can still change by itself: how often the app asks again. */

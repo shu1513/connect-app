@@ -18,7 +18,7 @@ import { CARD_CONSENT_VERSION, cardStepOpen, LIMITS, newRequestKey } from "@/lib
 import { WAITING_WORDS } from "@/lib/booking/waiting-words";
 import { NOTE_MAX, openAndUnblocked } from "@/lib/people/contacts";
 import { BLOCK_WORDS } from "@/lib/safety/block-words";
-import { mayStillAct } from "@/lib/safety/may-act";
+import { mayActWith } from "@/lib/safety/may-act";
 import { REPORT_WORDS } from "@/lib/safety/report-words";
 import { publicProfile, sellerLine } from "@/lib/profiles/profiles";
 import { answerFor } from "./requests";
@@ -93,12 +93,18 @@ export function mayEnterCard(booking: { source: string }, switches: AppSwitches)
  *
  * One exception, as on the website: a person whose own account is paused keeps what is theirs.
  * They still read their requests as before, can take one back or decline one, and a host can go
- * on with her note. Not at the card step: entering a card is refused to a paused person, so
- * nothing is left to do with such a request, and its page says the one sentence.
+ * on with her note. **Only while that pause of their own is the one thing in the way:** if the
+ * other person's account is paused or closed as well, or there is a block between the two, the
+ * reader's own pause gives them nothing of the other person. And not at the card step: entering
+ * a card is refused to a paused person, so nothing is left to do with such a request, and its
+ * page says the one sentence.
+ *
+ * The one decision for reading the request and for saving the host's note on it.
  */
-export async function detailsWithheld(person: { paused: boolean }, booking: { hostId: string; customerId: string; stage: string }): Promise<boolean> {
-  if (await mayStillAct(booking.hostId, booking.customerId)) return false;
-  return !(person.paused && booking.stage !== "card");
+export async function detailsWithheld(person: { id: string; paused: boolean }, booking: { hostId: string; customerId: string; stage: string }): Promise<boolean> {
+  const otherId = person.id === booking.hostId ? booking.customerId : booking.hostId;
+  const ownPauseAside = person.paused && booking.stage !== "card";
+  return !(await mayActWith(person.id, [otherId], undefined, { ownPauseAside })).has(otherId);
 }
 
 /** The host's part of a request whose details are withheld: nothing about the person who asked, not even the name. */
@@ -127,8 +133,9 @@ async function hostPart(found: RequestPage, paused: boolean): Promise<NonNullabl
     // Whether she may keep a note about this person is decided where notes are kept; here it is only shown, and
     // never beside "nothing may be said about them" (the two are asked at slightly different moments).
     note: known && found.note?.allowed ? { title: WAITING_WORDS.noteTitle(name), hint: WAITING_WORDS.noteHint, text: found.note.text, max: NOTE_MAX, save: WAITING_WORDS.noteSave, notSaved: WAITING_WORDS.noteNotSaved } : null,
-    // Accepting is refused to a host whose own account is paused, so the two answers are not offered to her.
-    answer: booking.stage === "waiting" && !paused ? answerFor(booking) : null,
+    // Accepting is refused to a host whose own account is paused, so it is not offered to her. Declining is not
+    // refused (it only tidies up), so she is still offered that.
+    answer: booking.stage === "waiting" ? { ...answerFor(booking), ...(paused ? { accept: null } : {}) } : null,
   };
 }
 
@@ -200,8 +207,9 @@ export async function bookingPageFor(person: { id: string; paused: boolean }, bo
     takeBack: mine && waiting ? REQUEST_WORDS.takeBack : null,
     takeBackSure: mine && waiting ? { words: REQUEST_WORDS.takeBackSure, yes: REQUEST_WORDS.takeBackYes, no: REQUEST_WORDS.takeBackNo } : null,
     host: mine ? null : withheld ? NOBODY : await hostPart(found, person.paused),
-    // As on the website's page: either of the two can report the other once the request was sent.
-    report: booking.stage !== "card" ? REPORT_WORDS.reportPerson(otherName || REQUEST_WORDS.nobody) : null,
+    // Either of the two can report the other once the request was sent, or became a call: the test of "Block"
+    // below, since a report also blocks. Not from a request that ran out at its card step: it never reached the host.
+    report: mayBlockThrough(booking) ? REPORT_WORDS.reportPerson(otherName || REQUEST_WORDS.nobody) : null,
     // As on the website's page: either of the two can block the other once the request was sent. (Also while the
     // details are withheld: the step itself works whoever the other person is, and the label then names nobody.)
     block:

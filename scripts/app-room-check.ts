@@ -351,28 +351,32 @@ async function main() {
       // between the two: the app's sentence, under "Block" and in the question before it, never names a contribution,
       // and names a membership only while memberships are on for the apps. The website's page keeps its sentence.
       {
-        const [membership] = await db.insert(schema.memberships).values({ hostId: host.id, customerId: cust.id, status: "active", since: now }).returning();
-        const [project] = await db.insert(schema.projects).values({ hostId: host.id, name: `Album ${RUN}`, startedAt: new Date(now.getTime() - 60 * 24 * 60 * MINUTE) }).returning();
-        const [monthly] = await db.insert(schema.contributions).values({ projectId: project.id, hostId: host.id, contributorId: cust.id, kind: "monthly", amountCents: 1000, status: "running", requestKey: randomUUID() }).returning();
+        // The three rows in one step: either all of them are there, or (should one be refused) none is left behind.
+        const { membership, project, monthly } = await db.transaction(async (tx) => {
+          const [membership] = await tx.insert(schema.memberships).values({ hostId: host.id, customerId: cust.id, status: "active", since: now }).returning();
+          const [project] = await tx.insert(schema.projects).values({ hostId: host.id, name: `Album ${RUN}`, startedAt: new Date(now.getTime() - 60 * 24 * 60 * MINUTE) }).returning();
+          const [monthly] = await tx.insert(schema.contributions).values({ projectId: project.id, hostId: host.id, contributorId: cust.id, kind: "monthly", amountCents: 1000, status: "running", requestKey: randomUUID() }).returning();
+          return { membership, project, monthly };
+        });
         const before = await switches();
         const blockOf = async () => ((await asApp(`/api/app/calls/${id}/ended`, { jar: cust.jar })).json as AppEndedScreen | null)?.block;
         try {
-          await setSwitches({ appMemberships: "on" });
+          // Memberships are switched on for everyone for this case, whatever the switch was (off for everyone is off
+          // in the apps too, and "on for the apps" would then be read with the "off" wording). Put back below.
+          await setSwitches({ memberships: "everyone", appMemberships: "on" });
           const on = await blockOf();
           await setSwitches({ appMemberships: "use_only" });
           const useOnly = await blockOf();
           await setSwitches({ appMemberships: "off" });
           const off = await blockOf();
-          // (Memberships switched off for everyone are off in the apps too; then the app's switch changes nothing.)
-          const forEveryone = before.memberships !== "off";
           check("the app's sentence under \"Block\" is not the website's: it names no contribution", on !== undefined && on.what !== END_WORDS.blockWhat(hostName) && [on, useOnly, off].every((block) => block !== undefined && !/contribution/i.test(`${block.what} ${block.sure}`)), `${on?.what}`);
           check("the question the app asks before blocking is that same sentence", [on, useOnly, off].every((block) => block !== undefined && block.sure === block.what));
-          check("with memberships on for the apps (also when nothing is bought in the app) it names a membership", on?.what === END_WORDS.blockWhat(hostName, { memberships: forEveryone }) && useOnly?.what === on?.what && /membership/i.test(on?.what ?? "") === forEveryone, `${on?.what}`);
+          check("with memberships on for the apps (also when nothing is bought in the app) it names a membership", on?.what === END_WORDS.blockWhat(hostName, { memberships: true }) && useOnly?.what === on?.what && /any membership between you ends/.test(on?.what ?? ""), `${on?.what}`);
           check("with memberships off for the apps it names calls and nothing else", off?.what === END_WORDS.blockWhat(hostName, { memberships: false }) && !/membership/i.test(`${off?.what} ${off?.sure}`), `${off?.what}`);
           const webEnded = await asBrowser(`/calls/${id}/ended`, { jar: cust.jar });
           check("the website's own page keeps its sentence, with the membership and the monthly contribution", webEnded.status === 200 && webEnded.text.includes("any membership or monthly contribution between you ends"), `${webEnded.status}`);
         } finally {
-          await setSwitches({ appMemberships: before.appMemberships });
+          await setSwitches({ memberships: before.memberships, appMemberships: before.appMemberships });
           await db.delete(schema.contributions).where(eq(schema.contributions.id, monthly.id));
           await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
           await db.delete(schema.memberships).where(eq(schema.memberships.id, membership.id));

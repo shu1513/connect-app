@@ -1,4 +1,4 @@
-import { clockLine, isBlocked, isEnded, isEndedScreen, isLive, isPass, isReportForm, isReportSent, isRoom, laterEnd, reportPlace, ROOM_WORD_NAMES } from "./room-rules";
+import { clockLine, isBlocked, isEnded, isEndedScreen, isLive, isPass, isReportForm, isReportSent, isRoom, laterEnd, notTheMoment, reportPlace, ROOM_WORD_NAMES } from "./room-rules";
 
 const ID = "3f2c1b7a-9d4e-4f6a-8b1c-2d3e4f5a6b7c";
 const words = Object.fromEntries(ROOM_WORD_NAMES.map((name) => [name, `${name} words`]));
@@ -132,5 +132,38 @@ describe("the report form", () => {
     expect(reportPlace({ call: "abc", profile: "maya-g" })).toBeNull();
     expect(reportPlace({ booking: "maya-g" })).toBeNull();
     expect(reportPlace({ booking: ID })).toEqual({ place: "booking", id: ID });
+  });
+});
+
+describe("whether it is the moment for the call's own screen", () => {
+  const opensAt = Date.parse("2026-11-20T11:55:00.000Z");
+  const endsAt = Date.parse("2026-11-20T12:30:00.000Z");
+  const during = Date.parse("2026-11-20T12:10:00.000Z");
+  const going = { cancelled: false, safetyEnded: false };
+  const at = { ready: true, opensAt, now: during, endsAt, inCall: false, live: null };
+
+  it("a room that is open and ready is the moment; one that is not open yet, or not ready, is not", () => {
+    expect(notTheMoment(at)).toBe(false);
+    expect(notTheMoment({ ...at, now: opensAt - 1 })).toBe(true);
+    expect(notTheMoment({ ...at, ready: false })).toBe(true);
+  });
+
+  it("a fresh \"not ready\" wins also after the screen has asked where the call stands: no camera check for a room nobody can enter", () => {
+    // Someone who was on this screen, left it, and comes back while the other person's account is paused.
+    expect(notTheMoment({ ...at, ready: false, live: going })).toBe(true);
+    expect(notTheMoment({ ...at, ready: true, live: going })).toBe(false);
+  });
+
+  it("someone who holds an entry pass is in the call, whatever an earlier answer said", () => {
+    expect(notTheMoment({ ...at, ready: false, inCall: true })).toBe(false);
+    expect(notTheMoment({ ...at, ready: false, inCall: true, live: going })).toBe(false);
+  });
+
+  it("a call that is over as far as the screen knows stays on this screen, which leads on from there", () => {
+    expect(notTheMoment({ ...at, ready: false, live: { cancelled: false, safetyEnded: true } })).toBe(false);
+    expect(notTheMoment({ ...at, ready: false, live: { cancelled: true, safetyEnded: false } })).toBe(false);
+    expect(notTheMoment({ ...at, ready: false, now: endsAt, live: going })).toBe(false);
+    // Before the screen has asked anything, a call that was over when it was opened belongs to the call's page.
+    expect(notTheMoment({ ...at, ready: false, now: endsAt })).toBe(true);
   });
 });

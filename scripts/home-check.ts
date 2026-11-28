@@ -514,7 +514,8 @@ async function main() {
         const openRow = rowOf(sameTime[0].id);
         check(`${where}: a request of a closed account, and one across a block, are not on the list at all`, !html.includes(`data-request="${sameTime[1].id}"`) && !html.includes(`data-request="${fromRegular.id}"`) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`) && !html.includes(asking[1].name), `${count(html, "data-request=")} shown`);
         // Eight requests waited; six are left. (The time two people asked for is now one person's.)
-        check("  nor in its number", (path === "/" ? shown.words.includes("See all 6 requests") : count(html, "data-request=") === 6) && !shown.words.includes("2 people asked for this time. Choose one."), `${count(html, "data-request=")} shown`);
+        // The number the page itself says (the home page in its link to all of them, the requests page in its heading), and on the requests page the rows drawn.
+        check("  nor in its number", (path === "/" ? shown.words.includes("See all 6 requests") : shown.words.includes("Requests for calls (6)") && count(html, "data-request=") === 6) && !shown.words.includes("2 people asked for this time. Choose one."), `${count(html, "data-request=")} shown`);
         check("  and the open request beside them is still there, with its details", html.includes(`data-request="${sameTime[0].id}"`) && words(openRow).includes(`Request words 0 ${RUN}`) && openRow.includes("ratings"));
       }
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, asking[1].id));

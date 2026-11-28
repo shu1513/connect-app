@@ -670,6 +670,11 @@ export async function askNow(input: {
 async function cardStepFor(found: Booking, customer: Person): Promise<{ booking: Booking; clientSecret: string | null }> {
   let booking = found;
   if (booking.stage !== "card") return { booking, clientSecret: null };
+  // Nor while the two may no longer act (the host's account was paused or closed a moment ago, say, and her
+  // requests are not tidied up yet): no card is asked for on a request that can no longer be sent. Looked at here,
+  // before anything is asked of Stripe, so that every way into the card step shares it: the request's own page, and
+  // a sending that finds the request already made (plans/45-phone-apps/09a, decision 6).
+  if (!(await mayStillAct(booking.hostId, booking.customerId))) return { booking, clientSecret: null };
 
   const setup = booking.stripeSetupIntentId
     ? await stripe().setupIntents.retrieve(booking.stripeSetupIntentId)
@@ -701,9 +706,7 @@ export async function cardStepOf(input: { bookingId: string; customer: Person; n
   if (!found || found.role !== "customer" || found.booking.stage !== "card") return null;
   // Past its time the request is over, also in the moments before the helper has written that down.
   if (!cardStepOpen(found.booking.createdAt, input.now)) return null;
-  // Nor while the two may no longer act (the host's account was paused or closed a moment ago, say, and her
-  // requests are not tidied up yet): no card is asked for on a request that can no longer be sent.
-  if (!(await mayStillAct(found.booking.hostId, found.booking.customerId))) return null;
+  // (`cardStepFor` hands out nothing while the two may no longer act.)
   const step = await cardStepFor(found.booking, input.customer);
   return step.clientSecret ? { booking: step.booking, clientSecret: step.clientSecret } : null;
 }

@@ -22,6 +22,7 @@ import { OutcomeUnknownError } from "@/lib/payments/operations";
 import { payOpensAt } from "@/lib/payments/rules";
 import { stripe, stripeConfigured } from "@/lib/payments/stripe";
 import { refreshPayoutsReady } from "@/lib/payments/hosts";
+import { mayStillAct } from "@/lib/safety/may-act";
 import { endUnanswered, endUnfinishedCardSteps, lockCalendars, endInstantRequestsOfAbsentHosts } from "./bookings";
 import { queueBookingEmails, whenFor } from "./emails";
 import { CARD_KEPT_FOR_THE_CALL, CARD_REMINDER, CARD_REMOVED_AFTER_END_MS, cardReminderDue } from "./rules";
@@ -159,6 +160,14 @@ async function placeHolds(now: Date): Promise<void> {
  */
 export async function tryHoldOnce(found: { booking: Booking; call: Call; payment: Payment }, now: Date): Promise<"held" | "not_held" | "unknown" | "already_tried"> {
   const { booking, call, payment } = found;
+  // While the call's two people may no longer act (an account paused or closed, or a block between them), the hold
+  // would be refused before any card is tried (src/lib/payments/hold.ts). That is not a card that failed: the one
+  // try is not used up, and nothing is written down about it. Such a call is being cancelled; if it stands after
+  // all (the pause was lifted first), the try is made at the helper's next pass.
+  if (!(await mayStillAct(call.hostId, call.customerId))) {
+    log(`no hold for booking ${booking.id}: its two people may not act just now`);
+    return "unknown";
+  }
   const claimed = await db
     .update(schema.bookings)
     .set({ holdTriedAt: now })
@@ -205,8 +214,11 @@ async function noteUnsettledTries(now: Date): Promise<void> {
       lte(schema.bookings.holdTriedAt, new Date(now.getTime() - 2 * 60_000)),
     ),
   );
-  for (const { booking, payment } of tried) {
+  for (const { booking, call, payment } of tried) {
     if (await actionInFlight(payment.id)) continue;
+    // A try that was refused because the two may no longer act (a pause or a block that landed in the instant it was
+    // made) is not a card problem: nobody is told "your card needs your attention" while that is so.
+    if (!(await mayStillAct(call.hostId, call.customerId))) continue;
     const synced = await syncHold(payment.id, now).catch(() => null);
     if (synced && synced.status === "awaiting_payment") await noteHoldFailed(booking.id, now);
   }

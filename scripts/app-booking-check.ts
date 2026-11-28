@@ -757,9 +757,19 @@ async function main() {
       const guest = await newPerson("guest");
       await passId(guest.id);
       const self = (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, second.id)))[0];
-      const sentTo = await send(self.handle, await okSummary(self.handle, (await openTimes(self.handle, guest.jar))[14], guest.jar), guest.jar);
+      const selfTimes = await openTimes(self.handle, guest.jar);
+      const sentTo = await send(self.handle, await okSummary(self.handle, selfTimes[14], guest.jar), guest.jar);
       const id = (sentTo.json as AppBookSent | null)?.id ?? "";
       if (!id) throw new Error(`The request for part 8 could not be made: ${sentTo.status} ${sentTo.text.slice(0, 160)}`);
+      // A second request to the same host, for her to decline while her own account is paused.
+      const sentToo = await send(self.handle, await okSummary(self.handle, selfTimes[17], guest.jar), guest.jar);
+      const declineId = (sentToo.json as AppBookSent | null)?.id ?? "";
+      if (!declineId) throw new Error(`The second request for part 8 could not be made: ${sentToo.status} ${sentToo.text.slice(0, 160)}`);
+      /** Whether a request's page was really read, and offers the card step. (A reading that failed offers nothing.) */
+      const offersCard = async (bookingId: string, jar: Jar) => {
+        const page = (await requestPage(bookingId, jar)).body;
+        return page !== null && page.card !== null;
+      };
       const setPaused = (userId: string, on: boolean) => db.update(schema.user).set({ pausedAt: on ? new Date() : null }).where(eq(schema.user.id, userId));
       /** A page whose details are withheld: the one sentence, a heading that names nobody, no step, and none of the other person's names anywhere in the answer. */
       const withheld = (reply: Reply, otherNames: string[]) => {
@@ -790,10 +800,29 @@ async function main() {
       // A host paused a moment ago.
       await setPaused(second.id, true);
       const hers = await requestPage(id, second.jar);
-      check("a host paused a moment ago still reads the request, and is not offered Accept, which the address refuses", hers.body?.role === "host" && hers.body.host?.customerName === guest.name && hers.body.host.answer === null && refusal(await step(id, "accept", second.jar)) === "paused" && (await row(id)).stage === "waiting", JSON.stringify(hers.body?.host).slice(0, 200));
+      const offered = hers.body?.host?.answer ?? null;
+      check("a host paused a moment ago still reads the request, and is offered declining only: no Accept, which the address refuses", hers.body?.role === "host" && hers.body.host?.customerName === guest.name && offered !== null && offered.accept === null && offered.decline === "Decline" && offered.kind === "booked" && refusal(await step(id, "accept", second.jar)) === "paused" && (await row(id)).stage === "waiting", JSON.stringify(hers.body?.host).slice(0, 300));
+      const declined = await step(declineId, "decline", second.jar);
+      const declinedPage = declined.status === 200 ? (declined.json as AppBooking) : null;
+      check("and she can decline from the phone while paused: the request is declined, and the answer is its page as it stands", declinedPage !== null && declinedPage.stage === "declined" && declinedPage.stageWords === "You declined this request." && declinedPage.host?.answer === null && (await row(declineId)).stage === "declined", `${declined.status} ${declined.text.slice(0, 160)}`);
       const custLooks = await requestPage(id, guest.jar);
       check("her customer, asking for the request directly, is told it is no longer available: no name, no host's page, nothing to take back", withheld(custLooks.reply, [self.displayName, self.handle]) && custLooks.body?.role === "customer" && custLooks.body.host === null, custLooks.reply.text.slice(0, 240));
       check('and can still report or block, under labels that name nobody', custLooks.body?.report === "Report this person" && custLooks.body.block?.label === "Block this person");
+      // Her own pause keeps her own things for her only while it is the ONE thing in the way. With the customer's
+      // account paused as well, or a block between the two, it gives her nothing of the customer: no name, no words,
+      // no note, and no note can be saved.
+      await setPaused(guest.id, true);
+      const bothPaused = await requestPage(id, second.jar);
+      const noteBoth = await asApp(`/api/app/bookings/${id}/note`, { jar: second.jar, body: { text: "Written while both are paused.", shown: null } });
+      check("a paused host whose customer is paused too is told the request is no longer available, with no name in any field", withheld(bothPaused.reply, [guest.name]) && bothPaused.body?.role === "host", bothPaused.reply.text.slice(0, 240));
+      check("and she can save no note on it", refusal(noteBoth) === "not_valid" && sentence(noteBoth) === `${GONE} Nothing was saved. What you typed is still in the box.` && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, second.id))).length === 0, sentence(noteBoth));
+      check("the same for the paused customer of a paused host: his own pause gives him nothing of her", withheld((await requestPage(id, guest.jar)).reply, [self.displayName, self.handle]));
+      await setPaused(guest.id, false);
+      await db.insert(schema.blocks).values({ blockerId: guest.id, blockedId: second.id });
+      const pausedAndBlocked = await requestPage(id, second.jar);
+      const noteBlocked = await asApp(`/api/app/bookings/${id}/note`, { jar: second.jar, body: { text: "Written across a block.", shown: null } });
+      check("nor does a paused host get anything of a customer across a block: no name, and no note is taken", withheld(pausedAndBlocked.reply, [guest.name]) && refusal(noteBlocked) === "not_valid" && sentence(noteBlocked).startsWith(GONE) && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, second.id))).length === 0, pausedAndBlocked.reply.text.slice(0, 240));
+      await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, guest.id));
       await setPaused(second.id, false);
 
       // A block between the two that has not ended the request (yet).
@@ -808,7 +837,7 @@ async function main() {
       // A paid request at its card step, and its host paused a moment ago: no card is saved for it.
       const paidSent = await send(noor.handle, await okSummary(noor.handle, nextPaid(), guest.jar), guest.jar);
       const cardId = (paidSent.json as AppBookSent | null)?.id ?? "";
-      check("(a paid request stands at its card step, and offers the card)", (await requestPage(cardId, guest.jar)).body?.card !== null && (await row(cardId))?.stage === "card", `${paidSent.status} ${paidSent.text.slice(0, 120)}`);
+      check("(a paid request stands at its card step, and offers the card)", (await offersCard(cardId, guest.jar)) && (await row(cardId))?.stage === "card", `${paidSent.status} ${paidSent.text.slice(0, 120)}`);
       await setPaused(noor.id, true);
       const stopped = await requestPage(cardId, guest.jar);
       check("with the host paused a moment ago, the request's page shows the sentence alone: no card step, no Report, no Block", withheld(stopped.reply, [noor.displayName, noor.handle]) && stopped.body?.report === null && stopped.body.block === null, stopped.reply.text.slice(0, 240));
@@ -819,20 +848,44 @@ async function main() {
         `${noCard.status} ${sentence(noCard)}`,
       );
       await setPaused(noor.id, false);
-      check("(with the pause lifted the card step is offered again)", (await requestPage(cardId, guest.jar)).body?.card !== null);
+      check("(with the pause lifted the card step is offered again)", await offersCard(cardId, guest.jar));
       await setPaused(guest.id, true);
       check("a paused customer's own request at its card step shows the sentence alone too: entering a card is refused to a paused person", withheld((await requestPage(cardId, guest.jar)).reply, [noor.displayName, noor.handle]) && refusal(await step(cardId, "card", guest.jar)) === "paused");
       await setPaused(guest.id, false);
+
+      // A request that ran out at its card step was never sent: no "Report" (a report also blocks) and no "Block" on
+      // its page, and the app takes no report from it. (Written straight into the database, as one that the helper ended.)
+      {
+        const { REPORT_REASONS } = await import("../src/lib/safety/reports");
+        const slot = new Date(nextPaid());
+        const [ranOut] = await db
+          .insert(schema.bookings)
+          .values({ hostId: noor.id, customerId: guest.id, startsAt: slot, endsAt: new Date(slot.getTime() + 30 * MINUTE), lengthMinutes: 30, breakMinutes: 5, pricePer15Cents: 2000, totalCents: 4000, freeCancelMinutes: 60, note: "", stage: "ran_out", source: "customer", requestKey: randomUUID(), endedReason: "the card was not entered in time", endedAt: now })
+          .returning();
+        const neverSent = (await requestPage(ranOut.id, guest.jar)).body;
+        check('a request that ran out at its card step offers neither "Report" nor "Block"', neverSent !== null && neverSent.stage === "ran_out" && neverSent.report === null && neverSent.block === null, JSON.stringify([neverSent?.report, neverSent?.block]));
+        const reported = await asApp("/api/app/report", { jar: guest.jar, body: { place: "booking", id: ranOut.id, reason: REPORT_REASONS[0].key, text: "" } });
+        const written = await db.select().from(schema.reports).where(eq(schema.reports.reporterId, guest.id));
+        const blocksMade = await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, guest.id), eq(schema.blocks.blockedId, noor.id)));
+        check("and a report sent from it all the same is refused: nothing is written down, and nobody is blocked", refusal(reported) === "not_valid" && sentence(reported) === "Request not found." && written.length === 0 && blocksMade.length === 0, `${reported.status} ${reported.text.slice(0, 160)}`);
+        // (Should that ever fail, what it made is taken away again, so the rest of this run and its clean-up are not in its way.)
+        await db.delete(schema.reports).where(eq(schema.reports.reporterId, guest.id));
+        await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, guest.id), eq(schema.blocks.blockedId, noor.id)));
+      }
 
       // A customer whose bank has an open dispute cannot start anything new that costs money (plans/47, decision 9).
       // In the app the refusal names no bank and no dispute, whatever the dispute was about.
       /** The same as `whileDisputed`, for a dispute about a contribution: written straight into the database, and taken away again. */
       const whileContributionDisputed = async <T>(customerId: string, hostId: string, work: () => Promise<T>): Promise<T> => {
-        const [project] = await db.insert(schema.projects).values({ hostId, name: `Album ${RUN}`, startedAt: new Date(Date.now() - 60 * 24 * 60 * MINUTE) }).returning();
-        const [contribution] = await db.insert(schema.contributions).values({ projectId: project.id, hostId, contributorId: customerId, kind: "once", amountCents: 2500, requestKey: randomUUID() }).returning();
-        const [payment] = await db.insert(schema.contributionPayments).values({ contributionId: contribution.id, number: 1, originKey: `check-${randomUUID()}`, amountCents: 2500, feePercentBps: 0, feeFixedCents: 0, feeForeignCardBps: 0 }).returning();
         const disputeId = `du_check_${randomUUID().replace(/-/g, "")}`;
-        await db.insert(schema.disputes).values({ id: disputeId, contributionPaymentId: payment.id, hostId, customerId, amountCents: 2500, reason: "fraudulent", stage: "chargeback", status: "needs_response", openedAt: new Date(), stageBeganAt: new Date() });
+        // All four rows in one step: either all of them are there, or (should one be refused) none is left behind.
+        const { project, contribution, payment } = await db.transaction(async (tx) => {
+          const [project] = await tx.insert(schema.projects).values({ hostId, name: `Album ${RUN}`, startedAt: new Date(Date.now() - 60 * 24 * 60 * MINUTE) }).returning();
+          const [contribution] = await tx.insert(schema.contributions).values({ projectId: project.id, hostId, contributorId: customerId, kind: "once", amountCents: 2500, requestKey: randomUUID() }).returning();
+          const [payment] = await tx.insert(schema.contributionPayments).values({ contributionId: contribution.id, number: 1, originKey: `check-${randomUUID()}`, amountCents: 2500, feePercentBps: 0, feeFixedCents: 0, feeForeignCardBps: 0 }).returning();
+          await tx.insert(schema.disputes).values({ id: disputeId, contributionPaymentId: payment.id, hostId, customerId, amountCents: 2500, reason: "fraudulent", stage: "chargeback", status: "needs_response", openedAt: new Date(), stageBeganAt: new Date() });
+          return { project, contribution, payment };
+        });
         try {
           return await work();
         } finally {
@@ -859,7 +912,8 @@ async function main() {
         ),
       );
       check("the website's own function keeps its sentence, which says why", onWebsite === STOPPED_WHILE_OPEN, onWebsite);
-      check("and none of those made a request", (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, guest.id), eq(schema.bookings.hostId, noor.id)))).length === 1);
+      // (Two requests of his with her are there already: the one at its card step, and the one that ran out there.)
+      check("and none of those made a request", (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, guest.id), eq(schema.bookings.hostId, noor.id)))).length === 2);
     }
   } finally {
     await restoreSwitches();

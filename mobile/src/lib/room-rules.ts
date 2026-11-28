@@ -84,6 +84,25 @@ export function laterEnd(known: number, said: string): number {
 }
 
 /**
+ * Whether this is not the moment for the call's own screen, so that the call's page is shown in its place (it says
+ * why, and leads back here when the room is open): the room has not opened yet, or the server's newest answer about
+ * the room says that something stands in the way (unpaid, cancelled, over, or the call's two people may no longer
+ * act). Never for someone who holds an entry pass: they are in the call.
+ *
+ * `live`: what the screen has learned by asking where the call stands (near its end, after a lost connection); null
+ * if it never asked. The newest "not ready" wins also then: someone who left this screen and comes back (their pass
+ * is gone) is not shown the camera check and "Join" for a room nobody can enter. One thing is kept: a call that is
+ * over as far as this screen knows (its time is up, or the server said it was cancelled or ended) stays here. The
+ * screen says "ended" itself, with the way on to what follows an ended call.
+ */
+export function notTheMoment(at: { ready: boolean; opensAt: number; now: number; endsAt: number | null; inCall: boolean; live: { cancelled: boolean; safetyEnded: boolean } | null }): boolean {
+  if (at.inCall) return false;
+  if (at.live === null) return !at.ready || at.now < at.opensAt;
+  const over = at.live.cancelled || at.live.safetyEnded || (at.endsAt !== null && at.now >= at.endsAt);
+  return !at.ready && !over;
+}
+
+/**
  * The clock line of a call, by the server's clock: until the start, the time left, and in the
  * last stretch the countdown (`last`, drawn large).
  */

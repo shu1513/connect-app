@@ -617,29 +617,39 @@ async function main() {
       const toPay = await newCall(host.id, cust.id, { startsIn: 25, price: 2000, minutes: 10 });
       const open = await newCall(host.id, cust.id, { startsIn: 200 });
       const over = await newCall(host.id, cust.id, { startsIn: -90, minutes: 30 });
-      const asThingsStand = async () => (await pageOf(toPay.call.id, cust.jar))?.state === "pay" && (await pageOf(open.call.id, cust.jar))?.state === "room" && (await pageOf(open.call.id, host.jar))?.state === "room";
-      check("(as things stand: the pay step for the customer, and the way to the room for both)", await asThingsStand());
+      // A paid call more than 2 days ahead: the customer is told from when it can be paid for, the host that she waits.
+      const farAhead = await newCall(host.id, cust.id, { startsIn: 4 * 24 * 60, price: 2000, minutes: 10 });
+      const asThingsStand = async () =>
+        (await pageOf(toPay.call.id, cust.jar))?.state === "pay" && (await pageOf(toPay.call.id, host.jar))?.state === "host_waits" && (await pageOf(farAhead.call.id, cust.jar))?.state === "too_early" && (await pageOf(farAhead.call.id, host.jar))?.state === "host_waits" && (await pageOf(open.call.id, cust.jar))?.state === "room" && (await pageOf(open.call.id, host.jar))?.state === "room";
+      check("(as things stand: the pay step or its date for the customer, the host waiting for it, and the way to the room for both)", await asThingsStand());
       /** No step that would be refused: neither the pay step nor the way into the room, and one sentence in their place. Cancelling stays. */
       const stopped = (page: AppCallPage | null) => page !== null && page.state === "blocked" && page.words?.length === 1 && page.words[0] === CANNOT && page.small === null && page.pay === null && page.room === null && page.cancel !== null && page.afterEnd === null;
-      /** A call that is over still leads to "Report" and "Block". */
+      /**
+       * ANOTHER call of the two, one that is over: its page still leads to "Report" and "Block". (The calls above, which
+       * can no longer go ahead, are not over: their page has no "Report" and no "Block", now as before.) The page must
+       * really have been read, and really be an ended call's.
+       */
       const stillLeads = async (jar: Jar) => {
+        const page = await pageOf(over.call.id, jar);
         const screen = await asApp(`/api/app/calls/${over.call.id}/ended`, { jar });
-        const body = screen.json as AppEndedScreen | null;
-        return (await pageOf(over.call.id, jar))?.afterEnd !== null && screen.status === 200 && Boolean(body?.report.label) && Boolean(body?.block.label);
+        const body = screen.status === 200 ? (screen.json as AppEndedScreen | null) : null;
+        return page !== null && page.state === "ended" && page.afterEnd !== null && page.afterEnd.label !== "" && body !== null && Boolean(body.report?.label) && Boolean(body.block?.label);
       };
       try {
         // A paused person.
         await setPaused(cust.id, true);
         check("a paused customer is not offered the pay step, which the address refuses: the page says that the call can no longer go ahead", stopped(await pageOf(toPay.call.id, cust.jar)) && refusal(await step(toPay.call.id, "pay", cust.jar)) === "paused", JSON.stringify(await pageOf(toPay.call.id, cust.jar)).slice(0, 200));
+        check("both people read the same about the unpaid call: the host is not told that she waits for a payment that cannot come", stopped(await pageOf(toPay.call.id, host.jar)));
+        check("nor is the customer told from when a call far ahead can be paid for, or its host that she waits", stopped(await pageOf(farAhead.call.id, cust.jar)) && stopped(await pageOf(farAhead.call.id, host.jar)));
         check("nor is either of the two offered the way into a room nobody can enter", stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)) && refusal(await step(open.call.id, "enter", cust.jar)) === "paused" && sentence(await step(open.call.id, "enter", host.jar)) === "This call has ended.");
-        check('a call that is over still leads to "Report" and "Block", for the paused person and for the other', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
+        check('another call of theirs, one that is over, still leads to "Report" and "Block", for the paused person and for the other', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
         await setPaused(cust.id, false);
 
         // Each of a blocked pair.
         await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: cust.id });
-        check("across a block neither of the two is offered the pay step or the way into the room", stopped(await pageOf(toPay.call.id, cust.jar)) && stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)));
+        check("across a block neither of the two is offered the pay step or the way into the room, and both read the same", stopped(await pageOf(toPay.call.id, cust.jar)) && stopped(await pageOf(toPay.call.id, host.jar)) && stopped(await pageOf(farAhead.call.id, cust.jar)) && stopped(await pageOf(open.call.id, cust.jar)) && stopped(await pageOf(open.call.id, host.jar)));
         check("and the steps behind them refuse, in their own sentences", sentence(await step(toPay.call.id, "pay", cust.jar)) === "This call can no longer be paid for." && sentence(await step(open.call.id, "enter", host.jar)) === "This call has ended." && sentence(await step(open.call.id, "enter", cust.jar)) === "This call has ended." && (await paymentOf(toPay.call.id)).stripePaymentIntentId === null);
-        check('a call that is over still leads to "Report" and "Block" for each of the two', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
+        check('another call of theirs, one that is over, still leads to "Report" and "Block" for each of the two', (await stillLeads(cust.jar)) && (await stillLeads(host.jar)));
         await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, host.id), eq(schema.blocks.blockedId, cust.id)));
 
         // The other account closed a moment ago.

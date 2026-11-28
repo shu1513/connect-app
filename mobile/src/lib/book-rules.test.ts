@@ -138,6 +138,10 @@ describe("a request's page for its host, and her list", () => {
     expect(isBooking({ ...booking, host })).toBe(false);
     expect(isBooking({ ...forHost, host: null })).toBe(false);
     expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, kind: "else" } } })).toBe(false);
+    // A host whose own account is paused is offered declining only: an answer without "Accept" is still an answer.
+    expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, accept: null } } })).toBe(true);
+    expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, accept: undefined } } })).toBe(false);
+    expect(isBooking({ ...forHost, host: { ...host, answer: { ...host.answer, decline: null } } })).toBe(false);
     expect(isBooking({ ...forHost, host: { ...host, note: { title: "About Ann" } } })).toBe(false);
     expect(isBooking({ ...forHost, block: { label: "Block Ann" } })).toBe(false);
     expect(isBooking({ ...forHost, role: "admin" })).toBe(false);

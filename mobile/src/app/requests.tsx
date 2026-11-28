@@ -147,9 +147,11 @@ export default function RequestsScreen() {
               {request.respondBy ? <Text style={[styles.small, { color: colors.accentDeep }]}>Answer by {localTime(request.respondBy)}</Text> : null}
               {answered.includes(request.id) ? null : request.answer.kind === "booked" ? (
                 <View style={styles.buttons}>
-                  <View style={styles.button}>
-                    <Button label={request.answer.accept} busy={answering === `${request.id} accept`} disabled={answering !== null} onPress={() => askBeforeAccepting(request.answer, watch(), () => void answer(request, "accept"))} />
-                  </View>
+                  {request.answer.accept !== null ? (
+                    <View style={styles.button}>
+                      <Button label={request.answer.accept} busy={answering === `${request.id} accept`} disabled={answering !== null} onPress={() => askBeforeAccepting(request.answer, watch(), () => void answer(request, "accept"))} />
+                    </View>
+                  ) : null}
                   <View style={styles.button}>
                     <Button label={request.answer.decline} kind="plain" busy={answering === `${request.id} decline`} disabled={answering !== null} onPress={() => void answer(request, "decline")} />
                   </View>

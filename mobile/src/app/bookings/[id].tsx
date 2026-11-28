@@ -355,7 +355,8 @@ function OneRequest({ id }: { id: string }) {
           {saying ? <Notice>{saying}</Notice> : null}
           {answer?.kind === "booked" ? (
             <>
-              <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, watch(), () => void act("accept"))} />
+              {/* Without "Accept", only declining is offered (a host whose own account is paused can still decline). */}
+              {answer.accept !== null ? <Button label={answer.accept} busy={busy === "accept"} disabled={busy !== null} onPress={() => askBeforeAccepting(answer, watch(), () => void act("accept"))} /> : null}
               <Button label={answer.decline} kind="plain" busy={busy === "decline"} disabled={busy !== null} onPress={() => void act("decline")} />
             </>
           ) : answer?.elsewhere ? (

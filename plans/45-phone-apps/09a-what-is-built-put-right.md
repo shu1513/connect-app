@@ -291,3 +291,51 @@ the phone, and made the corrections below. Astra and CodeRabbit read the result 
   mode); "Block this person" on a request across a block (the request for the walk was put
   into the database by hand and was not one that can be blocked through; `app-booking-check`
   checks it for a real one); the notice of a coming document version (none is announced).
+
+## Astra's first look at the code (27 November 2026): "not ready", worked in
+
+Nine points to fix and six smaller ones. The corrections were made by the same terminal Claude
+from a second brief, then read and checked again (lint, types, tests, and fourteen check
+scripts, all passing).
+
+**Taken:**
+
+1. *A reader's own pause overrode the other person's privacy.* If both people were paused, or
+   there was a block as well, a paused host still got the customer's name, words and note.
+   The exception for a paused reader now holds only when their own pause is the one thing in
+   the way (`mayActWith` with `ownPauseAside`).
+2. *A paused host had lost "Decline" on the phone.* The server now sends an answer that offers
+   declining only, and the screens draw it.
+3. *"Report" was offered on a request that was never sent* (one that ran out at its card step),
+   and a report also blocks. The app offers it by the same test as "Block", and the app's
+   report address refuses such a report.
+4. *A second sending of the same request could still make a card step at Stripe after a
+   pause.* The rule now sits inside `cardStepFor`, which every way into the card step shares.
+5. *The phone could offer "Join" again* after an earlier answer, when the newest one said "not
+   ready". The newest answer wins (`notTheMoment` in `mobile/src/lib/room-rules.ts`).
+6. *The website's list of instant requests* (`liveForHost`) still showed a paused customer. It
+   asks the rule now. (Part 11 had this on its list; it is done here.)
+7. *The two people of an unpaid call that cannot go ahead read different things.* The rule is
+   asked for every state that speaks of paying.
+8. *A hold refused because the two may no longer act could later be told to the customer as a
+   card that failed.* This was so before this part too, for a pause or a block. The helper no
+   longer uses up its one try, and sends no card email, while the two may not act.
+9. *Four checks could pass without looking, and two could leave rows behind.* Corrected.
+10. *A comment and a check's label claimed "Report" and "Block" for a call that cannot go
+    ahead.* The app's page of a call that is not over never had them; both now say so.
+
+**Not taken:**
+
+- *Keeping the pause's reason in the opening answer for older copies of the app.* No copy is in
+  a store; until one is, the app and the server change together (part 06's rule).
+- *Hiding "When" and "Price" on a request whose details are withheld.* They say nothing about
+  the other person.
+- *Leaving a request of a just-paused customer out of the emails that gather waiting requests.*
+  The tidying-up ends it within about a minute.
+- *A new "Report" and "Block" for a coming call that cannot go ahead.* A way to report from a
+  cancelled call is part 10's.
+
+**Found and left, said here so that it is not lost:** the website's own page of a request has
+the hole of point 3 too (it offers "Report" for a request that ran out at its card step, and the
+report is taken). Anyone can report a host from her public page as well, so it gives nothing
+that is not there already; it was not changed in this part.

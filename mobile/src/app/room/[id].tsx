@@ -10,7 +10,7 @@ import { sameId } from "@/lib/book-rules";
 import { PLAIN_HTTP_ALLOWED } from "@/lib/config";
 import { useWatch } from "@/lib/here";
 import { useOpening } from "@/lib/opening";
-import { clockLine, isEnded, isLive, isPass, isRoom, laterEnd } from "@/lib/room-rules";
+import { clockLine, isEnded, isLive, isPass, isRoom, laterEnd, notTheMoment } from "@/lib/room-rules";
 import { InCall } from "@/room/in-call";
 import { Lobby } from "@/room/lobby";
 import { BackLink, Button, Card, Loading, Notice, Page, Words } from "@/ui/pieces";
@@ -357,9 +357,10 @@ function OneRoom({ id }: { id: string }) {
   const toCall = useCallback(() => router.replace({ pathname: "/calls/[id]", params: { id } }), [id]);
   const back = () => (router.canGoBack() ? router.back() : toCall());
 
-  // Not the moment for this screen (not open yet, unpaid, cancelled, over when it was opened): the call's own page
-  // says which, and leads here again when the room is open.
-  const notNow = room !== null && now !== null && !pass && live === null && (!room.ready || now < opensAt);
+  // Not the moment for this screen (not open yet, unpaid, cancelled, over when it was opened, or the call's two
+  // people may no longer act): the call's own page says which, and leads here again when the room is open. Whenever
+  // there is no entry pass, the server's newest "not ready" wins, also for someone who was here before and comes back.
+  const notNow = room !== null && now !== null && notTheMoment({ ready: room.ready, opensAt, now, endsAt, inCall: pass !== null, live });
   useEffect(() => {
     if (toEnded && inFront) router.replace({ pathname: "/ended", params: { call: id } });
     else if (notNow && inFront && ending === "no") toCall();

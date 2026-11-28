@@ -5,10 +5,12 @@
  * page; it has no diary posts to report.
  */
 import "server-only";
+import { bookingFor } from "@/lib/booking/bookings";
 import { endedScreenFor } from "@/lib/call-page/ended";
 import { callStopState } from "@/lib/safety/report-form";
 import { REPORT_TEXT_MAX, REPORT_WORDS } from "@/lib/safety/report-words";
 import { REPORT_REASONS } from "@/lib/safety/reports";
+import { mayBlockThrough } from "./booking";
 import type { AppReportForm } from "./types";
 
 /** Where the app can report from. */
@@ -34,4 +36,17 @@ export async function reportFormFor(person: { id: string }, place: AppReportPlac
     send: REPORT_WORDS.send,
     danger: REPORT_WORDS.danger,
   };
+}
+
+/**
+ * Whether the app takes a report from this place. From a request only once it was really sent, or
+ * became a call: the test by which the request's page offers "Report" and "Block"
+ * (`mayBlockThrough`). A report also blocks, and a request that stopped at its card step never
+ * reached the host: neither of the two has anything of the other's through it. (A request that is
+ * nobody's, or somebody else's, is left to the report itself, which says "not found".)
+ */
+export async function appMayReportFrom(person: { id: string }, place: AppReportPlace, placeId: string): Promise<boolean> {
+  if (place !== "booking") return true;
+  const found = await bookingFor(placeId, person.id);
+  return !found || mayBlockThrough(found.booking);
 }

@@ -12,8 +12,14 @@ import { db, schema } from "@/db";
 
 type Reader = Pick<typeof db, "select">;
 
-/** Of these people, those with whom this person may still act. Two questions, however many people. */
-export async function mayActWith(personId: string, otherIds: string[], reader: Reader = db): Promise<Set<string>> {
+/**
+ * Of these people, those with whom this person may still act. Two questions, however many people.
+ *
+ * `ownPauseAside`: the same question with this person's own pause left out of it, and nothing else: the answer
+ * then holds the people for whom that pause is the ONLY thing in the way (their account open and not paused, no
+ * block either way, and this person's own account not closed). For what a paused person may still read of their own.
+ */
+export async function mayActWith(personId: string, otherIds: string[], reader: Reader = db, options: { ownPauseAside?: boolean } = {}): Promise<Set<string>> {
   const ids = [...new Set(otherIds)];
   if (ids.length === 0) return new Set();
   // One after the other, not side by side: the reader may be a transaction, which has one connection.
@@ -23,13 +29,15 @@ export async function mayActWith(personId: string, otherIds: string[], reader: R
     .where(inArray(schema.user.id, [personId, ...ids]));
   const fine = new Set(people.filter((person) => !person.closedAt && !person.pausedAt).map((person) => person.id));
   // This person's own account first: closed or paused, they may act with nobody.
-  if (!fine.has(personId)) return new Set();
+  const self = people.find((person) => person.id === personId);
+  if (!self || self.closedAt || (self.pausedAt && !options.ownPauseAside)) return new Set();
   const blocks = await reader
     .select({ blockerId: schema.blocks.blockerId, blockedId: schema.blocks.blockedId })
     .from(schema.blocks)
     .where(or(and(eq(schema.blocks.blockerId, personId), inArray(schema.blocks.blockedId, ids)), and(eq(schema.blocks.blockedId, personId), inArray(schema.blocks.blockerId, ids))));
   const blocked = new Set(blocks.map((block) => (block.blockerId === personId ? block.blockedId : block.blockerId)));
-  return new Set(ids.filter((id) => fine.has(id) && !blocked.has(id)));
+  // (Asked about themselves, with their own pause set aside, a person is only held to their own account being open.)
+  return new Set(ids.filter((id) => (fine.has(id) || (id === personId && options.ownPauseAside)) && !blocked.has(id)));
 }
 
 /** Whether these two may still act with each other: the same rule, for one pair. */

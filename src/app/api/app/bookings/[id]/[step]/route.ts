@@ -73,7 +73,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
     if (booking.stage === "card" && !mayEnterCard(booking, switches)) return refuse("switched_off");
     if (step === "card") {
       // No card is asked for on a request that can no longer be sent (the host's account was paused or closed a
-      // moment ago, say). The step itself refuses too (`cardStepOf`); here it is said in the page's own sentence.
+      // moment ago, say). The step itself refuses too (`cardStepFor`); here it is said in the page's own sentence.
       if (await detailsWithheld(me, booking)) return refuse("not_valid", REQUEST_WORDS.noLongerAvailable);
       try {
         const card = await cardStepOf({ bookingId: id, customer: me, now });

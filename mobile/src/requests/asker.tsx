@@ -37,6 +37,8 @@ export function Asker({ name, photoId, rating, ratingWords: none, idConfirmed, l
  * only counts while the screen it was asked on is still the one in front.
  */
 export function askBeforeAccepting(answer: AppAnswer, still: () => boolean, onYes: () => void): void {
+  // Accepting is not offered (the server sent no "Accept"): there is nothing to ask about.
+  if (answer.accept === null) return;
   Alert.alert(answer.accept, plainWords(answer.sure, localTime), [
     { text: answer.no, style: "cancel" },
     {
