@@ -82,6 +82,26 @@ export function minutesCovered(freeCents: number, pricePer15Cents: number): numb
 export const UNDONE_BOOKINGS_PER_DAY = 5;
 
 /** What a month costs. Exact: the time is always a whole number of half hours. */
+/** The reason a membership carries when it was paused because one of its two accounts was paused (plans/53). */
+export const ACCOUNT_PAUSE = "account";
+
+/**
+ * The price and the time a member gets when they resume (plans/55). Resuming is like joining
+ * again: the host's membership as it is on that day. One exception: a membership that was paused
+ * because one of the two accounts was paused. The member did not choose that pause, so they come
+ * back as a renewal would have left them: with the time they had, at the lower of two prices,
+ * their own and the host's member price now. `kept` says that this exception applies.
+ */
+export function resumeTerms(
+  membership: { pausedReason: string | null; ownPricePer15Cents: number | null; ownMinutes: number | null },
+  offer: { pricePer15Cents: number; includedMinutes: number },
+): { pricePer15Cents: number; includedMinutes: number; kept: boolean } {
+  if (membership.pausedReason === ACCOUNT_PAUSE && membership.ownPricePer15Cents && membership.ownMinutes) {
+    return { pricePer15Cents: Math.min(membership.ownPricePer15Cents, offer.pricePer15Cents), includedMinutes: membership.ownMinutes, kept: true };
+  }
+  return { pricePer15Cents: offer.pricePer15Cents, includedMinutes: offer.includedMinutes, kept: false };
+}
+
 export function monthTotalCents(pricePer15Cents: number, includedMinutes: number): number {
   return (pricePer15Cents * includedMinutes) / 15;
 }

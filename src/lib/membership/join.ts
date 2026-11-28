@@ -22,7 +22,7 @@ import { writeDownMonth } from "./charge";
 import { ACCOUNT_PAUSE, queueInvitationOverEmail, queueInvitedEmail } from "./emails";
 import { lockCalendar, lockMembership } from "./locks";
 import { roomLeft } from "./room";
-import { afterTheWait, CARD_STEP_MS, INVITATION_MS, INVITATIONS_PER_PERSON, INVITATIONS_WINDOW_MS, MembershipError, timeWords } from "./rules";
+import { afterTheWait, CARD_STEP_MS, INVITATION_MS, INVITATIONS_PER_PERSON, INVITATIONS_WINDOW_MS, MembershipError, timeWords, resumeTerms } from "./rules";
 import { MEMBERSHIP_WORDING_VERSION } from "./wording";
 
 const IS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -198,19 +198,28 @@ async function alreadyAsked(tx: Tx, requestId: string, membershipId: string): Pr
  * "Resume" have in common. The place becomes the membership's for the card step, which has the
  * same short time limit a booking's card step has.
  */
-async function agreeAndStart(tx: Tx, membership: Membership, offer: MembershipOffer, kind: "joined" | "resumed", requestId: string, now: Date): Promise<{ membershipId: string; monthId: string }> {
+async function agreeAndStart(
+  tx: Tx,
+  membership: Membership,
+  offer: MembershipOffer,
+  kind: "joined" | "resumed",
+  requestId: string,
+  now: Date,
+  /** The price and the time agreed to. The host's own, unless a resume after a pause with an account keeps the member's (plans/55). */
+  terms: { pricePer15Cents: number; includedMinutes: number } = offer,
+): Promise<{ membershipId: string; monthId: string }> {
   const [last] = await tx.select({ number: sql<number>`coalesce(max(${schema.membershipMonths.number}), 0)::int` }).from(schema.membershipMonths).where(eq(schema.membershipMonths.membershipId, membership.id));
   const [agreement] = await tx
     .insert(schema.membershipAgreements)
-    .values({ membershipId: membership.id, requestId, kind, offerVersion: offer.version, pricePer15Cents: offer.pricePer15Cents, minutes: offer.includedMinutes, cardWordingVersion: MEMBERSHIP_WORDING_VERSION, firstMonthNumber: last.number + 1, at: now })
+    .values({ membershipId: membership.id, requestId, kind, offerVersion: offer.version, pricePer15Cents: terms.pricePer15Cents, minutes: terms.includedMinutes, cardWordingVersion: MEMBERSHIP_WORDING_VERSION, firstMonthNumber: last.number + 1, at: now })
     .returning();
   const [started] = await tx
     .update(schema.memberships)
     // The period goes up once per joining or resuming, so work left over from before can never touch this one.
-    .set({ status: "joining", period: membership.period + 1, ownPricePer15Cents: offer.pricePer15Cents, ownMinutes: offer.includedMinutes, agreementId: agreement.id, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, updatedAt: now })
+    .set({ status: "joining", period: membership.period + 1, ownPricePer15Cents: terms.pricePer15Cents, ownMinutes: terms.includedMinutes, agreementId: agreement.id, memberStoppedAt: null, hostStoppedAt: null, offerStoppedAt: null, updatedAt: now })
     .where(eq(schema.memberships.id, membership.id))
     .returning();
-  const month = await writeDownMonth(tx, started, { originKey: `agreement:${agreement.id}`, agreementId: agreement.id, pricePer15Cents: offer.pricePer15Cents, includedMinutes: offer.includedMinutes, cardStepExpiresAt: new Date(now.getTime() + CARD_STEP_MS) }, now);
+  const month = await writeDownMonth(tx, started, { originKey: `agreement:${agreement.id}`, agreementId: agreement.id, pricePer15Cents: terms.pricePer15Cents, includedMinutes: terms.includedMinutes, cardStepExpiresAt: new Date(now.getTime() + CARD_STEP_MS) }, now);
   return { membershipId: membership.id, monthId: month.id };
 }
 
@@ -281,8 +290,11 @@ export async function resume(input: { customerId: string; membershipId: string; 
     if (membership.pausedReason === ACCOUNT_PAUSE && !membership.cleanupDoneAt) throw new MembershipError("This membership is still being settled after its pause. Please try again in a few minutes.");
     // What the person agrees to is the membership the page showed them, never one the host changed in the meantime.
     if (offer.version !== input.offerVersion) throw new MembershipError("The host changed the membership while this page was open. Please look at it again before you resume.");
+    // The price and the time they come back with: the host's membership as it is now, or, after a pause with an
+    // account, their own (plans/55). The page showed the same, from the same rule.
+    const terms = resumeTerms(membership, offer);
     const room = await roomLeft(tx, found.hostId, now, membershipId);
-    if (room < offer.includedMinutes) throw new MembershipError("The host's hours have no room for another member at the moment. Please try again later.");
-    return agreeAndStart(tx, membership, offer, "resumed", requestId, now);
+    if (room < terms.includedMinutes) throw new MembershipError("The host's hours have no room for another member at the moment. Please try again later.");
+    return agreeAndStart(tx, membership, offer, "resumed", requestId, now, terms);
   });
 }

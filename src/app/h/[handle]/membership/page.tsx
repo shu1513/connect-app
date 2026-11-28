@@ -11,7 +11,7 @@ import { openTimesForInvited } from "@/lib/membership/book";
 import { hostForMemberByHandle, invitationFor, membershipFor, oldInvitationFor, ownMembershipByHandle, type HostForMember } from "@/lib/membership/access";
 import { secretToPay } from "@/lib/membership/charge";
 import { offerOfHost } from "@/lib/membership/offers";
-import { monthTotalCents, timeWords } from "@/lib/membership/rules";
+import { monthTotalCents, timeWords, resumeTerms } from "@/lib/membership/rules";
 import { agreementBox, agreementSentences, MEMBERSHIP_WORDING_VERSION } from "@/lib/membership/wording";
 import { readNotice } from "@/lib/notice";
 import { formatMoney } from "@/lib/payments/access";
@@ -165,6 +165,8 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
   // Paused: resuming is joining again without an invitation, on the host's membership as it is now.
   const offer = await offerOfHost(db, host.userId);
   const open = Boolean(offer?.on) && (await membershipsOnFor(host.userId));
+  // What they come back with: the same rule the resuming itself uses (plans/55).
+  const terms = offer ? resumeTerms(mine, offer) : { pricePer15Cents: 0, includedMinutes: 0, kept: false };
   return (
     <Frame title={`Resume your membership with ${host.displayName}`} back={{ href: `/memberships/${mine.id}`, text: "Your membership" }}>
       {notice && <Notice text={notice} />}
@@ -173,8 +175,15 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
         <p className="mt-2 text-sm">{host.displayName} is not offering a membership at the moment, so yours cannot be resumed now. It stays paused, and you can still book {host.displayName} like any customer.</p>
       ) : (
         <>
-          <p className="mt-2 text-sm">Resuming is like joining again: you get {host.displayName}&apos;s membership as it is now, and a new month starts today.</p>
-          <Terms host={host} offer={offer} minutes={offer.includedMinutes} />
+          {terms.kept ? (
+            <p className="mt-2 text-sm">
+              Your membership was paused because one of the two accounts was paused, so you come back as you were: with the time you had, at the price you had (or at {host.displayName}&apos;s member price of
+              today, if that is lower). A new month starts today.
+            </p>
+          ) : (
+            <p className="mt-2 text-sm">Resuming is like joining again: you get {host.displayName}&apos;s membership as it is now, and a new month starts today.</p>
+          )}
+          <Terms host={host} offer={offer} minutes={terms.includedMinutes} pricePer15Cents={terms.pricePer15Cents} />
           <form action={resumeAction} className="mt-5 text-sm">
             <input type="hidden" name="handle" value={host.handle} />
             <input type="hidden" name="membership" value={mine.id} />
@@ -216,15 +225,15 @@ function Notice({ text }: { text: string }) {
 }
 
 /** What the membership is: the monthly amount, the time, the member price beside the regular price, and the sentences the person agrees to. */
-function Terms({ host, offer, minutes }: { host: HostForMember; offer: MembershipOffer; minutes: number }) {
-  const monthly = monthTotalCents(offer.pricePer15Cents, minutes);
+function Terms({ host, offer, minutes, pricePer15Cents = offer.pricePer15Cents }: { host: HostForMember; offer: MembershipOffer; minutes: number; /** The member's price when it is not the host's member price of today (a resume after a pause with an account). */ pricePer15Cents?: number }) {
+  const monthly = monthTotalCents(pricePer15Cents, minutes);
   return (
     <section className={`${warm.card} mt-5`}>
       <p className="text-lg font-semibold">
         {formatMoney(monthly)} a month for {timeWords(minutes)} of calls
       </p>
       <p className="mt-1 text-sm">
-        Your member price is {formatMoney(offer.pricePer15Cents)} per 15 minutes. {host.displayName}&apos;s regular price is {formatMoney(host.pricePer15Cents)} per 15 minutes, so the same time would cost{" "}
+        Your member price is {formatMoney(pricePer15Cents)} per 15 minutes. {host.displayName}&apos;s regular price is {formatMoney(host.pricePer15Cents)} per 15 minutes, so the same time would cost{" "}
         {formatMoney(monthTotalCents(host.pricePer15Cents, minutes))} the ordinary way.
       </p>
       <ul className="mt-4 list-disc space-y-2 pl-5 text-sm">
