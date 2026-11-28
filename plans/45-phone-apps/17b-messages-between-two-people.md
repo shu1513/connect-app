@@ -3,7 +3,8 @@
 **Status:** a plan only. Written 27 November 2026 by the builder alone, on the founder's word
 ("build the plan for now"). Part of plan 45. Nothing here is built, and the phone build stays
 paused (the founder's word of 20 November) until the founder says otherwise. Astra checked it
-once ("not ready", 16 points); they are worked in, and listed at the end.
+twice (first "not ready", 16 points; then "ready with changes", 8 points); all are worked in
+or answered, and listed at the end.
 
 ## For the founder: what this is
 
@@ -151,7 +152,9 @@ this part.
    - Someone else's conversation and one that does not exist get the same answer: not found.
    - A person whose own account is closed is nobody to the gate ("Please log in."). A person
      looking at a conversation whose *other* person's account is closed gets the
-     conversation, with the rules' sentence ("This conversation is closed.").
+     conversation, with whatever sentence the rules give in their own order (usually "This
+     conversation is closed."; a block, the switch for everyone or the person's own pause
+     come first, as on the website).
 
 ### The list
 
@@ -181,7 +184,8 @@ this part.
      person cannot write;
    - the booking button, when there is one (decision 13);
    - for a customer only, and only on the website's condition: his switch for this host, as
-     the button's words and its explanation (decision 12);
+     the button's words, its explanation, and the position a press would put it in (on or
+     off), which the app sends back as it is (decision 12);
    - the "Block" button with its question, when it is offered (decision 11);
    - "Report", the word beside each message of the other person;
    - what the app may report as shown (decision 8);
@@ -193,8 +197,11 @@ this part.
    rules' own name for a refusal; a message's once-only key. A host whom the customer blocked
    and a host whom he switched off outside a call get answers that are alike field for field
    (the same sentence, the same buttons), also in the answer to a message sent a moment too
-   late, and also when the host's own account is paused. Every answer to a press (send,
-   switch, block) is held to the same list.
+   late, and also when the host's own account is paused.
+   **Two shapes, not one.** The switch and block answer with the conversation, held to the
+   list above. Sending answers with a small shape of its own: "sent", the key the sender
+   himself just sent, and the message's number; or the refusal's sentence. That is the only
+   place a key appears, and only ever the sender's own, back to him.
    "Read the rules" opens the rules page the way the app's report form does today; when
    part 18 gives the apps their own rules page, it opens that.
 
@@ -220,22 +227,29 @@ this part.
    messages), as the website's page does. It is small next to a video call. Sending only what
    is new would be a second way of reading, with its own mistakes to make; it is not built.
 
-8. **"Shown" means what it means on the website, and here the server checks it.** With each
-   answer the server says either "you may report this stretch as shown: from number A to
-   number B", or that the app may not (an unshown message lies before the stretch).
-   - The app reports A and B back only once the row of message B has really been on the
-     screen while the screen and the app were in front. The screen opens at its newest
-     message. Not for a screen in the background, not for an answer that arrived after the
-     phone was locked.
-   - **The server asks the website's question again when the report arrives:** is there a
-     message this person has not been shown that lies before A? If so, nothing is marked. So
-     the app's addresses cannot be used to jump the mark over a gap. The mark only goes up,
-     and never past the last message.
+8. **"Shown" means what it means on the website: the stretch was put on a screen that was in
+   front.** With each answer the server says either "you may report this stretch as shown:
+   from number A to number B", or that the app may not (an unshown message lies before the
+   stretch).
+   - The app reports A and B back once it has put that stretch on the screen, opened at its
+     newest message, while the screen and the app were in front. Not for a screen in the
+     background, not for an answer that arrived after the phone was locked. As on the
+     website, it is not asked whether the person scrolled up to every older line of the
+     stretch.
+   - **What the server checks when the report arrives:** A and B are whole numbers with
+     1 ≤ A ≤ B, and B is not higher than the conversation's last message (a higher B is
+     refused, not cut down to a newer message); and the website's question again: is there a
+     message this person has not been shown that lies before A? If so, nothing is marked.
+     Only the signed-in person's own mark is ever moved, and only up.
    - A message that arrives after the answer has a higher number than B, so it stays "New".
-   *Not taken from Astra's check:* a signed slip from the server that would prove which
-   stretch it really sent. The mark is a person's own: it decides only which of their own
-   conversations say "New" to them, and nobody else gains or loses by it. The website trusts
-   the browser's number entirely; this part already checks more than that.
+   - **What is trusted, said plainly:** that the phone reports the stretch the server gave
+     it. The server does not keep a record of which stretch it sent to which phone, so it
+     cannot prove that. The mark is a person's own: it decides which of their own
+     conversations say "New" to them and whether their own phones are still told about a
+     message (decision 19); nobody else gains or loses by it. The website trusts the
+     browser's number in the same way. *Not taken from Astra's first check:* a signed slip
+     from the server that would prove the stretch; Astra's second check agreed that it can
+     be left out if the trust is said openly.
 
 9. **Writing.** The box is always there while the screen is, open or not.
    - **One key for one message.** The phone makes a once-only key from its secure random
@@ -248,22 +262,30 @@ this part.
      and the words cannot be changed.
    - **"Sent" is believed only from an answer that names the same key** and the message's
      number. Then, and only then, the box is emptied, and the conversation is read afresh.
-   - **Not known.** No connection, the time limit, an answer that cannot be read, the server
-     stumbling in a way it did not foresee, or the gate refusing a later try (signed out,
-     copy too old, messages off for the apps): the message may or may not have been saved.
-     The app says so ("We could not confirm that this was sent. Press Send again: it will not
-     be sent twice."), keeps the words and the key, and keeps the "Send again" button **also
-     when the conversation has closed meanwhile**. That is safe: the server looks for the
-     saved message before it looks at anything else, so "Send again" then answers "sent" if
-     it was saved and the rules' refusal if it was not. "Not known" ends only with one of
-     those two answers, or when the person changes the words (the list above shows whether
-     the earlier ones arrived). It is never turned into "not sent" by a reading, by the
-     conversation closing, or by a refusal of the gate.
-   - **Refused by the rules** (who may write, a limit, too long, empty): now it is known that
-     it was not sent. The words stay, with the server's sentence, the same one the website
-     gives. The conversation is read afresh, so the screen shows how it now stands. If it is
-     closed, the words stay to be copied, under "What you wrote was not sent. You can still
-     copy it."
+   - **Not known.** No connection, the time limit, an answer that cannot be read, or the
+     server stumbling in a way it did not foresee: the message may or may not have been
+     saved. The app says so ("We could not confirm that this was sent. Press Send again: it
+     will not be sent twice."), keeps the words and the key, and keeps the "Send again"
+     button **also when the conversation has closed meanwhile**. Pressing it can never make
+     a second message: for the same person, conversation, key and words, the server looks
+     for the saved message before it looks at the rules, and answers "sent" again if it is
+     there.
+   - **Only "sent" with the same key ends "not known".** A refusal of a later try says why
+     *that* try was not taken. It does not prove that the first try failed: the first try
+     can still be on its way and be saved a moment later (for example when the later try
+     ran into "wait a minute" and the first one did not). So after "not known" the app never
+     says "not sent". A refusal's sentence is shown beside the standing "could not confirm"
+     line, and the messages above, read afresh, show whether it arrived. "Not known" also
+     ends when the person changes the words (a new message with a new key) or leaves.
+   - **When the gate says no to a try or a reading** (signed out, the copy too old, messages
+     off for the apps, not found): the screen is taken away as decision 7 says. Nothing is
+     said about sent or not sent.
+   - **Refused by the rules on a first try** (who may write, a limit, too long, empty), with
+     no "not known" before it: it is known that it was not sent. The words stay, with the
+     server's sentence, the same one the website gives (except the one sentence of
+     decision 13). The conversation is read afresh, so the screen shows how it now stands.
+     If it is closed, the words stay to be copied, under "What you wrote was not sent. You
+     can still copy it."
    - **Nothing is sent later, and nothing is sent by itself.** Every try is a press.
    - **Leaving the screen, signing out, or the sign-in running out** loses what was typed.
      The app makes every screen anew when the signed-in person changes, and it keeps nothing
@@ -299,21 +321,29 @@ this part.
 
 12. **The customer's switch for one host** ("Stop messages from Hana between calls" / "Allow
     messages from Hana again"), shown on the website's condition, moved through `setMuted`.
-    The answer is the conversation again with what was done. Only the customer of the
-    conversation is ever told that the switch exists.
+    The press sends the position the server named (on or off), never "the other one", so
+    the same press sent twice ends in the same place. The answer is the conversation again
+    with what was done. Only the customer of the conversation is ever told that the switch
+    exists.
 
 13. **The way to book leads into the app, in neutral words.**
-    - *When there is a button.* The server offers "Book a time with Hana" exactly when the
-      website's code finds that this customer can book her **the ordinary way** (her page is
-      public and has times: `offerOf`), no block stands between the two, and no old "End call
-      and report". That is the first half of the website's own question (`bookHrefFor`),
-      taken out as one shared function. The button opens the app's page of that host
-      (part 05), where he sees what can be booked, as from Search.
+    - *When there is a button.* The server offers "Book a time with Hana" to the customer of
+      a conversation exactly when she has an **ordinary offer** (her page is approved and
+      not hidden, her account open and not paused, lengths and weekly hours set: the
+      website's `offerOf`, the first half of its `bookHrefFor`), and, as `viewFor` asks
+      today, no block stands between the two and no old "End call and report".
+    - *What the button promises:* it opens her page in the app (part 05). It does not promise
+      a free time. As when he finds her through Search, the page may say that there are no
+      times right now or that she is not taking calls, and a paused customer is refused when
+      he tries to book. The website's button promises no more.
     - *The member's way does not count yet.* A member of a host whose page is hidden from the
       public can book on the website. In the app a member's times cannot be chosen until
-      part 13. Until then the app offers no button there, and says "This conversation is
-      closed.": plan 49's own rule for a customer with no way to book (its decision 11).
-      Part 13 changes this one function when it is built.
+      part 13, so until then there is no button for that case. **Only where the rules'
+      answer is "book again"** (the customer's 7 days are over) does that turn the sentence
+      into "This conversation is closed.": plan 49's own rule for a customer with no way to
+      book (its decision 11). Everything else is untouched: while he may still write to her
+      the box is open, and a block, a pause or a switch is said first, as always. Part 13
+      changes this one function when it is built.
     - *The same answer for a message sent too late:* the one function decides both.
     - *One sentence is worded differently in the app.* On the website a customer whose
       7 days are over reads a big button, "Book a call to write to Hana again". In the app he
@@ -341,9 +371,15 @@ this part.
       mends what is missing today after a report from a host's page. A press on "Block"
       never makes a second report. The answer only grows: a copy of the app that does not
       know the new field shows the sentence as before.
-    - **Afterwards** "Done" leads back to the conversation when the report came from a
-      message, and to Messages if that conversation can no longer be read; for the other
-      three places it leads Home, as today.
+    - **The receipt's "Block" address** is gated like the report form itself: anyone signed
+      in with the terms accepted, a copy that has become too old included. On every press
+      the server looks up afresh whose report that number is (`reportedOf`, for the person
+      signed in now); someone else's number is not found. It answers with one sentence and
+      nothing else.
+    - **Afterwards** "Done" leads, for a report from a message, back to the conversation if
+      it can still be read; otherwise to Messages if the app has that place right now;
+      otherwise Home. For the other three places it leads Home, as today. Where the app must
+      show "log in" or "please update" instead, it does, as everywhere.
 
 15. **On the phone itself.**
     - **Nothing of a conversation is written to the phone's storage:** no messages, no draft.
@@ -404,8 +440,11 @@ this part.
     are kept as they were in the first draft, so the notes of Astra's check still point at
     the right ones.)
     - **What it says:** "You have a new message." Nothing else: no name, no words of the
-      message (part 12, decision 4). What travels with it to Apple or Google is the
-      notification's own number and nothing about the conversation.
+      message (part 12, decision 4). Two numbers travel with it to Apple or Google, both made
+      up by Connect and meaning nothing outside it: the notification's own, which the app
+      hands back when it is touched; and one that stays the same for this phone and this
+      conversation, so that a newer alert can take an older one's place. Neither is the
+      conversation's id or a person's.
     - **Where it is written.** In `sendMessage`, in the same database step as the message,
       on the branch where a new message was really saved (not where an earlier press is
       answered again), for messages sent from the website and from the app alike. Nothing is
@@ -421,18 +460,26 @@ this part.
       longer "waiting": a later message writes a new one. A late word from the outside
       service about a row settles that row only.
     - **Checked again right before it is handed over** (part 12, decision 3), against the
-      row's newest message: is this installation still signed in as that person; has the
-      person not yet been shown that message (on the website or in the app); is there no
-      block between the two, in either direction; is the person's account open; are messages
-      on for the apps; does the person want these alerts. If any answer is no, nothing is
-      sent. (Because the row carries its newest message, a person who has read up to an
-      earlier one is still told about the later one.)
-    - **Signing out** is part 12's decision 8: the registration and its waiting rows end with
-      the sign-in, and an alert already handed to Apple or Google can still arrive. So:
-    - **Touching it** asks the server what that notification was for. The server answers the
-      conversation only if the person now signed in is the one it was written for. Being one
-      of the conversation's two people is not enough: the next person on that phone could be
-      the other one.
+      row's newest message: is that message still there (messages are deleted after
+      12 months, and the conversation stays); is this installation still signed in as that
+      person, with the sign-in the row was written under; has the person not yet been shown
+      that message (on the website or in the app); is there no block between the two, in
+      either direction; is the person's account open; are messages on for the apps; does the
+      person want these alerts. If any answer is no, nothing is sent. (Because the row
+      carries its newest message, a person who has read up to an earlier one is still told
+      about the later one.)
+    - **Signing out** is part 12's decision 8: when the server learns of a sign-out, or that
+      the phone now belongs to another sign-in, the registration and its waiting rows end.
+      *What that cannot cover:* a phone can sign out while it cannot reach the server; the
+      server then does not know, and an alert can still be handed over afterwards. And an
+      alert already handed to Apple or Google can always still arrive. That is why the alert
+      says nothing, and why:
+    - **Touching it** asks the server what that notification was for, through the gate like
+      every address of this part (signed in, the copy not too old, messages on for the
+      apps). The server answers only the conversation's id, and only if the person now signed
+      in is the one the alert was written for. Being one of the conversation's two people is
+      not enough: the next person on that phone could be the other one. The messages
+      themselves are then read through the conversation's own address, with all its checks.
     - **An ordinary notification,** not the urgent kind of a "call now" request. On Android
       a channel of its own, "Messages", so a person can quieten it by itself. The phone is
       asked to keep one line per conversation, a newer alert taking the older one's place
@@ -476,8 +523,9 @@ this part.
       turns nothing in a message into a link and changes no word of it (plan 49 keeps a
       person's words as written), but it cannot stop the sentence. The line beside the box
       says "Calls and payments for them stay on Connect."; the rules forbid taking calls and
-      payments elsewhere; such a message can be reported like any other, and the founder
-      acts on the report. This is told to the reviewers too. It is not claimed that a store
+      payments elsewhere; such a message can be reported like any other (the report form
+      already has the reason "Asked to pay outside Connect."), and the founder acts on the
+      report. This is told to the reviewers too. It is not claimed that a store
       will be content with it.
     - The notification says "You have a new message." and sells nothing.
 
@@ -505,8 +553,9 @@ has reviewed the app.
   page does), that reports are acted on, and that reporting and blocking are inside the app,
   easy to find and clearly named, wherever one person can write to another. This part has
   both on the conversation's screen, as two separate, named buttons.
-- **Apple (rule 4.5.4):** an app must work without notifications (it does); nothing private
-  may travel in one (nothing does); and advertising by notification needs a person's clear
+- **Apple (rule 4.5.4):** an app must work without notifications (it does); nothing
+  sensitive or confidential may travel in one (Connect's own rule is stricter: nothing about
+  the person at all); and advertising by notification needs a person's clear
   yes inside the app and a way out. The alert here is not advertising: it says only that a
   message is waiting. Its switch being on at first is not such a yes, and is not meant as
   one.
@@ -543,12 +592,18 @@ has reviewed the app.
     field, for a reading and for a message sent a moment too late, also when she is paused.
   - *Sending:* goes through, and the answer names the key; the same key and words again give
     the first answer and one message, also after the conversation has closed; the same key
-    with other words is refused; every limit; too long; empty; a refusal's sentence equals
-    the website's. **An answer lost after the message was saved:** the script sends, throws
-    the answer away, and sends again.
+    with other words is refused; every limit; too long; empty. A refusal's sentence equals
+    the website's, except for a customer whose 7 days are over: there the app's own sentence
+    of decision 13 is expected, and "This conversation is closed." where he has only a
+    member's way to book. **An answer lost after the message was saved:** the script sends,
+    throws the answer away, and sends again. **A later try that is taken up before the first
+    one:** the later try is refused by a limit, the first is then let through, and the
+    message is there; so a refusal after "not known" proves nothing, as decision 9 says.
   - *"Shown":* a stretch the server allowed is marked; a report whose A lies after an unshown
-    message marks nothing (a 500-message stretch with a gap before it); never down, never
-    past the last message; a message that arrives after the answer stays "New".
+    message marks nothing (a 500-message stretch with a gap before it); a B higher than the
+    last message is refused; A above B, zero and words instead of numbers are refused; never
+    down; only the person's own mark moves; a message that arrives after the answer stays
+    "New".
   - *The switch:* only the customer of that conversation can move it, and only he is told of
     it.
   - *Block from a conversation:* the block is there, the calls between the two are
@@ -563,12 +618,16 @@ has reviewed the app.
     makes no second report; someone else's receipt is not found.
   - *"Write to …":* from a call of one's own; from someone else's call (refused, nothing
     made); a conversation that exists is opened though writing is no longer allowed.
-  - *What copies of the app already read:* the answers on opening, of a request and of a
-    report still hold every field they held, with the same meaning.
+  - *What copies of the app already read:* the app's own readers of today (the checks in
+    `mobile/src/lib/*-rules.ts` that decide whether an answer can be used), kept as they are
+    at the commit this part starts from, are run over the new answers on opening, of a
+    request and of a report: each must still take them. (From the moment a copy is in a
+    store, part 20's rule asks this for the oldest copy still allowed.)
 - **Tests in the app** for what the app decides by itself, with a stand-in for the server
   that can lose one answer after "saving": when a key is kept and when a new one is made;
   that "sent" is believed only with the same key; that "not known" survives a reading, a
-  closing and a refusal of the gate, and ends with the server's word; one send at a time; one
+  closing and a refusal of a later try, and ends only with "sent" for the same key (or new
+  words); one send at a time; one
   reading at a time, and a reading begun before a press never replaces the press's answer;
   "shown" not reported for a screen in the background; a missing switch on opening hides
   Messages.
@@ -576,8 +635,10 @@ has reviewed the app.
   website): the list and its number; writing both ways and seeing the other's message arrive
   within a few seconds; a conversation whose 7 days are over (prepared as in the check
   script) with its sentence and the button leading to the host's page; the customer's switch;
-  block; a report from a message, its receipt, then the founder's page showing the kept
-  copy; a send with the connection cut beforehand (how "could not confirm" looks; that it is
+  block; a report from a message, then the founder's page showing the kept copy (an ordinary
+  report has no receipt; the receipt is shown once on the phone from a prepared case in
+  which a future call between the two cannot be cancelled, and its other outcomes are left
+  to the check script); a send with the connection cut beforehand (how "could not confirm" looks; that it is
   *right* is proved by the tests above, since the test phone reaches the server over a cable
   and an answer cannot be lost on purpose there); the screen left open and the phone locked,
   a message sent from the website, and the website's side showing it still "New" for that
@@ -585,11 +646,14 @@ has reviewed the app.
 - **The notification** (when part 12 exists): `notifications-check` grows by this kind: one
   waiting row per phone and conversation; a second message moves its number and writes no
   row; a message after the helper took the row writes a new one; two phones; a person shown
-  only the earlier message is still told; nothing after the newest was shown, after a block
-  in either direction, with the alert switched off, signed out, or the apps' switch off; a
+  only the earlier message is still told; nothing after the newest was shown, after the
+  message was deleted, after a block in either direction, with the alert switched off,
+  signed out, or the apps' switch off; two alerts for one conversation on one phone carry the
+  same replacing number and different numbers of their own; a
   message that was not saved after all leaves no row; the same press again writes none; the
   text holds no name and no word of the message; touching it as the conversation's *other*
-  person opens nothing. On the test phone a notification made by the phone itself shows how
+  person opens nothing, and so does touching it with the apps' switch off or from a copy
+  that is too old. On the test phone a notification made by the phone itself shows how
   it looks, and no more than that.
 
 ## What cannot be tried here
@@ -686,6 +750,29 @@ has reviewed the app.
     code.* Decision 17; "What is there today" corrected.
 16. *The host's "Write to …" by naming a customer has nothing to press yet.* Decision 10:
     left to part 17.
+
+**Second check, 27 November 2026: "ready with changes", 8 points, all worked in.** Astra
+found ten of the first sixteen settled, and agreed with the four things that were left out
+on purpose (no signed slip for "shown", if the trust is said openly; a draft may be lost
+with the sign-in; reports about paying elsewhere go the ordinary way; no filter is planned
+and that stays an open question for the stores).
+
+1. *A refusal of a later try does not prove the first try failed* (the first can still
+   arrive). Decision 9: after "not known", only "sent" with the same key settles it; the app
+   never says "not sent" then. A gate refusal takes the screen away and says nothing.
+2. *The check of "shown" promised more than it can hold.* Decision 8 now says what is
+   checked (the numbers, the gap) and what is trusted (that the phone reports the stretch it
+   was given), and that "shown" means what it means on the website.
+3. *An ordinary offer is not a free time, and "closed" belongs only where the answer would
+   be "book again".* Decision 13.
+4. *One number cannot both name a single alert and replace older ones.* Decision 19: two
+   numbers; touching goes through the gate and answers only the conversation's id.
+5. *A deleted message, and signing out without a connection.* Decision 19.
+6. *"Done" after a report could lead to a place that is not there; the receipt's gate.*
+   Decision 14.
+7. *The key in an answer, the switch's position, the closed account's sentence.* Decisions
+   4, 6 and 12.
+8. *Three checks expected the wrong thing.* "How it is tried".
 
 ## Sources
 

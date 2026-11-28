@@ -6358,3 +6358,36 @@ script calls the same function). The founder's page with a paused account, in a 
 next piece of work); the lawyer's answers in `docs/for-the-lawyer.md` section 26 (a machine
 deciding, what the Terms must say, five accounts of one person); a real support address, since
 writing to it is the only way to appeal.
+
+## Messages in the phone apps: the plan (plan 45, part 17b, 27 November 2026)
+
+**What it is.** A plan only, on the founder's word ("build the plan for now"). Nothing was
+built, and the phone build stays paused. The plan is
+`plans/45-phone-apps/17b-messages-between-two-people.md`; the build plan's list of parts and
+part 12 (notifications) each got a line that points to it.
+
+**What it says, in short.** The apps get a fifth place at the bottom, "Messages", with the
+list of conversations and a number; one conversation's screen with the box, "Report" beside
+each message, "Block", the customer's switch and a button to book; "Write to …" on an
+accepted request; and, once notifications exist, "You have a new message." on the phone.
+Every rule of who may write when is plan 49's, asked of the server each time; the app holds
+none. It needs only parts 01 to 09, which are built.
+
+**What the reviewer found.** Astra checked it twice. First "not ready", 16 points: among
+them, a message whose answer was lost could later be called "not sent"; the switch for the
+apps and reporting contradicted each other; the answer could give away what the website
+hides; a second message could lose the only alert; after a report whose block failed the app
+had no way to block. Then "ready with changes", 8 smaller points. All are worked in or
+answered; the plan's last section lists each.
+
+**Open, and the founder's.** Whether the fifth place, the nameless notification and its
+switch are wanted as planned. Whether the app may word one sentence differently from the
+website: not "Book a call to write to Hana again", which a store could read as selling
+messages, but "You can write to Hana again around your next call." And three things a store
+will ask about: a real support address, who reads reports and how fast, and that Connect has
+no filter on what people write (Apple's rule asks for one; only its review shows whether
+report, block and limits are enough). The last is in the lawyer's file too.
+
+**Found on the way.** The website's own box can say "What you wrote was not sent" after an
+answer that never came, when the conversation closes before Send is pressed again; the
+message may have been sent. A small change of its own, proposed, not made.

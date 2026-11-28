@@ -152,8 +152,9 @@ company yet.
   would show the same messages as the website, by the same rules (section 8). Two things are
   new. First, a phone would be told "You have a new message." through Apple's and Google's
   notification services (and the company that passes notifications on to them); the
-  notification carries no name and no word of the message, only the notification's own
-  number. Must the privacy page name this? Second, Apple asks an app in which
+  notification carries no name and no word of the message, only two numbers made up by
+  Connect (the notification's own, and one that lets a newer alert replace an older one for
+  the same conversation on that phone). Must the privacy page name this? Second, Apple asks an app in which
   people write to each other for "a method for filtering objectionable material from being
   posted". Connect has reporting, blocking, limits and the founder's look at reported
   messages, but no filter on what is written. Is there anything in the law (not only in
