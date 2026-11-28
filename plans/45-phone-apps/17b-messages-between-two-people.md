@@ -28,11 +28,12 @@ another call with her. Cory can stop Hana's messages between calls. All of that 
 the server, by the same code, whether Cory holds a phone or sits at a computer. The app only
 shows what the server says.
 
-**What only you can decide** is in "Whose decision each point is", near the end. The four you
-may most want to look at: a fifth place at the bottom (instead of four); the notification's
-text names nobody; one sentence is worded differently in the app than on the website
-(decision 13); Connect's own notices to a person ("From Connect" on the website) are not in
-this part.
+**What only you can decide** is in "Whose decision each point is", near the end. The three
+you may most want to look at: a fifth place at the bottom (instead of four); the
+notification's text names nobody; Connect's own notices to a person ("From Connect" on the
+website) are not in this part. One point is settled: a sentence is worded differently in
+the app than on the website (decision 13). Asked on 27 November, you left it to the builder
+("do what you think is the best"), and the neutral words stay.
 
 ## What is there today (read in the code)
 
@@ -706,8 +707,11 @@ has reviewed the app.
      locked phone can be read by whoever picks it up.
   3. **In the app the closed conversation does not say "Book a call to write to Hana
      again"** (your words for the website) but "You can write to Hana again around your next
-     call.", with the ordinary button "Book a time with Hana" (decision 13). The other way:
-     your words in the app too, and the risk that a store reads them as selling messages.
+     call.", with the ordinary button "Book a time with Hana" (decision 13). The other way
+     would have been your words in the app too, with the risk that a store reads them as
+     selling messages. **Settled on 27 November 2026:** the founder was asked and left it to
+     the builder ("do what you think is the best"); the neutral words stay. The website
+     keeps its words.
   4. A person's own switch for message notifications, on at first (decision 19).
   5. The apps' own switch for messages, born on (decision 3).
   6. "From Connect" is not in this part.
