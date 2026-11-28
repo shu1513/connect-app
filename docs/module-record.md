@@ -6054,9 +6054,20 @@ to". The host did the same on the second call ("You are paid for your time up to
 page of the first call said that the customer ended it. The browser has no camera, and each
 person was alone in the room.
 
-**What the checks cannot cover.** A real call between two people on two devices: that the room
-really empties for the other person at the press is the video service's work, checked here only
-through its answer. The phone app's new screen on a phone (the app is paused; its code is typed,
+**Tried with two people in one call, after the merge (27 November 2026).** Two browsers on one
+computer, the customer in one and the host in the other, both in the same room and each seeing
+the other's tile (no camera picture: only one of the two browsers has a camera). The customer
+pressed "End call now": he landed on the screen with the three choices, and within about four
+seconds the host was out of the room and saw "This call has ended." with a link to her own
+screen ("Cory Customer ended this call for both of you"). On a second call the host pressed, and
+the customer was put out the same way and read "You pay only for the time Hana Host was in the
+call up to that moment". Both calls were closed about two seconds after the press, and opening
+the call's page again offered no way back in. One thing seen: the person who did not press is
+not taken to the screen with Report / Block / Neither by itself; they get there through a link
+that is named "See the results".
+
+**What the checks cannot cover.** A real call between two people on two devices, far apart, with
+camera and sound (the try above was two browsers on one computer). The phone app's new screen on a phone (the app is paused; its code is typed,
 linted and unit-tested). Whether "the host was in the call when he pressed" reads right on a bad
 connection. The helper taking the money a real day later (the scripts move the clock).
 
