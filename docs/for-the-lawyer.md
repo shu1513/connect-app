@@ -1001,6 +1001,12 @@ Questions:
   membership as it is then. The Payment Terms (10.11, and wherever they say what resuming
   gives) should say both. A host who raised her price is held to the old one for these members:
   must the Host Agreement say so?
+- **A sentence of the membership agreement that is not always true.** "If [host] lowers the
+  member price, you pay less from your next month." A member whose own price is already lower
+  than the host's new price pays what they paid before. That could happen before (a host who
+  raised her price and then lowered it a little) and happens more now that a price is kept
+  across a pause with an account. The sentence should say "you never pay more than the host's
+  member price".
 - **Telling the member that "one of the two accounts was paused".** Where the member's own
   account is fine, that tells them the host's account is paused. Is that a disclosure about the
   host that needs care, or simply what a member must be told to understand why their membership

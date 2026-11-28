@@ -372,7 +372,7 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
         <details className="mt-6">
           <summary className="cursor-pointer underline underline-offset-2">Cancel membership</summary>
           <p className="mt-2">
-            Your price of {price} per 15 minutes and your {time} a month are yours while your membership goes on. If it is paused and you come back later, you get {hostName}&apos;s membership as it is then.
+            Your price of {price} per 15 minutes and your {time} a month are yours while your membership goes on. If you cancel and come back later, you get {hostName}&apos;s membership as it is then.
           </p>
           <div className="mt-3 flex flex-wrap items-start gap-3">
             {!membership.memberStoppedAt && (

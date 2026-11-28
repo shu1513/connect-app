@@ -35,7 +35,9 @@ builder's.
    Without room it is refused with the usual sentence, and nothing changes.
 4. **What the member sees and agrees to. (builder)** The resume page shows exactly these terms
    (one rule, `resumeTerms`, is used by the page and by the resuming step), and the agreement
-   that is written down carries that price and that time.
+   that is written down carries that price and that time. The page sends the price and the
+   time it showed, and the resuming step refuses when they are not what the member would get
+   at that moment: a page left open from before must not record a yes to other terms.
 5. **Everything else about resuming is unchanged. (builder)** The box to tick, the card, a new
    month from that day, "member since" counted anew, and that a host who has switched her
    membership off cannot be resumed with.
@@ -54,3 +56,24 @@ builder's.
   during the pause, and the member comes back as they were; she lowers it, and the next member
   gets the lower price with the time he had. Journey 26 (an ordinary pause) still gets the
   host's membership as it is then.
+
+## Astra's check (27 November 2026): "not ready", 6 points
+
+Taken: a Resume page left open could record a yes to other terms than the ones it showed,
+because the terms no longer follow from the host's offer alone (decision 4); the member's page
+said of every pause "you get the host's membership as it is then"; the pause email's "you keep
+your place" read like a promise of room in the host's hours; the journey did not tie the new
+month to the agreement with the kept terms.
+
+Not taken, and why:
+
+- **A resume that was begun and not finished** has already written its terms on the membership.
+  If the host's price was lower at that moment and rises again, the member later comes back at
+  that lower price, not at the one they had before. It can only make the price lower, never
+  higher, and needs an abandoned card step at exactly such a moment.
+- **The agreement's sentence "If the host lowers the member price, you pay less from your next
+  month"** is not true for a member whose own price is already lower than the host's new one.
+  That was so before this plan for anyone whose host had raised her price; the sentence is part
+  of the versioned agreement wording, and changing it is a matter for the lawyer
+  (`docs/for-the-lawyer.md`, section 27).
+

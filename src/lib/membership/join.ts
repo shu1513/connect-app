@@ -267,7 +267,17 @@ export async function join(input: { customerId: string; inviteId: string; reques
  * membership as it is now (`offerVersion` is the version the page showed, so nobody agrees to
  * terms they did not see), a new agreement, and room for one more member now.
  */
-export async function resume(input: { customerId: string; membershipId: string; requestId: string; agreed: boolean; offerVersion: number; wordingVersion: string; now: Date }): Promise<{ membershipId: string; monthId: string }> {
+export async function resume(input: {
+  customerId: string;
+  membershipId: string;
+  requestId: string;
+  agreed: boolean;
+  offerVersion: number;
+  wordingVersion: string;
+  /** The price and the time the page showed beside the box. They no longer follow from the host's offer alone (plans/55), so they are checked for themselves. */
+  shown?: { pricePer15Cents: number; includedMinutes: number };
+  now: Date;
+}): Promise<{ membershipId: string; monthId: string }> {
   const { customerId } = input;
   if (!IS_ID.test(input.membershipId) || !IS_ID.test(input.requestId)) throw new MembershipError("Membership not found.");
   const membershipId = input.membershipId.toLowerCase();
@@ -293,6 +303,11 @@ export async function resume(input: { customerId: string; membershipId: string; 
     // The price and the time they come back with: the host's membership as it is now, or, after a pause with an
     // account, their own (plans/55). The page showed the same, from the same rule.
     const terms = resumeTerms(membership, offer);
+    // What the person agrees to is what the page showed them. A page left open from before (another pause, another
+    // price of their own) may show other terms than they would get now, though the host changed nothing.
+    if (input.shown && (input.shown.pricePer15Cents !== terms.pricePer15Cents || input.shown.includedMinutes !== terms.includedMinutes)) {
+      throw new MembershipError("What you would come back with has changed since this page was opened. Please look at it again before you resume.");
+    }
     const room = await roomLeft(tx, found.hostId, now, membershipId);
     if (room < terms.includedMinutes) throw new MembershipError("The host's hours have no room for another member at the moment. Please try again later.");
     return agreeAndStart(tx, membership, offer, "resumed", requestId, now, terms);

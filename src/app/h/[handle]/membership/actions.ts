@@ -68,6 +68,8 @@ export async function resumeAction(formData: FormData) {
       agreed: formData.get("agreed") === "on",
       offerVersion: Number(formData.get("offerVersion")),
       wordingVersion: String(formData.get("wording") ?? ""),
+      // The terms the page showed beside the box: always sent, and always checked (plans/55).
+      shown: { pricePer15Cents: Number(formData.get("shownPrice")), includedMinutes: Number(formData.get("shownMinutes")) },
       now: new Date(),
     });
     await makeReady(started.monthId, user.id);

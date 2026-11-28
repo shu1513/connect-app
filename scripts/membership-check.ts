@@ -1799,12 +1799,16 @@ async function main() {
     const resumed = await MS(paid.membershipId);
     const newMonth = await M(again.monthId);
     const [, kept] = await agreementsOf(paid.membershipId);
-    check("the host raised her price and halved the time meanwhile: the member comes back with the time they had, at the price they had", newMonth.totalCents === before.totalCents && newMonth.includedMinutes === before.includedMinutes && resumed.ownPricePer15Cents === was.ownPricePer15Cents && resumed.ownMinutes === was.ownMinutes && kept.kind === "resumed" && kept.pricePer15Cents === was.ownPricePer15Cents && kept.minutes === was.ownMinutes, `${newMonth.totalCents} ${newMonth.includedMinutes}`);
+    check("the host raised her price and halved the time meanwhile: the member comes back with the time they had, at the price they had", newMonth.totalCents === before.totalCents && newMonth.includedMinutes === before.includedMinutes && resumed.ownPricePer15Cents === was.ownPricePer15Cents && resumed.ownMinutes === was.ownMinutes && kept.kind === "resumed" && kept.pricePer15Cents === was.ownPricePer15Cents && kept.minutes === was.ownMinutes && newMonth.agreementId === kept.id && resumed.agreementId === kept.id, `${newMonth.totalCents} ${newMonth.includedMinutes}`);
     const old = await M(paid.monthId);
     check("the member resumes by themselves: a new month, a new agreement, and the old month's pay-back stands", resumed.status === "active" && resumed.period === a.period + 1 && resumed.pausedAt === null && resumed.pausedReason === null && resumed.agreementId !== a.agreementId && (await M(again.monthId)).status === "held" && old.freeCents === 0 && old.toPayBackCents + old.paidBackCents === before.freeCents);
     // A clean-up that runs late, beside the resume, touches nothing of the new period.
     await E.cleanUpEnding(paid.membershipId, new Date());
     check("a late clean-up after the resume leaves the new month alone", (await M(again.monthId)).status === "held" && (await M(again.monthId)).endedHow === null && (await MS(paid.membershipId)).status === "active");
+    // A page that showed other terms than he would get now (the host's own, say, from before this rule) is refused.
+    const hostsOwn = await offerOf(host);
+    const staleTerms = await refusal(J.resume({ customerId: onHold.member.id, membershipId: onHold.membershipId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, offerVersion: hostsOwn.version, shown: { pricePer15Cents: hostsOwn.pricePer15Cents, includedMinutes: hostsOwn.includedMinutes }, now: new Date() }));
+    check("\"Resume\" from a page that showed other terms than he comes back with is refused: nobody agrees to a price or a time they did not see", /has changed since this page was opened/.test(staleTerms ?? "") && (await MS(onHold.membershipId)).status === "paused" && (await agreementsOf(onHold.membershipId)).length === 1, staleTerms ?? "it went through");
     // And then she lowers it below what they paid: a member's price only ever goes down.
     await save(host, { on: true, pricePer15Cents: 600, includedMinutes: 60 });
     const [, second] = await Promise.all([Promise.resolve(), resumeAs(onHold)]);

@@ -188,6 +188,8 @@ export default async function MembershipJoinPage(props: PageProps<"/h/[handle]/m
             <input type="hidden" name="handle" value={host.handle} />
             <input type="hidden" name="membership" value={mine.id} />
             <input type="hidden" name="offerVersion" value={offer.version} />
+            <input type="hidden" name="shownPrice" value={terms.pricePer15Cents} />
+            <input type="hidden" name="shownMinutes" value={terms.includedMinutes} />
             <Agree hostName={host.displayName} />
             <button type="submit" className={`${warm.button} mt-4`}>
               Resume membership
