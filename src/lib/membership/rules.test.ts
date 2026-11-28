@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEADLINE_CUSHION_MS, TAKE_BEFORE_EXPIRY_MS } from "@/lib/payments/rules";
 import { bookedTotalCents } from "@/lib/payments/pricing";
-import { feeTermsFor, giveUpAt, holdTiming, isFrozen, lessTimeProblem, memberCallCents, minutesCovered, monthEnd, monthTotalCents, nextTryAt, offerProblem, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
+import { feeTermsFor, giveUpAt, holdTiming, isFrozen, lessTimeProblem, memberCallCents, minutesCovered, monthEnd, monthTotalCents, nextTryAt, offerProblem, resumeTerms, splitAtEnd, sumOfPlaces, timeWords } from "./rules";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -164,3 +164,22 @@ describe("how many minutes free money pays for", () => {
     }
   });
 });
+
+describe("the price and the time a member comes back with", () => {
+  const offer = { pricePer15Cents: 900, includedMinutes: 60 };
+  it("after an ordinary pause: the host's membership as it is on that day", () => {
+    expect(resumeTerms({ pausedReason: "cancel_now", ownPricePer15Cents: 750, ownMinutes: 120 }, offer)).toEqual({ pricePer15Cents: 900, includedMinutes: 60, kept: false });
+    expect(resumeTerms({ pausedReason: "payment", ownPricePer15Cents: 750, ownMinutes: 120 }, offer)).toEqual({ pricePer15Cents: 900, includedMinutes: 60, kept: false });
+    expect(resumeTerms({ pausedReason: null, ownPricePer15Cents: 750, ownMinutes: 120 }, offer)).toEqual({ pricePer15Cents: 900, includedMinutes: 60, kept: false });
+  });
+  it("after a pause with an account: the time they had, at the price they had, though the host has raised hers", () => {
+    expect(resumeTerms({ pausedReason: "account", ownPricePer15Cents: 750, ownMinutes: 120 }, offer)).toEqual({ pricePer15Cents: 750, includedMinutes: 120, kept: true });
+  });
+  it("and at the host's price of that day when she has lowered it: a member's price only ever goes down", () => {
+    expect(resumeTerms({ pausedReason: "account", ownPricePer15Cents: 750, ownMinutes: 120 }, { pricePer15Cents: 600, includedMinutes: 60 })).toEqual({ pricePer15Cents: 600, includedMinutes: 120, kept: true });
+  });
+  it("a membership with no price or time of its own written on it gets the host's", () => {
+    expect(resumeTerms({ pausedReason: "account", ownPricePer15Cents: null, ownMinutes: null }, offer)).toEqual({ pricePer15Cents: 900, includedMinutes: 60, kept: false });
+  });
+});
+
