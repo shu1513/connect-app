@@ -1136,12 +1136,64 @@ async function main() {
     await rounds(monthlyDue(missedFirst, 2));
     check("the helper never writes a month for two people with a block between them: it ends the contribution instead", (await CO(missed.contributionId)).status === "ended" && (await CO(missed.contributionId)).endedHow === "blocked" && (await paymentsOf(missed.contributionId)).length === 1);
 
-    // An account paused.
+    // An account paused (plans/54): a monthly contribution that has begun waits; it does not end.
+    const AP = await import("../src/lib/contributions/account-pause");
+    const { liftPause } = await import("../src/lib/safety/reports");
+    const mailTo = async (to: Person, subject: string) => (await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.to, to.email), like(schema.emailOutbox.subject, `%${subject}%`)))).length;
+    const pauseOf = (userId: string) => pauseAccount({ adminId: admin.id, userId, ruleKey: "harassment", note: "", requestId: randomUUID() });
     const b = await held(host, { kind: "monthly", amountCents: 1000 });
-    // (A new bystander: the helper's pretended month above has long passed the first one's hold.)
+    const bFirst = (await CO(b.contributionId)).firstHoldAt!;
+    await C.takePayment(b.paymentId, (await PM(b.paymentId)).takeAt!);
+    await rounds(monthlyDue(bFirst, 2));
+    const bSecond = (await paymentsOf(b.contributionId))[1];
+    // (New bystanders: the helper's pretended month above has long passed the first ones' holds.)
+    const bOnce = await held(host, { giver: b.giver });
     const another = await held(host);
-    await pauseAccount({ adminId: admin.id, userId: b.giver.id, ruleKey: "harassment", note: "", requestId: randomUUID() });
-    check("a contributor's account is paused: their contributions end, and what was held is let go; nobody else's is touched", (await endedFor(b, "paused")) && (await goesOn(another)));
+    await pauseOf(b.giver.id);
+    let cb = await CO(b.contributionId);
+    check("a contributor's account is paused: their monthly contribution is paused, not ended, and marked with the moment", cb.status === "running" && cb.accountPausedAt !== null && cb.endedAt === null, cb.status);
+    check("its payment that was only held is given up and the hold let go; the month that was already taken is not touched", bSecond?.status === "held" && (await PM(bSecond.id)).endedHow === "account_paused" && (await PM(bSecond.id)).status === "given_up" && (await intentOf(bSecond.id)).status === "canceled" && (await PM(b.paymentId)).status === "taken" && (await refundsOf(b.paymentId)).length === 0);
+    check("a payment made once that was only held ends, as it always did; nobody else's contribution is touched", (await endedFor(bOnce, "paused")) && (await goesOn(another)));
+    check("the contributor is told that it is paused, not that it has ended, and not which account", (await mailTo(b.giver, "project is paused")) === 1 && (await mailTo(b.giver, "has ended")) === 0);
+    await rounds(monthlyDue(bFirst, 3));
+    cb = await CO(b.contributionId);
+    check("while it is paused no month is written, and the helper does not end it", (await paymentsOf(b.contributionId)).length === 2 && cb.status === "running" && cb.accountPausedAt !== null);
+    // The pause is lifted two days after the third month's day (the lift's own step, with a pretended day).
+    const liftAt = new Date(monthlyDue(bFirst, 3).getTime() + 2 * DAY);
+    await db.update(schema.user).set({ pausedAt: null, pausedReason: null }).where(eq(schema.user.id, b.giver.id));
+    await db.transaction((tx) => AP.resumeContributionsOf(tx, b.giver.id, liftAt));
+    cb = await CO(b.contributionId);
+    check("the pause is lifted: the month whose day passed meanwhile is recorded as skipped, and only that one; the mark is cleared", cb.accountPausedAt === null && cb.skippedMonths === "[3]" && cb.status === "running", cb.skippedMonths);
+    check("the contributor is told that it carries on, and how to stop", (await mailTo(b.giver, "carries on")) === 1);
+    await rounds(liftAt);
+    check("that month is never charged afterwards, and the payment that was given up does not come back", (await paymentsOf(b.contributionId)).length === 2 && (await PM(bSecond.id)).status === "given_up");
+    await rounds(monthlyDue(bFirst, 4));
+    const bFourth = (await paymentsOf(b.contributionId))[2];
+    check("the next month is written and held again with the saved card, by itself", bFourth?.number === 4 && bFourth.status === "held", `${bFourth?.number} ${bFourth?.status}`);
+
+    // A host's account paused, with the real lift; both accounts paused; stopping while paused.
+    const hostP = await newHost();
+    const hp = await held(hostP, { kind: "monthly", amountCents: 1000 });
+    const hp2 = await held(hostP, { kind: "monthly", amountCents: 1000 });
+    await pauseOf(hostP.id);
+    check("a host's account is paused: every monthly contribution to her project waits", (await CO(hp.contributionId)).status === "running" && (await CO(hp.contributionId)).accountPausedAt !== null && (await CO(hp2.contributionId)).accountPausedAt !== null && (await PM(hp.paymentId)).endedHow === "account_paused");
+    await M.stopContribution({ contributionId: hp2.contributionId, contributorId: hp2.giver.id });
+    check("a contributor can stop for good while it is paused", (await CO(hp2.contributionId)).status === "ended" && (await CO(hp2.contributionId)).endedHow === "stopped");
+    await pauseOf(hp.giver.id);
+    await liftPause({ adminId: admin.id, userId: hostP.id });
+    check("her pause is lifted while the contributor's own account is still paused: the contribution goes on waiting", (await CO(hp.contributionId)).accountPausedAt !== null && (await mailTo(hp.giver, "carries on")) === 0);
+    await liftPause({ adminId: admin.id, userId: hp.giver.id });
+    check("when the second pause is lifted too, it carries on, and the contributor is told once", (await CO(hp.contributionId)).accountPausedAt === null && (await CO(hp.contributionId)).status === "running" && (await mailTo(hp.giver, "carries on")) === 1 && (await CO(hp2.contributionId)).status === "ended");
+
+    // The helper's net: a running monthly contribution of a paused account that was not marked is marked, not ended.
+    const hostN = await newHost();
+    const net = await held(hostN, { kind: "monthly", amountCents: 1000 });
+    const netFirst = (await CO(net.contributionId)).firstHoldAt!;
+    await C.takePayment(net.paymentId, (await PM(net.paymentId)).takeAt!);
+    await db.update(schema.user).set({ pausedAt: new Date(), pausedReason: "check" }).where(eq(schema.user.id, hostN.id));
+    await rounds(monthlyDue(netFirst, 2));
+    check("the helper never writes a month for a paused account, and no longer ends the contribution: it marks it as waiting", (await CO(net.contributionId)).status === "running" && (await CO(net.contributionId)).accountPausedAt !== null && (await paymentsOf(net.contributionId)).length === 1);
+    await db.update(schema.user).set({ pausedAt: null, pausedReason: null }).where(eq(schema.user.id, hostN.id));
 
     // A host's page suspended, then her account closed.
     const hostTwo = await newHost();

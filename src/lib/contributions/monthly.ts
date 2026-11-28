@@ -43,6 +43,8 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
         eq(schema.contributions.status, "running"),
         isNotNull(schema.contributions.firstHoldAt),
         isNull(schema.contributions.switchOffAt),
+        // Nor while it waits for a paused account (plans/54).
+        isNull(schema.contributions.accountPausedAt),
         // Only contributions whose next day has really come, the longest overdue first: one that is not due yet
         // never takes a place in the batch from one that is. (The day is worked out again, exactly, below.)
         sql`${nextDue} <= ${now.toISOString()}::timestamptz`,
@@ -57,11 +59,18 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
         await lockSwitchForWriting(tx);
         await lockPair(tx, found.contributorId, found.hostId);
         const contribution = await lockContribution(tx, found.id);
-        if (contribution.kind !== "monthly" || contribution.status !== "running" || !contribution.firstHoldAt || contribution.switchOffAt) return [];
+        if (contribution.kind !== "monthly" || contribution.status !== "running" || !contribution.firstHoldAt || contribution.switchOffAt || contribution.accountPausedAt) return [];
         // A contribution that can no longer go on (a block between the two, an account paused or closed, the
         // project ended) is ended here, and no payment is written. The steps that cause these end it
         // themselves; this is the net behind them.
         const over = await whyMustEnd(tx, contribution);
+        // A paused account does not end a monthly contribution any more, it makes it wait (plans/54). The step
+        // that pauses the account marks it; this is the net behind that step, and it sets the mark that step
+        // should have set, so the contribution waits like the others and does not come up here again and again.
+        if (over === "paused") {
+          await tx.update(schema.contributions).set({ accountPausedAt: now, updatedAt: now }).where(eq(schema.contributions.id, contribution.id));
+          return [];
+        }
         if (over) return endInStep(tx, contribution, over, now);
         // Nothing new is started while the switch does not cover her. The step that saves the switch marks her
         // contributions; this is the net behind it, and it sets the mark that step should have set, so this
