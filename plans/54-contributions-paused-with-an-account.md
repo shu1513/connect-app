@@ -61,8 +61,10 @@ Everything else below is the builder's.
 ## What stays as it is, on purpose
 
 - **No new yes from the contributor after a pause.** They agreed to a monthly payment until
-  they stop it; a pause changes neither the amount nor the project. They are told before the
-  next payment and can stop with one press. (A member must say yes again because resuming
+  they stop it; a pause changes neither the amount nor the project. They are told at the pause
+  and at the lift, and a monthly payment is only held at first and taken three days later, so
+  they can stop it, or cancel that one payment, with one press. (The email at the lift is not
+  guaranteed to arrive before the hold is placed.) (A member must say yes again because resuming
   starts a new paid month of call time on the host's terms of that day.) In the lawyer file.
 - **No time limit on the pause.**
 - **The published legal documents are not changed here.**
@@ -117,4 +119,18 @@ Not taken, and why:
   on the contributor's card for a moment before it is let go. The sentences no longer promise
   otherwise.
 - **A pause of more than 50 years** (the sum that lists passed months stops after 600).
+
+## CodeRabbit (27 November 2026): 8 points, all taken
+
+A bank's "never try this card again" that arrives for a payment the pause had just given up now
+ends the contribution, as it did when a pause ended contributions (Astra had raised this and the
+builder had left it; CodeRabbit pointed out that for a pause it was new: `recordIntent` in
+`charge.ts`, which closes the same gap for the founder's switch). The helper's 7-day job looks at
+the mark once more under the contribution's own lock, in the step that ends it. The helper's net
+never makes up a pause moment: if the account was lifted in that instant, it writes nothing.
+The email at the lift follows the writer's own rule for a month that is more than 7 days late.
+The email about a hold that was let go says "paused" only while the mark stands. The sentences
+of the pause by the app speak of monthly contributions "that had begun". The lawyer file names
+the payment that was already under way; the plan no longer says the contributor is told
+"before" the next payment.
 

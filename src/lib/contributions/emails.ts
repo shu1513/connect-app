@@ -182,7 +182,7 @@ export async function queueNothingChargedEmail(tx: Tx, contribution: Contributio
       `Hi ${giver.name},\n\nThe ${money(payment.amountCents)} that was held on your card for ${hostName}'s project has been let go. Nothing was charged. ${whyLetGo(payment.endedHow, hostName)}\n\n` +
       `Your bank may still show the hold for a few days before it disappears.\n\n` +
       (goesOn
-        ? payment.endedHow === "account_paused" || contribution.accountPausedAt
+        ? contribution.accountPausedAt
           ? `Your monthly contribution is paused, not ended: it carries on by itself when that pause is over. You can stop it here: ${contributionPage(contribution)}\n\n`
           : `Your monthly contribution goes on: the next payment is on its usual day. You can stop it here: ${contributionPage(contribution)}\n\n`
         : "") +

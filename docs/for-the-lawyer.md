@@ -1003,8 +1003,9 @@ Questions:
   used, and the host is back. Nothing is owed in either direction after that: correct? The
   host has lost that month's unused time through a pause that may have been wrong.
 - **Monthly contributions are paused too, and carry on by themselves** (plan 54, 27 November
-  2026). While one of the two accounts is paused, nothing is held or taken; the months that pass
-  are never charged. When the pause is lifted, the contribution is charged again from its next
+  2026). While one of the two accounts is paused, no new payment is started; the months that pass
+  are never charged. (A payment that was already on its way to the bank in the very moment of
+  the pause can still land: it is then let go, or paid back in full.) When the pause is lifted, the contribution is charged again from its next
   monthly day **without a new yes from the contributor**. They are told by email at the pause
   ("it carries on by itself when that is over; you can stop it now") and again at the lift, with
   the date of the next payment and the way to stop. Is the first agreement to a monthly payment

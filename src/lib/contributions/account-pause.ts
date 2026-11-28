@@ -19,7 +19,7 @@ import { giveUpInStep } from "./charge";
 import { queueAccountPausedEmail, queueCarriesOnEmail } from "./emails";
 import { endInStep } from "./ending";
 import { lockContribution, lockForPayment, lockPair } from "./locks";
-import { monthlyDue, monthsBetween } from "./rules";
+import { dueMonths, monthlyDue, monthsBetween } from "./rules";
 import { addSkipped, skippedOf } from "./skipped";
 
 const pays = schema.contributionPayments;
@@ -85,15 +85,22 @@ async function carryOn(tx: Tx, contribution: Contribution, at: Date): Promise<vo
   const passed = contribution.firstHoldAt ? monthsBetween(contribution.firstHoldAt, contribution.lastWrittenMonth, contribution.accountPausedAt, at) : [];
   await addSkipped(tx, contribution, passed, at);
   await tx.update(schema.contributions).set({ accountPausedAt: null, updatedAt: at }).where(eq(schema.contributions.id, contribution.id));
-  // What the contributor is told about the next payment, from the same sums the helper will do: the first month
-  // that is neither written nor skipped. Its day may lie behind us (a month that fell due shortly before the
-  // pause and was not written yet): then it can be held at once. And while the founder's switch does not cover
-  // the host, nothing is held whatever the day.
-  const skipped = new Set([...skippedOf(contribution), ...passed]);
-  let number = contribution.lastWrittenMonth + 1;
-  while (skipped.has(number)) number++;
-  const due = contribution.firstHoldAt ? monthlyDue(contribution.firstHoldAt, number) : null;
-  await queueCarriesOnEmail(tx, contribution, contribution.switchOffAt ? "waits" : due && due > at ? due : "now", at);
+  // What the contributor is told about the next payment, from the same sums the helper will do (monthly.ts):
+  // a month that is due and at most 7 days late, and not skipped, can be held at once; a month that is later than
+  // that is never made up for; otherwise it is the first month after everything written, missed or skipped. And
+  // while the founder's switch does not cover the host, nothing is held whatever the day.
+  let next: Date | "now" | "waits" = "now";
+  if (contribution.switchOffAt) next = "waits";
+  else if (contribution.firstHoldAt) {
+    const skipped = new Set([...skippedOf(contribution), ...passed]);
+    const due = dueMonths(contribution.firstHoldAt, contribution.lastWrittenMonth, at);
+    if (due.write === null || skipped.has(due.write)) {
+      let number = Math.max(contribution.lastWrittenMonth, due.write ?? 0, ...due.missed, ...passed) + 1;
+      while (skipped.has(number)) number++;
+      next = monthlyDue(contribution.firstHoldAt, number);
+    }
+  }
+  await queueCarriesOnEmail(tx, contribution, next, at);
 }
 
 /**

@@ -596,6 +596,14 @@ export async function recordIntent(seen: ContributionPayment, intent: Stripe.Pay
       const bankTime = charge?.created ? new Date(charge.created * 1000) : null;
       const heldAt = intent.status === "requires_capture" ? (bankTime ?? now) : intent.status === "canceled" && charge?.status === "succeeded" ? bankTime : null;
       if (!payment.authorisedAt && heldAt) await tx.update(pays).set({ authorisedAt: heldAt }).where(eq(pays.id, payment.id));
+      // A payment can be given up while its monthly contribution goes on (the founder's switch, a paused account:
+      // plans/54). If the bank's answer to this very payment was "never try this card again", that still counts:
+      // the contribution ends, as it would have, so that no later month tries the same card.
+      const lastRefusal = intent.last_payment_error;
+      if (locked.contribution.kind === "monthly" && locked.contribution.status === "running" && lastRefusal?.decline_code && NEVER_AGAIN.has(lastRefusal.decline_code)) {
+        const { endInStep } = await import("./ending");
+        await endInStep(tx, locked.contribution, "never_again", now);
+      }
       if (intent.status === "canceled") await markGivenUp(tx, payment, now);
       else if (intent.status === "succeeded") await taken();
       else if (intent.status === "requires_capture") release = true; // never accepted; the letting-go continues, or is written down now

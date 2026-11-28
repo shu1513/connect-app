@@ -180,7 +180,9 @@ export async function runContributionJobs(now: Date = new Date()): Promise<void>
       // this payment given up by that pause, and is kept (plans/54). It must not be ended on what was read before.
       const [fresh] = await db.select({ endedHow: pays.endedHow, waits: schema.contributions.accountPausedAt }).from(pays).innerJoin(schema.contributions, eq(schema.contributions.id, pays.contributionId)).where(eq(pays.id, id));
       if (!fresh || fresh.endedHow || fresh.waits) return;
-      await endContribution(payment.contributionId, "given_up", now);
+      // (And once more under the contribution's own lock, in the step that ends it: a pause that lands between this
+      // look and that lock keeps the contribution.)
+      await endContribution(payment.contributionId, "given_up", now, { unlessItWaits: true });
     },
   );
 

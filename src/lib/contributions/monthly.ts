@@ -72,7 +72,10 @@ export async function writeDuePayments(now: Date = new Date()): Promise<void> {
           // Marked with the moment the account was paused, not with this one: a month whose day fell in between
           // passed during the pause, and must not be charged after the lift. What is open is given up as well.
           const people = await tx.select({ pausedAt: schema.user.pausedAt }).from(schema.user).where(or(eq(schema.user.id, contribution.hostId), eq(schema.user.id, contribution.contributorId)));
-          const since = people.map((person) => person.pausedAt).filter((at): at is Date => at !== null).sort((a, b) => a.getTime() - b.getTime())[0] ?? now;
+          const since = people.map((person) => person.pausedAt).filter((at): at is Date => at !== null).sort((a, b) => a.getTime() - b.getTime())[0];
+          // Lifted in this very moment: there is no pause to wait for any more, and no moment of it to write down.
+          // Nothing is written in this round; the next one looks afresh.
+          if (!since) return [];
           return makeWait(tx, contribution, since, now);
         }
         if (over) return endInStep(tx, contribution, over, now);
