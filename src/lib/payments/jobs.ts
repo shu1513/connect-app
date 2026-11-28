@@ -37,6 +37,8 @@ import { settleEmptyShare } from "./collect";
 import { failOperation, failOwnedOperation, finishOperation, lockPayment, MoneyError, OutcomeUnknownError, RECONCILE_AFTER_MS, refusedRecently, SEARCH_WITHIN_MS, SETTLED_AFTER_MS } from "./operations";
 import { owedFor } from "./owed";
 import { countedSeconds } from "./pricing";
+import { formatMoney } from "./access";
+import { repeatFromFreshLook, sayIfPaidAlthoughNotMade } from "./refund-tries";
 import { confirmWithSavedCard, syncHold } from "./hold";
 import { decisionDeadline } from "./rules";
 import { settleOrdinaryCharges } from "./take";
@@ -230,13 +232,21 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
         if (stillOpen?.status !== "started") continue;
         if (canRepeat()) {
           try {
-            const replayed = await stripe().refunds.create(
-              { payment_intent: params.intentId ?? payment.stripePaymentIntentId!, amount: params.amountCents, metadata: { paymentId: payment.id, refundId: params.refundId } },
-              { idempotencyKey: operation.label },
+            // Sent only from a look at the action that is a moment old, with a limit of time and no later repeats
+            // (refund-tries.ts, repeatFromFreshLook): a helper that stood still sends nothing.
+            const repeat = await repeatFromFreshLook(operation.id, canRepeat, (how) =>
+              stripe().refunds.create(
+                { payment_intent: params.intentId ?? payment.stripePaymentIntentId!, amount: params.amountCents, metadata: { paymentId: payment.id, refundId: params.refundId } },
+                { idempotencyKey: operation.label, ...how },
+              ),
             );
+            if (!repeat.sent && repeat.why !== "too_late") {
+              log(`unfinished refund on payment ${operation.paymentId}: not repeated (${repeat.why === "ended" ? "the action has an outcome by now" : "this helper stood still after its look, so the look is too old"})`);
+              continue;
+            }
             // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
             // asked by its own number: one that was paid at first can have failed since.
-            refund = await lookUp(() => stripe().refunds.retrieve(replayed.id));
+            if (repeat.sent) refund = await lookUp(() => stripe().refunds.retrieve(repeat.answer.id));
           } catch (error) {
             // A clear "no" to the repeat proves nothing about the first request (it may have gone through before,
             // say, a permission was taken away): Stripe's own list of this charge's refunds settles it, below.
@@ -283,6 +293,16 @@ export async function reconcileOperations(now: Date, only?: OnlyThese): Promise<
           const found = refund;
           await finishOperation(operation.id, payment.id, found.id, async (_p, tx) => {
             await tx.update(schema.refunds).set({ stripeRefundId: found.id }).where(eq(schema.refunds.id, params.refundId));
+          });
+        }
+        // The refund is alive at Stripe. If the action was written down as "not made" meanwhile (by another helper,
+        // while this one stood still), the write above changed nothing, and the founders are told.
+        if (refund) {
+          await sayIfPaidAlthoughNotMade({
+            operationId: operation.id,
+            refund,
+            about: `a call's refund of ${formatMoney(params.amountCents)} to the customer's card (refund ${params.refundId}, payment ${payment.id})`,
+            next: "nothing. Connect shows this refund as failed although the customer has the money, and the host's share was not lowered for it. Do not refund the same amount again before you have looked.",
           });
         }
       } else if (operation.kind === "transfer") {

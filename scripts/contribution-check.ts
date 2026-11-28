@@ -1811,6 +1811,84 @@ async function main() {
     check("when Stripe says a clear \"no\" to asking about the refund by its number, or to reading its list after a refused repeat, nothing is decided: the try stays open and the line as it is", afterRetrieve && afterList, { afterRetrieve, afterList });
     await look(tryG.started.operationId);
     check("and the next look, when Stripe answers, books it once", (await lineOf(lineG.id)).status === "done" && (await PM(f.paymentId)).refundedCents === 700 && (await atStripe(f.paymentId)).filter((r) => r.metadata?.refundId === lineG.id).length === 1);
+
+    // 8. A helper that stood still (plans/50-part-1-gifts-owed-back.md, "A helper that stood still"). A repeat only
+    // leaves from a look at the try that is a moment old. The look waits for whoever holds the try's own row, so the
+    // script holds that row to make a helper stand still, or to write an outcome down while a helper looks.
+    const { LOOK_GOOD_FOR_MS } = await import("../src/lib/payments/refund-tries");
+    const { lockForPayment } = await import("../src/lib/contributions/locks");
+    const ops = schema.moneyOperations;
+    const admins = await db.select({ id: schema.admins.userId }).from(schema.admins);
+    const toldAbout = (operationId: string) => db.select().from(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `paid-although-not-made:${operationId}:%`));
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    type Sent = { label: string; timeout?: number; maxNetworkRetries?: number };
+    /** Every request to MAKE a refund that left for Stripe during `work`, with how it was sent. All of them go through. */
+    async function sentDuring(work: () => Promise<unknown>): Promise<Sent[]> {
+      const sent: Sent[] = [];
+      await instead("create", (real, args) => {
+        const how = (args[1] ?? {}) as { idempotencyKey?: string; timeout?: number; maxNetworkRetries?: number };
+        sent.push({ label: String(how.idempotencyKey), timeout: how.timeout, maxNetworkRetries: how.maxNetworkRetries });
+        return real(...args);
+      }, work);
+      return sent;
+    }
+    /** What a second helper writes when its repeat was refused and Stripe's list shows nothing (recover.ts): the try did not happen, the line is owed again. */
+    const notMade = (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], locked: Awaited<ReturnType<typeof lockForPayment>>, operationId: string, line: { id: string; attempt: number }) =>
+      tx.update(ops).set({ status: "failed", error: "Refused (made up by the check script).", finishedAt: new Date() }).where(eq(ops.id, operationId)).then(() => R.applyRefundOutcome(tx, locked, { refundId: line.id, attempt: line.attempt, stripeRefundId: null, status: "failed" }, new Date()));
+    const h = await taken(host);
+    const ofLine = async (lineId: string) => (await atStripe(h.paymentId)).filter((r) => r.metadata?.refundId === lineId);
+
+    // 8a. The helper's look is held up for longer than a look stays good.
+    const lineS = await part(h.paymentId);
+    const tryS = await unanswered(lineS, { first: false, oldMs: 2 * MIN });
+    let sentS: Sent[] = [];
+    let helperS: Promise<unknown> = Promise.resolve();
+    await db.transaction(async (tx) => {
+      await tx.select({ id: ops.id }).from(ops).where(eq(ops.id, tryS.started.operationId)).for("update");
+      helperS = sentDuring(() => look(tryS.started.operationId)).then((sent) => void (sentS = sent));
+      await wait(LOOK_GOOD_FOR_MS + 1500);
+    });
+    await helperS;
+    l = await lineOf(lineS.id);
+    check("a helper that stood still for longer than its look stays good sends nothing: the try stays open and the line as it is", sentS.length === 0 && (await tryOf(tryS.started.operationId)).status === "started" && l.status === "owed" && l.attempt === 1 && (await atStripe(h.paymentId)).length === 0, { sentS, status: l.status });
+    const nextS = await sentDuring(() => look(tryS.started.operationId));
+    check("the next look is fresh: the repeat leaves once under the try's label, with 10 seconds for the request and the Stripe library told not to repeat it, and is booked", nextS.length === 1 && nextS[0].label === tryS.started.label && nextS[0].timeout === 10_000 && nextS[0].maxNetworkRetries === 0 && (await lineOf(lineS.id)).status === "done" && (await PM(h.paymentId)).refundedCents === 500, { nextS });
+
+    // 8b. A second helper writes the try down as "not made" while the first one looks.
+    const lineT = await part(h.paymentId, 300);
+    const tryT = await unanswered(lineT, { first: false, oldMs: 2 * MIN });
+    let sentT: Sent[] = [];
+    let helperT: Promise<unknown> = Promise.resolve();
+    await db.transaction(async (tx) => {
+      const locked = await lockForPayment(tx, h.paymentId);
+      await tx.select({ id: ops.id }).from(ops).where(eq(ops.id, tryT.started.operationId)).for("update");
+      helperT = sentDuring(() => look(tryT.started.operationId)).then((sent) => void (sentT = sent));
+      await wait(1000);
+      await notMade(tx, locked, tryT.started.operationId, lineT);
+    });
+    await helperT;
+    l = await lineOf(lineT.id);
+    check("a helper whose look meets another helper writing \"not made\" waits for that, sees it, and sends nothing under the old label", sentT.length === 0 && (await tryOf(tryT.started.operationId)).status === "failed" && l.status === "owed" && l.attempt === 2 && (await ofLine(lineT.id)).length === 0 && (await toldAbout(tryT.started.operationId)).length === 0, { sentT, status: l.status, attempt: l.attempt });
+    const laterT = await sentDuring(() => R.sendRefund(lineT.id, new Date(Date.now() + 61 * MIN)));
+    const atStripeT = await ofLine(lineT.id);
+    check("so the new try an hour later is the only one Stripe ever gets: the contributor is paid once", laterT.length === 1 && laterT[0].label === `contributionrefund:${lineT.id}:2:1` && atStripeT.length === 1 && atStripeT[0].metadata?.attempt === "2" && (await lineOf(lineT.id)).status === "done" && (await PM(h.paymentId)).refundedCents === 800, { laterT, atStripe: atStripeT.length });
+
+    // 8c. What no look can reach: "not made" is written in the instant after the helper's last look and before its
+    // request arrives. Stripe pays the old label. Nothing is overwritten, and it is said out loud.
+    const lineU = await part(h.paymentId, 200);
+    const tryU = await unanswered(lineU, { first: false, oldMs: 2 * MIN });
+    await instead("create", async (real, args) => {
+      await db.transaction(async (tx) => notMade(tx, await lockForPayment(tx, h.paymentId), tryU.started.operationId, lineU));
+      return real(...args);
+    }, () => look(tryU.started.operationId));
+    l = await lineOf(lineU.id);
+    const paidU = await ofLine(lineU.id);
+    const mailsU = await toldAbout(tryU.started.operationId);
+    check("a refund that Stripe pays although its try was written down as \"not made\" changes nothing in the books, and every founder is told once, with Stripe's number for it", paidU.length === 1 && paidU[0].status !== "failed" && (await tryOf(tryU.started.operationId)).status === "failed" && l.status === "owed" && l.attempt === 2 && (await PM(h.paymentId)).refundedCents === 800 && admins.length > 0 && mailsU.length === admins.length && mailsU.every((mail) => mail.body.includes(paidU[0].id) && mail.body.includes(lineU.id)), { atStripe: paidU.length, status: l.status, attempt: l.attempt, admins: admins.length, mails: mailsU.length });
+    const laterU = await sentDuring(() => R.sendRefund(lineU.id, new Date(Date.now() + 61 * MIN)));
+    l = await lineOf(lineU.id);
+    check("and as the line was still waiting, its next try finds that refund on Stripe's list and books it instead of sending: paid once", laterU.length === 0 && l.status === "done" && l.stripeRefundId === paidU[0]?.id && (await PM(h.paymentId)).refundedCents === 1000 && (await atStripe(h.paymentId)).length === 3, { laterU, status: l.status });
+    await db.delete(schema.emailOutbox).where(like(schema.emailOutbox.dedupeKey, `paid-although-not-made:${tryU.started.operationId}:%`));
   });
 
   // ========================================================================

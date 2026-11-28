@@ -6394,3 +6394,47 @@ report, block and limits are enough). The last is in the lawyer's file too.
 **Found on the way.** The website's own box can say "What you wrote was not sent" after an
 answer that never came, when the conversation closes before Send is pressed again; the
 message may have been sent. A small change of its own, proposed, not made.
+
+## A helper that stood still can no longer send an old refund request (plans 20 and 50, follow-up, 27 November 2026)
+
+**What it is about.** Not a new feature and no decision of the founder's: the one point the
+two entries above left for a fix of its own, for all three kinds of refund at once (a call's
+refund, a tip's or a contribution's refund, a membership's pay-back). Two helpers work at
+once. The first reads that a refund request is still unanswered and then stands still for
+over an hour (its machine was put to sleep, say). Meanwhile the second helper finds out
+that the request was never made, and the money goes out again as a new request and is
+paid. Then the first helper wakes up and sends the old request, and Stripe pays that too.
+The customer has the money twice and the app's books show it once.
+
+**What was decided** (`plans/50-part-1-gifts-owed-back.md`, "A helper that stood still",
+with the reasons and what was looked at and not built):
+
+- A helper's repeat of a refund request now only leaves from a look at the request that is
+  a moment old. As the last things before it sends, the helper looks once more (and that
+  look waits for anybody who is writing an outcome down at that moment), then reads the
+  clock: if more than 5 seconds have passed, it stood still, and it sends nothing. The next
+  pass, a few seconds later, looks afresh. The repeat itself is given up after 10 seconds,
+  and the Stripe library is told not to send it again by itself.
+- That cannot close the last instant between reading the clock and the request leaving, or
+  the Stripe library's own second sending after a closed connection. Nothing in the app
+  runs after its own last check. So what is left is at least made known: a helper that
+  holds a refund Stripe made for a request the app calls "not made" changes nothing, writes
+  it to the error log, and sends every founder one email with the money, Stripe's number
+  for the refund, and what to compare.
+- Not built: a regular comparison of every charge's refunds at Stripe with the app's lines.
+  It would ask Stripe for a list per refunded charge again and again, for a case that needs
+  several unlikely things at once.
+
+One piece of code for all three, in `src/lib/payments/refund-tries.ts`
+(`repeatFromFreshLook`, `sayIfPaidAlthoughNotMade`), used by `src/lib/payments/jobs.ts`,
+`src/lib/contributions/recover.ts` and `src/lib/membership/recover.ts`. No change to the
+database and nothing a customer or a host sees.
+
+**What stays as it is, and is named.** The last instant, above. If the waking helper dies
+before it hears Stripe's answer, nobody is told. A call's refund that Stripe paid although
+the app calls it failed is not repaired by the app: the founder's email says not to refund
+it again before looking. A tip's, a contribution's and a membership's money that is still
+waiting to go out again repairs itself: the next try finds the refund on Stripe's list and
+counts it. If a later try had already gone out, the second amount is Connect's cost.
+
+**For going live.** Nothing new to set up. The email goes to every admin.
