@@ -80,3 +80,23 @@ export const REPORT_WORDS = {
   reportMessage: "Report",
   wrong: "Something went wrong. Please try again.",
 } as const;
+
+/**
+ * Reports the other way round: how many the reported person has made about the reporter, and whether one of
+ * them was made from the same call or the same request as this report.
+ */
+export type ReportedBack = { count: number; same: "call" | "request" | null };
+
+/**
+ * What the founder's list says when the two have reported each other (plans/51, decision 26), or
+ * null when the reported person has made no report about the reporter. It only tells the reader
+ * that the story has two sides: nothing follows from it by itself.
+ */
+export function reportedBackWords(back: ReportedBack, names: { reporter: string; reported: string }): string | null {
+  if (back.count <= 0) return null;
+  const reports = (n: number) => (n === 1 ? "report" : "reports");
+  if (back.same === null) return `Both have reported each other: ${names.reported} has made ${back.count} ${reports(back.count)} about ${names.reporter}, from somewhere else than this report.`;
+  const others = back.count - 1;
+  const more = others === 0 ? "" : ` ${names.reported} has made ${others} other ${reports(others)} about ${names.reporter}.`;
+  return `Both reported each other from this ${back.same}: ${names.reported} has also reported ${names.reporter}.${more}`;
+}
