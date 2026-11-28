@@ -14,8 +14,7 @@ earned, the rating, the follow box, the host's note, and the buttons that lead o
 
 ## What is there today (read in the code)
 
-`src/app/calls/[id]/results/page.tsx` (712 lines on 27 November), the largest page of the
-website:
+`src/app/calls/[id]/results/page.tsx` (712 lines on 27 November):
 
 - **Time:** three totals (the host's time, the customer's time, time together) and the
   stretches each was connected (`loadAttendance`, `countedSeconds`).
@@ -68,9 +67,20 @@ website:
    charged, given back and paid to both; the fee, her share and the payout state to the host
    only. One receipt per payment. Every figure is the server's.
 3. **Small addresses, on the same functions:** rate; save the note; follow, unfollow, "don't
-   follow", "tell me when she is online". **Report and Block are not built again:** this
-   screen leads to plan 51's screen of three choices, which the app has, with its report
-   form and its block step. "Book another call" opens the host's page.
+   follow", "tell me when she is online". **Report and Block are not built again** for a
+   call that took place or was ended: this screen leads to plan 51's screen of three
+   choices, which the app has, with its report form and its block step. **A cancelled call
+   has no such screen** (the server's reading for it answers "nothing to say after its
+   end"), while the website's results page still offers Report and Block for it. So for a
+   cancelled call this screen opens part 09's report form and the block step directly, and
+   the check script proves that both work for one. "Book another call" is offered only when
+   the server says so (the host's page can be asked, and no block stands between the two),
+   and opens the host's page.
+3a. **From the three choices on to the rating.** The website's page after "End call now"
+   leads a person who may still rate on to the rating; the app's answer for that screen
+   leaves that out today. With this part the answer says whether a rating is open for this
+   person, and "Neither" (or coming back from Report or Block) lands on this screen with the
+   rating in view.
 4. **A rating cannot be changed,** so the app asks once more before sending it.
 5. **Tips:** when plan 44 is merged, the shared function gains the tip box for the website.
    The app's answer includes it only if both tip switches allow it, and the tip addresses
@@ -80,9 +90,10 @@ website:
    rule the charge follows, the reason on a receipt, and for the customer that his report
    lowered the charge or did not. The app's answer for a host holds nothing about a report
    against her; the check script looks for that in the answer itself, not on the screen.
-8. **Once this screen exists, the line after "End call now" points to it.** The app's answer
-   for the screen of three choices stops replacing "see the call's page" with the website's
-   name (`END_WORDS.moneyDoneApp`), in the same pull request, and the app's page of a call
+8. **Once this screen exists, the lines after "End call now" point to it.** Both of them:
+   the one for money that is still to be taken, and the one for money that is settled (the
+   app's answer replaces the second with the website's name today,
+   `END_WORDS.moneyDoneApp`). Changed in the same pull request; and the app's page of a call
    leads to the results as the website's does ("See the details").
 9. **"Write to [name]"** belongs to part 17b (its decision 20: built with whichever of the
    two parts comes second). If 17b is not built yet, the app's answer has no such field and
@@ -97,7 +108,9 @@ website:
   conditions, and a second rating refused; a call ended with "End call now" by the host and
   one ended by the customer (the box, the reason on the receipt, both can rate, no tip
   field, no automatic follow); one where the customer's report lowered the charge (said in
-  his answer, absent from hers); a call ended with the earlier button (never rated).
+  his answer, absent from hers); a call ended with the earlier button (never rated); a
+  cancelled call (Report and Block both work from this screen); "Book another call" absent
+  when the host's page cannot be asked and when there is a block.
 - `ratings-check`, `follow-check`, `extend-check`, `member-calls-check`, `tip-check` and plan
   51's `end-now-check` unchanged and green.
 - On the Android test phone, with pictures: both sides of a finished call, with and without
@@ -134,3 +147,13 @@ and 50) shows on the receipts as "given back" like any refund, from the same fun
 the host then owes is on her earnings screen (part 16b), not here.
 
 This plan is read against the code once more on the day it is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *The way to Report and Block failed for a cancelled call.* Decision 3.
+2. *The way on to the rating was lost after "End call now".* Decision 3a.
+3. *Both of the lines about money have to point here, not one.* Decision 8.
+4. *"Book another call" must follow the host's page and a block.* Decision 3.
+5. *Not taken:* removing the tip field for good. Decision 5 stands: the field exists only
+   while both tip switches are on, and the apps' switch is born off (part 09a, decision 4,
+   says why).

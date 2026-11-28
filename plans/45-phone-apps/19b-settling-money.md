@@ -36,7 +36,16 @@ left, and a host does not have to sign in again to get hers.
   Connect asks Stripe to take the amount back out of what it sent her. Such a debt can
   **begin after she has left**: a refund or a lost dispute over an old payment.
 - **A bank dispute** (plan 47) can be open on a payment of a deleting customer or host, and
-  can arrive months later. A host has 24 hours to choose how to answer one.
+  can arrive months later. For some of them the host is asked to choose the answer: her
+  time is at most 24 hours from the dispute's arrival, less when the bank's deadline is
+  near, and without a choice Connect sends its proof (`src/lib/disputes/rules.ts`).
+- **Debts come in more than one kind** (`src/lib/disputes/takeback.ts`). One from a refund,
+  for a payment made before the host held a published Host Agreement, is only written down
+  ("waiting") and settled by a person; one from a lost dispute is taken by the app after its
+  notice ("told"), and only that kind can be objected to. Money can also be owed *to* the
+  host, when more was taken than was owed.
+- **A collection can be under way when the lock falls:** a transfer that was sent to Stripe
+  before, whose answer comes after; the helper's 12-month collection among them.
 - **Refunds and pay-backs to a card** can be "on its way" for days; the helper finishes them
   and never sends an old request again after standing still too long (pull requests 113,
   116 and 121).
@@ -64,30 +73,50 @@ left, and a host does not have to sign in again to get hers.
    nothing on its way.
 6. **When everything of a deletion is settled, that is written down;** part 19c's wiping
    waits for it only for the things that need it.
-7. **Decision 2 is built on the helper's own collection that now exists** *(added 27
-   November)*, with its two differences for a deletion: every ready cent, and no charge.
-   The 12-month collection keeps leaving closed accounts alone; a deleting host's money is
-   this part's, and the two never run for the same host.
-8. **Money she owes back does not go away with the account** *(added 27 November; the
-   builder's, and a point for the lawyer)*. A debt that is open at the deletion stays open
-   and takes the way it has: the notice, the 14 days, her objection, the taking at Stripe.
-   Three things follow. Her email address is kept for it, and only for it, until it is over
-   (part 19c counts an open debt as "a named open case"): the notice and our answers have to
-   reach her, and she can no longer sign in. Her objection comes by email to support and is
-   entered by a person at Connect, on the founder's pages. And her payout account at Stripe
-   is not closed while a debt is open (decision 5 already waits for "nothing owed").
+7. **Decision 2 borrows the helper's own collection, with rules of its own** *(added 27
+   November; rewritten after Astra's check)*. The 12-month collection waits for an age, keeps
+   a day between tries and gives up for a week after a miss; none of that fits a deletion.
+   So a deletion's collection has its own rule for when it runs (as soon as a share is
+   ready, and again whenever another becomes ready). **First, whatever was already under way
+   is cleared up:** a transfer sent before the lock, by her own press or by the 12-month
+   collection, is followed to its answer and never sent again. The two differences of
+   decision 2 (every ready cent, no charge) hold only for a collection that was begun for
+   the deletion; one begun before it keeps the charge it had.
+8. **Money she owes back does not go away with the account** *(added 27 November; rewritten
+   after Astra's check; the builder's, and a point for the lawyer)*.
+   - **Each debt keeps the state and the direction it has.** One that waits for a person
+     stays with that person. One that the app takes goes on along its way: the notice, the
+     14 days, her objection, the taking at Stripe. Money that is owed *to her* is sent to
+     her with her last earnings.
+   - **A case that had begun counts as hers even if its debt is written later.** A refund
+     or a bank dispute that was already under way at the lock belongs to the deletion's
+     open cases, whenever the helper gets round to writing the debt down. Otherwise the
+     helper's timing would decide who carries it.
+   - **What must be kept until the case is over, and only until then:** her email address;
+     the notices still waiting to be sent; and the record that ties a delivery report to its
+     notice, because the 14 days, and the 3 days after an answer, are counted from delivery
+     (part 19c, decision 3b).
+   - **Her objection** comes by email to support, since she can no longer sign in. It counts
+     from the moment it **arrived**, not from when a person typed it in: the founder's page
+     takes the day it came, and the taking is put on hold at once. If the money was taken in
+     between, it is given back.
+   - Her payout account at Stripe is not closed while any of this is open (decision 5).
 9. **A debt, or a bank dispute, that begins after the deletion** *(added 27 November; open)*.
    The payment's record is kept, so the app can still work out what she would owe. But there
    is nobody left to tell and, once her payout account is closed, nothing to take it from.
    The builder's first answer: Connect carries it, the books say so with its reason, and the
-   founder sees it in the list of decision 4. A host must not be able to delete her account
-   to walk away from a refund that is plainly coming, so the confirmation screen names every
-   payment of hers that is still inside a bank's dispute time only as a number ("some of your
-   past payments can still be disputed by a customer's bank"), and the lawyer is asked
-   whether her payout account's closing may wait for that time.
-10. **A customer's side** *(added 27 November)*: a refund or pay-back on its way to their
-    card is finished by the helper as today, and needs nothing from the account. An open
-    bank dispute of theirs runs on to its end.
+   founder sees it in the list of decision 4. So that deleting is not a way out of a refund
+   that is plainly coming, the confirmation screen tells **every** host, in the same words,
+   that payments made in the past can still be disputed by a customer's bank, and the
+   lawyer is asked whether a payout account's closing may wait for that time. The sentence
+   is general on purpose: a count of her own payments could appear only because of a
+   contribution or a tip (part 19, decision 3).
+10. **A customer's side** *(added 27 November; rewritten after Astra's check)*. A refund or a
+    pay-back to a card can be owed and not yet sent, on its way, paid, or stuck: it can fail
+    at Stripe, fall back to "owed", be frozen by a bank dispute, or need a person. None of
+    those needs the account to be open, and **none may be lost with it:** each such claim is
+    a named open case, kept with what is needed to finish it, until it is paid or a person
+    has closed it. An open bank dispute of theirs runs on to its end.
 
 ## How it is tried
 
@@ -101,7 +130,13 @@ left, and a host does not have to sign in again to get hers.
   address is kept for it and removed when it is over, and her payout account is not closed
   before; a refund of an old payment after the deletion (carried by Connect, in the
   founder's list); a customer with a pay-back on its way (it arrives); a host for whom the
-  12-month collection would also be due (only this part's collection runs).
+  12-month collection would also be due (only this part's collection runs); a transfer the
+  12-month collection had sent before the lock, answered after it (followed to its answer,
+  with its charge, never sent twice); a debt that waits for a person, one the app takes,
+  and money owed to her; a refund under way at the lock whose debt is written a day later
+  (hers, not Connect's); an objection that arrived by email on day 13 and was entered on
+  day 15 (it counts, and what was taken on day 14 is given back); a customer whose pay-back
+  failed at Stripe after the wipe would have run (the claim is still there, and is paid).
 - `payments-check`, `refunds-check`, `membership-check`, `contribution-check` unchanged and
   green.
 
@@ -114,7 +149,9 @@ carries a refund or a lost dispute that begins after she has left?
 
 ## Keeping the 4.9%
 
-A payout, not a purchase. The waived charge costs Connect at most 25 cents per deleted host.
+A payout, not a purchase. The waived charge costs Connect at most 25 cents for each
+collection made for a deletion, and there can be more than one for a host whose shares
+become ready on different days.
 
 ## Brought up to date (27 November 2026)
 
@@ -123,6 +160,20 @@ Read again against the code on `main` after pull request 123. What changed in th
 1. *The helper can start a collection itself* (plan 46, part 3b). Decision 7 builds on it.
 2. *A host can owe money back* (plans 46, 47, 50). Decisions 8 and 9. **Decision 9 is open:**
    what happens to a debt that begins after she has left is for the founder and the lawyer.
-3. *Refunds and pay-backs can be on their way for days.* Decision 10.
+3. *Refunds and pay-backs can be on their way for days, or get stuck.* Decision 10.
 
 It goes to Astra with parts 19 and 19c before any of them is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *A 12-month collection can be under way when the lock falls, and its rules do not fit a
+   deletion.* Decision 7.
+2. *Not every debt is taken after 14 days, and money can be owed to the host.* "What is there
+   today"; decision 8.
+3. *An objection sent in time could be entered too late, and wiping the delivery records
+   would break the deadline.* Decision 8, with part 19c.
+4. *A refund is not "arriving" until it has arrived.* Decision 10.
+5. *A sentence with her own count of payments could appear only because of a contribution.*
+   Decision 9 says it to every host alike.
+6. *The time for a bank dispute's choice, and the cost of the waived charge, were put too
+   simply.* "What is there today"; "Keeping the 4.9%".

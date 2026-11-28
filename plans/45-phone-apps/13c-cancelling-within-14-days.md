@@ -83,8 +83,10 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
    `cancelWithin14Days` for the signed-in person, with the month the app was shown. It needs
    no once-only key: a second press is refused by the function itself.
 6. **The app asks once more.** A sheet with the server's sentences: it ends the membership at
-   once and for good, coming calls are cancelled, used time stays paid for, the rest goes
-   back to the card. Two buttons: "Cancel within 14 days" and "Keep my membership".
+   once and for good, coming calls are cancelled, and what stays paid for (time that was
+   used, and a call that was charged under the booking's terms, such as one cancelled late
+   or missed), with the rest going back to the card. The sentences are the server's, whole;
+   the app shortens none of them. Two buttons: "Cancel within 14 days" and "Keep my membership".
 7. **After pressing, the app reads the membership again, whatever came back.** A refusal is
    shown as the sentence the server sent. If the answer was lost on the way and the membership
    has ended, the app shows that it ended, not an error. If a call could not be cancelled just
@@ -95,7 +97,8 @@ All of it is in `src/lib/membership/fourteen-days.ts` (plan 46, part 3c; the ful
    stays paid for is in the email; the app does not work it out again. The cancelled calls
    show as cancelled in the calls list (part 08).
 9. **No notification of its own** (part 12): the person pressed it themselves. The host
-   learns of it as of any ending (part 13b shows the reason as it comes).
+   learns of it as of any ending: by the email an ending sends her. Her list of members
+   holds no ended memberships, on the website or in the app (part 13b).
 10. **The founder's form stays on the website.**
 
 ## Keeping the 4.9%

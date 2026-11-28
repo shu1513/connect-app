@@ -6,10 +6,14 @@ account unsafe. Astra's second check ("not ready") found the hand-over to the ap
 open in two places (the answer was not tied to the attempt before it reached the app, and a
 plain app link can be claimed by another app); decision 2 is rewritten for both. This is the
 one part with new security work, and it is shown to Astra again before it is built.
-Read again against the code on 27 November 2026, after pull request 123: the payout account
-(`src/lib/payments/hosts.ts`), the ID check and the proof of a social account have not changed
-since this was written, and nothing here had to change. It still goes to Astra, and is read
-once more against the code, before it is built.
+Read again against the code on 27 November 2026, after pull request 123. The payout account
+(`src/lib/payments/hosts.ts`) and the proof of a social account have not changed since this
+was written. The ID check has (`src/lib/safety/identity.ts`, plan 46): a person agrees to
+the Identity Check Notice in its current version before each check, that version is written
+on the check, and a result of "under 18" pauses the account at once. The app's own ID check
+for customers already does all of this (part 06); a host's check in this part uses the same
+screens and the same address, and adds nothing of its own. It still goes to Astra, and is
+read once more against the code, before it is built.
 
 ## For the founder: what this is
 

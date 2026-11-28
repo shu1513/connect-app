@@ -7,7 +7,7 @@ twice (first "not ready", 16 points; then "ready with changes", 8 points); all a
 or answered, and listed at the end. Read on 27 November 2026 by the builder of the phone
 apps, after pull request 123: nothing in it had to change. Two things were added elsewhere
 that touch it. Part 12, decision 2a, proposes one notification, "Connect has written to
-you.", for each message "From Connect" (see "Not in this part" here, which leaves those
+you.", for a few kinds of message "From Connect" (see "Not in this part" here, which leaves those
 messages out of the apps). And parts 10 and 17 now name their "Write to" buttons from their
 side, as decision 20 here asks.
 
@@ -311,7 +311,9 @@ the app than on the website (decision 13). Asked on 27 November, you left it to 
     never taken away, and whether one may write is the rules' business.
     **Not built here:** the host's way from Contacts, which names a customer. It has nothing
     in the app to press until part 17, and part 17 will say how the app names a contact. It
-    is built with part 17; the button on the page after a call with part 10.
+    is built with part 17, and the button on the page after a call with part 10; or with this
+    part, for whichever of them is built before this part is (decision 20: the later of the
+    two builds what joins them).
 
 11. **Block** on the conversation's screen, with the question the app asks first, in the
     words blocking already has in the app (`BLOCK_WORDS`). The server blocks the other person

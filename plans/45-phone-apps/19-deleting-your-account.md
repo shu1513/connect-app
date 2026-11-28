@@ -61,15 +61,33 @@ first: taking the request, locking the account, and deciding what happens to com
    carries a second mark, "deleted by its owner", with the date, that never comes off. The
    founder's "reopen" refuses an account with that mark. If the person is in a call at that
    moment, that one call is allowed to finish, and nothing else.
+2a. **Every piece of code that tidies up after a closure is taught the difference** *(added
+   27 November, after Astra's check)*. Today's closing signs the person out everywhere,
+   cancels every coming call for free, puts the person out of a call in progress, and ends
+   memberships on both sides; and the helper repeats that about once a minute for anything
+   left over (`closeAccount`, `endRequestsAndCallsOf`, `finishPausesAndClosures` in
+   `src/lib/profiles/closing.ts`, and the membership clean-up). If a deleting account were
+   only "marked closed", that code would undo what decisions 2 and 5 promise within a
+   minute: it would end the one call that may finish, and cancel for free a call whose late
+   charge was agreed. So for an account that carries the mark "deleted by its owner", each
+   of those pieces carries out what was written down per call (decision 5) and nothing
+   else, leaves the one call in progress alone, and leaves that person the way to end or
+   report that call. One place decides it, and all of them ask it. Tried also with the
+   helper stopped and started again between the confirmation and the cancelling.
 3. **Before confirming, the person is shown what will happen now and cannot be undone,** with
    their own numbers: which coming calls are cancelled and what each costs or gives back;
    which memberships end; what a host is still owed and how it will reach her (part 19b);
    what is wiped and what is kept and for how long (part 19c); and how long it takes.
-   *Added 27 November:* also, each where it applies, **money she owes back** (deleting does
-   not cancel it, and how it is settled is part 19b's); **an open bank dispute** (it runs on,
-   and its evidence is kept until it is over); **her conversations** (they close, and the
-   other person sees "a deleted account"); and **a membership still inside its 14 days**
-   (see decision 6a).
+   *Added 27 November, and narrowed after Astra's check:* the screen also covers money she
+   owes back, an open bank dispute, her conversations (they close, and the other person
+   sees "a deleted account") and a membership still inside its 14 days (decision 6a). **How
+   much of that is shown depends on where she is.** On the website the screen shows all of
+   it, with her own numbers. In the app it shows her own numbers only for calls (and for
+   memberships while they are on for the apps); for everything else it shows sentences that
+   every person sees alike, whatever they have: that deleting cancels no debt and stops no
+   bank dispute, that some past payments can still be disputed by a customer's bank, and
+   that the full list for her account is in the email she is sent and on the website's
+   page. Nothing on the phone may appear only because of a contribution or a tip.
 4. **Confirming:** with the password (and the two-step code if there is one). An account
    without a password (made with Google) is sent a link that works once and for a short
    time; opening it only shows the same final screen, and the deletion needs a deliberate
@@ -83,18 +101,36 @@ first: taking the request, locking the account, and deciding what happens to com
 6. **By whose rules:** a customer's call as if they had pressed Cancel; a member's call as a
    member's own cancellation; a host's calls free for her customers. The helper's clean-up of
    memberships reads what was written down instead of cancelling "as the founder, free".
-6a. **A membership still inside its 14 days is cancelled the 14-day way** *(added 27 November;
-   the builder's)*, through `cancelWithin14Days`, whenever the server says that way is open
-   for it (`ownFourteenDays`). It is the member's right, it gives back at least as much as
-   an ordinary ending, and a person who deletes their account in the first days should not
-   get less than one who presses the button first. A request of that kind that is already
-   on record is finished the same way before anything else of the membership is touched.
-   Every other membership ends as decision 6 says, one paused with an account included.
+6a. **A membership still inside its 14 days** *(added 27 November; rewritten after Astra's
+   check; the builder's)*. Cancelling within 14 days is the **member's** right and nobody
+   else's.
+   - **The member deletes their account.** If the server says the 14-day way is open for a
+     membership of theirs (`ownFourteenDays`), their request is written down at the moment
+     of confirming, through the same first step the button uses, on the last day too. From
+     there the helper finishes it as it finishes any such request: the calls booked from
+     that membership are cancelled the 14-day way, and what is paid back is paid back once.
+     The ordinary ending of decision 6 does not touch that membership before the request is
+     finished, and never pays the same time back a second time.
+   - **The host deletes her account.** Nothing is asked in a member's name. A request a
+     member of hers already has on record is kept and finished first; her other memberships
+     end as decision 6 says.
+   - **A request that a rule stops for now** (the member's bank is looking at the month, or
+     the payment has a problem) waits for a person at Connect, as today. The rest of the
+     deletion goes on without it, and that membership counts as "a named open case" for part
+     19c.
 6b. **A paused account can delete itself** *(added 27 November; the builder's)*. Both stores
    ask that every account can be deleted. What Connect keeps about the pause is part 19c's
    table; deleting does not lift a pause, and the mark "deleted by its owner" sits beside it.
 6c. **Conversations close at the lock** *(added 27 November)*: nothing more can be written
    to or by a deleting account, through the same rule that already stops a closed one.
+6d. **A bank dispute that waits for her choice** *(added 27 November, after Astra's check)*.
+   A host is sometimes asked how a bank dispute should be answered. Her time for that is
+   short (at most 24 hours from the dispute's arrival, less when the bank's own deadline is
+   near), and if she does not choose, Connect sends its proof. Once her account is locked
+   she cannot sign in to choose. So the website's confirmation screen shows each such
+   dispute with its real deadline and what happens without a choice, and lets her choose
+   there, before she confirms. In the app the screen says the general sentence of decision
+   3 and that such a choice is made on the website. Deleting never changes the default.
 7. **There is no "keep my account" afterwards.** Calls cancelled, memberships ended and a
    photo deleted cannot be brought back. The screen says "this cannot be undone" once,
    clearly, before the confirmation, and means it.
@@ -120,7 +156,16 @@ first: taking the request, locking the account, and deciding what happens to com
   one with a 14-day request already on record; a member whose membership is paused with an
   account; a paused account (it can delete, and stays paused in the record); a host who owes
   money back and one with an open bank dispute (both shown on the screen before confirming);
-  a person with a conversation (closed, and nothing can be sent either way);
+  a person with a conversation (closed, and nothing can be sent either way); the helper's
+  once-a-minute tidying-up run against a deleting account before, during and after its
+  cancellations (the call in progress goes on, a call with an agreed late charge is charged
+  it, nothing is cancelled twice); a host who deletes while a member of hers has a 14-day
+  request on record (it is finished the 14-day way, and none is made for any other member);
+  a member whose 14-day request is stopped by a bank (the deletion goes on, the request
+  waits); a host with a dispute waiting for her choice (the website's screen shows the
+  deadline and takes the choice); and, in the app, a host whose only money, debt or dispute
+  comes from a contribution or a tip: her screen is word for word that of a host with
+  nothing;
   the founder's "reopen" refused; every gate that refuses a closed account also refuses this
   one (signing in, asking, accepting, joining another call).
 - Every existing check script unchanged and green, since the founder's closing is not changed.
@@ -167,3 +212,15 @@ Read again against the code on `main` after pull request 123. What changed in th
    conversations. Money owed back and disputes are part 19b's; what is wiped is part 19c's.
 3. *Nothing here is settled by a second check yet.* This part, 19b and 19c go to Astra
    together before any of them is built, and are read against the code of that day.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *The screen before confirming could show something only because of a contribution or a
+   tip.* Decision 3: in the app, own numbers for calls only, and general sentences for the
+   rest.
+2. *Today's closing and its helper would undo the agreed outcomes and end the call in
+   progress.* Decision 2a.
+3. *The 14-day rule could act in the wrong person's name, or lose a request made in time.*
+   Decision 6a, rewritten.
+4. *A host locked out could no longer make a choice a bank dispute was waiting for.*
+   Decision 6d.

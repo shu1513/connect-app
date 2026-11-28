@@ -35,9 +35,12 @@ stand-in, and no notification leaves this Mac.
 - **Messages "From Connect"** (plan 47, `tell` in `src/lib/messages/messages.ts`): when Connect
   itself writes to a person, one message on their Messages page and one email with the same
   words are written in one database step. Today these are: a bank dispute, among them the one
-  a host must answer within 24 hours; money a host owes back and the answer to her objection
-  (plans 46 and 50); a collection Connect started after 12 months without one; and the two
-  messages of plan 51's guard.
+  a host is asked to choose an answer for (her time is at most 24 hours, less when the
+  bank's deadline is near; without a choice Connect sends its proof); money a host owes back
+  and the answer to her objection (plans 46 and 50); a collection Connect started after 12
+  months without one; and the two messages of plan 51's guard, one of which goes to the
+  team and leads to the admin pages. **The same writer is used whatever the money was for:**
+  a dispute or a debt about a contribution or a tip is written through it too.
 - **Whether an email really arrived** is now recorded for the notices where the law needs it
   (`src/lib/notifications/provider-events.ts`, plan 46, part 3a): a host's 14 days to object
   run from the day the email service reports the notice delivered.
@@ -66,23 +69,43 @@ stand-in, and no notification leaves this Mac.
    from the other person of a conversation, by the rules of part 17b, decision 19 (its own
    switch, one line per conversation, never urgent). **Never:** anything about
    contributions, tips or the diary, emails to followers, admin and sign-in emails.
-2a. **"Connect has written to you."** *(added 27 November; the builder's, and one for the
-   founder to confirm)* Each message "From Connect" also makes one notification for each of
-   the person's phones, written in the same database step as the message and its email. It
-   says only that sentence: nothing about a bank, money or a report. Touching it opens the
-   app, which says "Connect has written to you. The message is in your email, and on your
-   Messages page on the website." The apps have no screen for these messages (part 17b,
-   "Not in this part"), and this notification does not need one. The one exception: once
-   part 16b is built, a message about money owed back opens that part's screen. *Why:* a host has 24 hours
-   to answer a bank dispute and 14 days to object to money taken back; a phone that stays
-   silent about the one email that has a deadline would be the wrong way round.
-   **A notification never counts as "the notice arrived".** Only the email's delivery report
-   starts a deadline, as today.
+2a. **"Connect has written to you."** *(added 27 November, rewritten after Astra's check; the
+   builder's, and one for the founder to confirm)* Some messages "From Connect" also make
+   one notification for each of the person's phones, written in the same database step as
+   the message and its email. It says only that sentence.
+   - **Which ones: a short list of causes, each for one kind of receiver, and nothing else.**
+     For a host: a bank dispute over a call's payment that waits for her choice; the notice
+     of money she owes back for a call, and our answer to her objection; a collection Connect
+     started for her. For a customer: that his report after ending a call did not change its
+     charge (plan 51's guard). A membership counts as a call here only while memberships
+     are on for the apps.
+   - **Never:** anything whose cause is a contribution or a tip, even though the sentence
+     names nothing (a phone that rings only because of a project is the project reaching
+     the phone); and anything written to the team (the founder's own messages, which lead to
+     the admin pages).
+   - **The cause is looked at before the row is written, and again when it is sent and when
+     it is touched:** is this still that person, is the thing still theirs and still of an
+     allowed kind. One bank dispute can stand behind several amounts; touching the
+     notification leads only to what is the signed-in person's own.
+   - **Touching it** opens the app, which says "Connect has written to you. The message is
+     in your email, and on your Messages page on the website." The apps have no screen for
+     these messages (part 17b, "Not in this part"). The one exception: once part 16b is
+     built, a message about money owed back for a call opens that part's screen.
+   - *Why at all:* two of these have a deadline. A host's time to choose how a bank dispute
+     is answered is short (at most 24 hours, and less when the bank's own deadline is near;
+     if she does not choose, Connect sends its proof), and she has 14 days to object to
+     money taken back.
+   - **A notification never counts as "the notice arrived".** Only the email's delivery
+     report starts the 14 days, as today; the time for a bank dispute's choice runs from the
+     moment the dispute arrived, whatever was delivered.
 2b. **Emails that stay emails only** *(added 27 November; the builder's)*: an account paused,
    by a person or by the app, and the warning about low ratings. The app shows the paused
    screen with its reason as soon as it is opened (part 18), and a locked screen is no place
-   for either. The emails about a membership paused with an account, and about resuming it,
-   belong to the kind "a membership needing the member" above, with its condition.
+   for either. Of the emails about a membership paused with an account, only the one that
+   asks something of the member (the way to resume, sent when both accounts are open again)
+   belongs to the kind "a membership needing the member" above, and only while memberships
+   are fully on for the apps: in the middle position nothing in the app may say where to
+   start paying again. The email that only says "it was paused" makes no notification.
    Cancelling within 14 days makes no notification (part 13c, decision 9).
 3. **Checked again at the moment of sending:** is this still that person's phone and are
    they still signed in on it; is the request still waiting, the call not cancelled; are
@@ -124,9 +147,12 @@ stand-in, and no notification leaves this Mac.
 
 ## How it is tried
 
-- `notifications-check` grows: one "Connect has written to you" row per phone for a message
-  "From Connect", written with it or not at all, and none when the same message is written a
-  second time under its key; no row for a pause or a rating warning; for each kind on the list, one row per phone, once; the kinds
+- `notifications-check` grows: one "Connect has written to you" row per phone for each cause
+  on decision 2a's list, written with its message or not at all, and none when the same
+  message is written a second time under its key; **no row** for the same kinds of message
+  about a contribution or a tip, for a message to the team, for a pause or a rating warning;
+  a row whose cause is no longer allowed at the moment of sending is not sent; for each kind
+  on the list, one row per phone, once; the kinds
   on the "never" list write none; reminders off means no reminder but still the notices that
   must come; a cancelled call, an answered request and a signed-out phone get nothing at the
   moment of sending; the locked-screen text of every kind is checked against what it must
@@ -165,7 +191,8 @@ about the person's own calls (Apple forbids using them to advertise without cons
 Read again against the code on `main` after pull request 123. What changed in this plan:
 
 1. *Connect now writes to people itself, with deadlines attached* (plans 46, 47, 50, 51).
-   Decision 2a: one sentence that names nothing. **For the founder to confirm.**
+   Decision 2a: one sentence that names nothing, for a short list of causes. **For the
+   founder to confirm.**
 2. *New emails about pauses and warnings* (plans 52 and 53). Decision 2b: emails only.
 3. *An email's arrival is recorded for legal notices.* Decision 2a says a notification never
    stands in for it.
@@ -173,3 +200,13 @@ Read again against the code on `main` after pull request 123. What changed in th
    of part 17b; it stands.
 
 This plan is read against the code once more on the day it is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *"Every message From Connect" took in messages about contributions and tips, and the
+   team's own.* Decision 2a is now a list of causes and receivers, checked three times.
+2. *Two clocks were mixed up:* the time for a bank dispute's choice (short, from the
+   dispute's arrival, with a default) and the 14 days for an objection (from the email's
+   arrival). Decision 2a says each.
+3. *An email that only informs is not "a membership needing the member",* and the middle
+   position of the switch must stay silent about paying. Decision 2b.

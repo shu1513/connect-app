@@ -6,8 +6,8 @@ Astra's second check ("not ready") added more, and all of it is worked in (the l
 end). **The table below is the builder's version of a list only a lawyer can settle.** It is
 built so that each line is a setting: what the lawyer changes does not need a rebuild. When
 this part is merged, the three parts are complete and the founder can switch the button on.
-Brought up to date on 27 November 2026, after the website changed: nine lines were added to
-the table (the list is at the end). It goes to Astra again, with parts 19 and 19b, before it
+Brought up to date on 27 November 2026, after the website changed: eleven lines were added
+to the table and two changed, some of them after Astra's check (the lists are at the end). It goes to Astra again, with parts 19 and 19b, before it
 is built.
 
 ## For the founder: what this is
@@ -60,7 +60,7 @@ requests after a year.
    | Requests and bookings that never became a paid call, with the note the customer wrote and the card references | erase | |
    | Calls that were paid, added time, and every money record: payments, holds, refunds, collections, the books, disputes, the records of cards used (references only, never numbers) | keep, stripped of free text; the note a customer wrote when booking is erased | Tax and disputes; time for the lawyer to name |
    | Calls that were free or cancelled without money | strip | So the other person's history still makes sense |
-   | Ratings this person gave | they stop counting, as the ratings of a closed account already do, and are erased | Today each rater counts once, in whole groups of three, so nobody can tell who gave what; a kept rating tied to its call would point to its author. A host's shown average can therefore change a little when someone leaves |
+   | Ratings this person gave | they stop counting, as the ratings of a closed account already do. **The stars are erased, but the place stays:** an empty marker remains where the rating stood, pointing at the emptied account. *(Changed after Astra's check.)* | Ratings count in fixed groups (the first five people, then three at a time, the most recent fifty or so), and a group with a closed rater in it is left out whole. Taking the row away would move later people into earlier groups and could give one person's stars away. An empty marker keeps every group where it was. A host's shown average can change a little when someone leaves |
    | Ratings this person received | erase | |
    | Time in calls, connection grades | erase when the time for a refund is over | Evidence for refunds only |
    | Connection checks | nothing to do: they are removed after 24 hours already | |
@@ -73,16 +73,18 @@ requests after a year.
    | Raw copies of what Stripe and LiveKit sent | erase after the time needed to settle money (a setting) | They repeat personal details |
    | Memberships, months, agreements, invitations | paid months kept as money records; invitations never accepted erased; the agreement kept, with its date, while the money records are | |
    | A project, its posts and pictures | the name, description, posts and pictures erased (a picture held for a report is kept with it). If a contribution to it was ever paid, an empty shell of the project stays, because the money record must point to something | |
-   | Contributions | paid ones kept as money records, with their agreement and date; unpaid attempts erased | |
+   | Contributions | paid ones kept as money records, with their agreement and date; an unpaid attempt is erased **only once its outcome at Stripe is settled** (an attempt given up here can still have been charged there). *(Changed after Astra's check.)* | |
    | The founder's record of actions on this account | keep | The founder's own accountability |
-   | *Added 27 November.* Messages between a host and a customer (plan 49): the conversations, what this person wrote, their switch for one host | this person's own messages are erased at once and the conversation is closed; the other person keeps what they wrote themselves, under "a deleted account", until the twelve months every message has | What someone wrote is theirs. Whether the other person may keep reading it is **for the lawyer**; the builder's first value is no |
+   | *Added 27 November.* Messages between a host and a customer (plan 49): the conversations, what this person wrote, their switch for one host | the conversation is closed at the lock, and from that moment the other person sees "a deleted account" in place of the name (the reader looks names up, so the name is hidden there at once, before the wipe); this person's own messages are erased with the wipe; the other person keeps what they wrote themselves until the twelve months every message has | What someone wrote is theirs. Whether the other person may keep reading it is **for the lawyer**; the builder's first value is no |
    | *Added.* Messages kept for a report (`report_conversations`) | keep with that report, for as long as the report is kept | The report's evidence |
    | *Added.* Messages "From Connect" to this person | as "Emails written to this person" above: the text is erased, that one was sent stays | |
-   | *Added.* The record that a notice email arrived (plan 46, part 3a) | keep with the fact that the email was sent | A deadline was counted from it |
+   | *Added.* The record that a notice email arrived (plan 46, part 3a), and what ties a delivery report to its email | keep with the fact that the email was sent. **While a debt of hers is open, also everything its deadlines hang on:** the notices still to be sent, and the email service's number for each one, without which a delivery or a bounce cannot be matched | A deadline was counted from it, and the next one will be |
    | *Added.* Acceptances of the legal documents: which document, which version, when | keep while the money records are kept | Proof of what was agreed; time for the lawyer to name |
    | *Added.* Money a host owes back, what was taken by hand, the helper's own tries to collect for her | keep as money records. **An open one is a named open case** (decision 3), and her email address is kept for it alone until it is over (part 19b, decision 8) | Tax, and a debt that is not finished |
    | *Added.* A request to cancel a membership within 14 days | finished first (part 19, decision 6a); then kept with that membership's money records | |
-   | *Added.* Tips given and received | paid ones kept as money records, like contributions; unpaid attempts erased | |
+   | *Added.* Tips given and received | paid ones kept as money records, like contributions; an unpaid attempt erased only once its outcome at Stripe is settled | |
+   | *Added.* A refund or a pay-back to a card that is owed, on its way or stuck | keep, with what is needed to finish it, until it is paid or a person has closed it. A named open case | Money that is someone's |
+   | *Added.* Request keys that were used (the customer, the key, the time) | erase once the request they guarded is settled, and at the latest with the wipe's own time limit | They name the customer; while a request is unsettled they stop it from being made twice |
    | *Added.* A warning about ratings, a pause the app made, the date of a "fresh start" | keep with "Reports about this person, pauses" above | Safety |
 
 3. **When:** as soon as parts 19 and 19b are finished for this person, and **in any case no
@@ -92,18 +94,38 @@ requests after a year.
    with its reason. The promised time is a setting; the builder's choice is 30 days. The
    stores ask for "reasonably quick" and for the reasons for keeping anything to be told;
    neither names a number, so this is **for the lawyer**.
-   *Added 27 November:* money a host owes back is one more named open case (part 19b,
-   decision 8).
-3a. **Coming back with the same email address** *(added 27 November; open, for the lawyer)*.
-   Decision 1 lets the real address sign up again as a new, empty account. Three things now
-   hang on a person that such a return would shed: a stop on new payments after a lost bank
-   dispute (plan 47), a pause, and the count of reports and low ratings toward a pause by the
-   app (plan 52). The table already asks the lawyer whether reports and pauses may be used to
-   recognise a returning person. The same question now covers the stop on payments. The
-   builder's first value: for an account that was paused or stopped from paying when it was
-   deleted, its address is kept in the form that cannot be read back, only matched, and a new
-   account with that address begins paused, with the sentence the paused page has. Nothing of
-   this is built before the lawyer has answered.
+   *Added 27 November:* money a host owes back, a refund or pay-back that is not finished,
+   and a 14-day request that a rule stops are named open cases too (parts 19 and 19b).
+3b. **What is kept for an open case is decided case by case, and set aside before anything
+   it is made from is wiped** *(added 27 November, after Astra's check)*. The table erases
+   names, time in calls and refund texts on different days, but the proof Connect sends a
+   bank is put together from exactly those (`src/lib/disputes/evidence.ts`). So for each
+   kind of open case the least that is needed is listed (a bank dispute: who the two people
+   were, the time in the call, the refund request and its answer, what was already sent to
+   the bank; a debt: the notices, her objection, our answer, her address), copied into the
+   case before the wipe touches its sources, and erased when the case closes. **Copies that
+   live elsewhere are covered by the same closing:** what was sent to the bank, the texts of
+   an objection and its answer, words quoted in a report, and messages written to *other*
+   people that name this person (one of the team's own messages holds a customer's name and
+   email address). So are subjects and links that still identify someone, and the address
+   kept for the last email of decision 4.
+3a. **Coming back with the same email address** *(added 27 November; rewritten after Astra's
+   check; open, for the founder and the lawyer)*. Decision 1 lets the real address sign up
+   again as a new, empty account. Three different things would be shed by that, and they
+   are not alike:
+   - **A stop on new payments** after a lost bank dispute (plan 47). It stops only new
+     agreements to pay, and the founder can lift it for that person.
+   - **A pause of the account.** It stops booking, hosting and joining calls, pauses
+     memberships, and is lifted by a person on the team.
+   - **Histories that count toward a rule:** reports and low ratings toward a pause by the
+     app (plan 52), and a customer's recent calls toward the guard of "End call now" (plan
+     51). Both start again from nothing under a new account.
+   Whether any of these may follow a person to a new account, in what form, and how each
+   would be lifted there, is asked for each one by itself. The first version of this
+   decision proposed that such an account simply begins paused; that would have turned a
+   stop on payments into something much wider, and is withdrawn. **Nothing is built before
+   the founder and the lawyer have answered,** and until then a returning address gets a
+   new, empty account, as decision 1 says.
 4. **An email, "Your Connect account has been deleted",** is sent after the wipe has
    succeeded. For that one message the address is held apart, used once, and then removed
    too. Both stores ask that the person is told when it is done.
@@ -142,7 +164,13 @@ requests after a year.
   halfway and run again; a person's own messages are gone and the other person's stay, a
   message kept for a report is still with that report; a host's open debt keeps her address
   until it is over and not a day longer; the acceptances are still there; the clean-up by
-  age (`runRetention`) neither brings back nor trips over anything a wipe removed.
+  age (`runRetention`) neither brings back nor trips over anything a wipe removed; a host's
+  average before and after one of her raters is wiped, with that rater in the first group
+  of five, in a later group of three, and at the edge of the most recent fifty (no other
+  person's stars can be worked out from the change); a bank dispute opened before the wipe
+  can still be answered with full proof after it, and that proof is gone once the dispute
+  is closed; a delivery report that arrives after the wipe still finds its notice; an
+  unpaid attempt that Stripe charged after all is still there to be put right.
 - Every existing check script unchanged and green.
 
 ## Astra's second check (20 November 2026): "not ready", now worked in
@@ -179,9 +207,8 @@ messages "From Connect", bank disputes, money a host owes back and what was take
 the helper's own collection tries, conversations and their messages, messages kept for a
 report, and request keys that were used. What changed in this plan:
 
-1. *Nine lines were added to the table,* each marked "Added". (Request keys that were used
-   hold no personal detail and need no line; the wipe's own search, decision 8, will show if
-   that is wrong.)
+1. *Eleven lines were added to the table,* each marked "Added", two of them after Astra's
+   check; and two older lines were changed (ratings given, contributions).
 2. *A host's open debt is a named open case* that keeps her email address. Decision 3.
 3. *Coming back with the same address would shed a pause or a stop on payments.* Decision 3a,
    open, for the lawyer.
@@ -189,3 +216,19 @@ report, and request keys that were used. What changed in this plan:
 
 The table was the builder's version of a list only a lawyer can settle, and it still is. It
 goes to Astra with parts 19 and 19b before any of them is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *Erasing a rating moves the groups and can give another person's stars away.* The table's
+   line for ratings given: the stars go, the place stays.
+2. *Wiping a notice's delivery record would break a debt's deadline.* The table, and
+   decision 3b.
+3. *The table could wipe the very things an open case's proof is made from, while copies
+   stayed elsewhere.* Decision 3b.
+4. *An unpaid attempt can have been charged outside.* The lines for contributions and tips.
+5. *A refund that is not finished is someone's money.* A line of its own.
+6. *Request keys name the customer.* A line of its own.
+7. *"Begins paused" would have turned a stop on payments into a pause.* Decision 3a,
+   rewritten and left open.
+8. *When does the other person of a conversation stop seeing the name?* The table: at the
+   lock.

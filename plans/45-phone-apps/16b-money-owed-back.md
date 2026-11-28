@@ -35,9 +35,13 @@ amount owed back a "take-back".
   a lost bank dispute (plan 47). `debtForPage` says in words what each is about: "the
   payment for your call with [name] on [day]", "a tip for the call on ...", "a contribution
   to ...".
-- **A debt Connect does not take by itself** (plan 46, part 3, choice A): one for a payment
-  made before the host held a published Host Agreement, which today is every payment. Its
-  state is "waiting", and its sentence says that a person at Connect will write to her.
+- **Not every debt is taken by the app.** One from a *refund*, for a payment made before the
+  host held a published Host Agreement (today that is every payment, since the agreements
+  are drafts), is written down in the state "waiting": she is told, and a person at Connect
+  settles it with her; the app never takes it. One from a *lost bank dispute* is in the
+  state "told" and takes the way described below, whatever agreement she held. **Only a
+  debt in the state "told" can be objected to.** And money can also be owed the other way:
+  when more was taken than turned out to be owed, the rest is hers and is given back.
 - **The notice.** The host is told by email and on the website's Messages page. Nothing is
   taken before 14 days after that email was reported as delivered (`NOTICE_MS`).
 - **The objection.** While a take-back only has its notice (`canObject`: status "told"), the
@@ -93,26 +97,33 @@ amount owed back a "take-back".
 7. **No "are you sure".** An objection takes nothing and stops the taking, and it cannot be
    sent with an empty box.
 8. **Days and times** are shown in the phone's own time, as part 08 does.
-9. **A take-back about something the apps do not show.** Before building, the code is read for
-   what a take-back can be about (a lost dispute can be over any payment). The rule is part
-   16's: a contribution or a tip is called "other earnings", with no name and no project, and
-   a membership month the same while memberships are off for the apps. The amount, where it
-   stands, and the objection box are still there. The email holds the details.
-   *Read on 27 November:* such take-backs now exist (plan 50). The words `debtForPage` gives
-   for a tip and for a contribution name the call or the project, so the app's answer never
-   passes them on: the server puts "other earnings" in their place, in the list and on the
-   screen, and the check script reads the whole answer for a project's name. A member's call
-   given back by Connect is named as a call while memberships are on for the apps, and is
-   "other earnings" while they are off.
+9. **A take-back about a contribution or a tip is not in the apps at all** *(rewritten after
+   Astra's check of 27 November; the first version called it "other earnings")*. Such
+   take-backs exist since plan 50. Even without a name, an amount with its state, its day
+   and an objection box would be a project's money shown on a phone, and "Other earnings"
+   is allowed as two amounts on the earnings screen and nothing more. So:
+   - **The server sorts by what the money was for before anything else:** before asking
+     whether a host has any take-back, before picking the latest ten, before answering one,
+     before taking an objection. One about a contribution or a tip gives the app nothing:
+     not in the list, not in a count, and asked for by its number it looks exactly like one
+     that does not exist.
+   - **Her way to it stays whole elsewhere:** the email, the website's page, and the
+     objection button there.
+   - **A member's call** given back by Connect is in the apps while memberships are on for
+     them, named as a call; while they are off it is left out in the same way.
+   - **One bank dispute can stand behind several amounts.** The app's addresses work with
+     one take-back of the signed-in host, never with "the dispute's" debts as a group.
+   - In the list, one that is over (taken, settled, called off) is told apart from money
+     that is owed now, in words and in order: what is owed comes first.
 10. **Notifications (a proposal for part 12's list):** two more events, the notice of a
     take-back and our answer to an objection. On a locked screen they say only "Connect has
     written to you about your earnings". A notification is never the notice itself: the 14
     days count from the email's arrival, as today.
-    *Taken up on 27 November* as part 12's decision 2a, in a wider form: every message "From
-    Connect" makes one notification that says "Connect has written to you." and nothing
-    about earnings (fewer words on a locked screen, and one rule for all such messages).
-    Once this part is built, touching one that is about a take-back opens this part's
-    screen.
+    *Taken up on 27 November* as part 12's decision 2a: the notice of money owed back for a
+    call, and our answer to an objection, are two of the few causes that make the
+    notification "Connect has written to you." (it says nothing about earnings). One about
+    a contribution or a tip makes none. Once this part is built, touching one opens this
+    part's screen for that take-back.
 11. **The founder's side stays on the website.**
 
 ## Keeping the 4.9%
@@ -128,17 +139,22 @@ a project may appear.
 - The part's check script for the app's addresses: the list and the screen in each state named
   above; somebody else's take-back; an objection that is too short, too long, sent twice,
   sent after the answer, sent after the money was taken; one from a lost dispute; that no
-  field of the founder's is in any answer; one about a contribution and one about a tip (no
-  name anywhere, "other earnings" in its place); one about a member's call, with memberships
-  on and off for the apps; one in the state "waiting" (its sentence, and no day).
+  field of the founder's is in any answer; one about a contribution and one about a tip
+  (nothing in the list, nothing in any count, "not found" by its number, an objection
+  refused as "not found", for a host who has no other take-back and for one who has); one
+  about a member's call, with memberships on and off for the apps; one in the state
+  "waiting" (its sentence, no day, no objection box); a lost dispute behind two amounts (the
+  app reaches only the signed-in host's own); money owed to the host after too much was
+  taken.
 - On the Android test phone, with pictures: the list; the screen before and after an
   objection; our answer; taken; the phone offline while the objection is sent, with the text
   still there.
 
 ## Not in this part
 
-- **A bank dispute's own page in the apps.** A host has 24 hours to choose "Fight it" or "Give
-  the money back" (plan 47), and that choice is on the website only. It is more urgent than
+- **A bank dispute's own page in the apps.** A host has a short time (at most 24 hours, less
+  when the bank's deadline is near) to choose "Fight it" or "Give the money back" (plan 47),
+  and that choice is on the website only. It is more urgent than
   anything here, and bigger. Proposed as a part of its own (16c); the founder decides.
 - **The Messages screen** in the apps (plan 49 says "phone apps later").
 - **Someone who is no longer a host** has no earnings screen in the app. They have the email
@@ -151,10 +167,11 @@ By the builder of the phone apps, against `src/lib/disputes/takeback.ts`,
 `takeback-words.ts`, `src/app/debts/[id]/page.tsx` and the earnings box as they are on `main`
 after pull request 123. What was added:
 
-1. *Two more causes* (plan 50, parts 1 and 2), and that their words must not reach the app
-   as they are. "What is there today", decision 9, the check script.
-2. *The state "waiting",* for a debt Connect does not take by itself. "What is there today"
-   and the check script.
+1. *Two more causes* (plan 50, parts 1 and 2). After Astra's check: those about a
+   contribution or a tip are not in the apps at all. "What is there today", decision 9, the
+   check script.
+2. *The state "waiting",* and that only "told" can be objected to; a debt from a lost
+   dispute does not wait. "What is there today" and the check script.
 3. *Decision 10's proposal* is now part 12's decision 2a.
 4. Part 16 now says from its side that the two are built together, and what the earnings
    screen says if part 16 is merged first (part 16, decision 6).

@@ -11,8 +11,9 @@ those is shown to Astra once more, with its code-level plan, just before it is b
 It replaces two decisions of plan 39 (a small app; built after the website is live) and
 keeps the rest of plan 39, which is still the place to read *why* each store rule matters.
 **On 27 November 2026 every part that is not built yet (09b to 20) was read against the code
-again,** after 27 website changes had been merged since part 09, and brought up to date; the
-account is in "Brought up to date on 27 November 2026" below.
+again,** after 26 pull requests (98 to 123) had been merged since part 09, and brought up to
+date; Astra checked that update ("not ready", 29 points, all answered). The account is in
+"Brought up to date on 27 November 2026" below.
 Each part below has its own detailed plan in `plans/45-phone-apps/`, checked by Astra before it
 is built.
 
@@ -165,6 +166,7 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 | 07 | A host's requests: accept, decline, block | The call exists |
 | 08 | A call's page: paying, the countdown, cancelling; past calls | The money is held; the room opens |
 | 09 | The call: entering, talking, leaving, "end and report", the report form | Two people talk |
+| 09a | Before going on: what is already built, put right (added 27 November) | Plan 51's screens walked on the phone; six small faults gone |
 | 09b | During the call: a locked phone, connection grades, more time, the chat | A longer call |
 | 09c | The connection check before a call | A warning when the connection is poor |
 | 10 | After a call: the results, the receipt, rating, following, the note | The page after a call, both sides |
@@ -187,17 +189,19 @@ be tried. Each part's plan is `plans/45-phone-apps/NN-name.md`.
 | 19c | Deleting your own account: the wiping | The button can be switched on |
 | 20 | The whole journey, and getting ready for the iPhone build and the stores | One walk through everything |
 
-Thirty parts (13c and 16b were added later, by the builder of plan 46, and are not yet
-checked by Astra; 17b was added on 27 November by the builder of plan 49, and needs only
-parts 01 to 09). Order: 01 to 03 first, because everything stands on them. Then the
+Thirty-one parts (13c and 16b were added later, by the builder of plan 46; 17b was added on
+27 November by the builder of plan 49, and needs only parts 01 to 09; 09a was added the same
+day, when the plans were brought up to date). Order: 01 to 03 first, because everything stands on them. Then the
 customer's journey to a finished call (04 to 10b), then the rest. Part 11 comes before part
 12 and works without it (in the app, "available now" then follows the website's rule); the
 locked-phone rule comes alive only when part 12 is switched on. A part can be merged while
 later parts are unbuilt: the app is on no phone but the test phone until part 20.
 
-**Every plan here was checked by Astra twice, and many were first found "not ready".** What
-the first check found is listed at the end of each part; what the second found is listed at
-the end of this plan. The website's pages hold far more states and rules
+**Every plan written on 20 November was checked by Astra twice, and many were first found
+"not ready".** What the first check found is listed at the end of each part; what the second
+found is listed at the end of this plan. The parts added later were checked differently:
+17b twice by its own builder's Astra; 13c, 16b and 09a only as part of the update of 27
+November, and 13c and 16b once more before they are built. The website's pages hold far more states and rules
 than a first reading shows, so each part is read against the code once more, line by line,
 just before it is built, and its plan is put right (and shown to Astra again) if the code
 says otherwise.
@@ -227,51 +231,85 @@ says otherwise.
 ## Brought up to date on 27 November 2026
 
 The build has been paused before part 09b since 20 November, on the founder's word. In that
-week the website gained, among other things: money a host owes back after a refund or a lost
-bank dispute, with her objection (plans 46, 47, 50); Connect collecting for a host who has
-not collected for 12 months; cancelling a new membership within 14 days; messages between a
-host and a customer (plan 49); "End call now" with its three choices (plan 51); an account
-paused by the app itself, with memberships that are paused and come back at their old price
-(plans 52, 53, 55). The founder, 27 November: "update all the plans first, then when we do
-each part, check the plan once more, update each plan right before building it if
-necessary."
+week 26 pull requests (98 to 123) changed the website. Among other things it gained: money a
+host owes back after a refund or a lost bank dispute, with her objection (plans 46, 47, 50);
+Connect collecting for a host who has not collected for 12 months; cancelling a new
+membership within 14 days; messages between a host and a customer (plan 49); "End call now"
+with its three choices (plan 51); an account paused by the app itself, with memberships that
+are paused and can be resumed at their old price (plans 52, 53, 55). The founder, 27
+November: "update all the plans first, then when we do each part, check the plan once more,
+update each plan right before building it if necessary."
 
 **What was done.** Each plan from 09b to 20 was read against the code on `main` after pull
 request 123 and changed where the code says otherwise. Each changed plan ends with a list,
-"Brought up to date (27 November 2026)". Nothing was built.
+"Brought up to date (27 November 2026)", and, where Astra's check changed it again, a second
+list. Nothing was built.
 
 - **Changed much:** 10 (the page after a call), 12 (notifications), 13 and 13b (memberships),
-  16 (earnings, which also gains the yearly statement that no part had), 18 (the account
-  page), 19, 19b and 19c (deleting an account), 20 (the walk).
-- **Changed a little:** 09b, 10b, 11, 17; and the three plans other sessions wrote (13c, 16b,
-  17b), which were read and given what the newest changes added.
-- **Read, nothing to change:** 09c, 14, 14b, 15.
+  14 (becoming a host: the Host Agreement, "business or private", a top price), 16
+  (earnings), 18 (the account page), 19, 19b and 19c (deleting an account), 20 (the walk).
+- **Changed a little:** 09b, 10b, 11, 14b, 17; and the three plans other sessions wrote (13c,
+  16b, 17b), which were read and given what the newest changes added.
+- **Read, nothing to change:** 09c, 15.
+- **New:** part 09a, a small part that puts right what is already built (below).
 
-**Found on the way, in what is already built.**
+**A mistake in the first pass, said plainly.** The first comparison was made against the day
+part 09 was merged, not against the day the plans were written. Changes merged between
+those two days (the agreements of plan 46, a top price per host, the yearly statement) were
+therefore missed for parts 14 and 14b, whose notes first said "nothing changed". Astra's
+check found it; both parts are corrected. The comparison for the other parts was made again
+from the right day.
 
-- The app's screens for "End call now" were built by another session without a phone (typed
-  and unit-tested only). Part 09b walks them on the test phone before it builds anything.
-- One sentence those screens are sent says "any membership or monthly contribution between
-  you ends". Nothing about a contribution belongs in the apps. Part 09b, decision 7, gives
-  the app a sentence of its own and adds a check for it.
+**Found in what is already built** (all of it is part 09a's):
+
+- The app's screens for "End call now" were built by another session without a phone.
+- A sentence that names a monthly contribution is sent to the app, in two places.
+- A paused person is shown the reason as the team typed it, which can be about a project.
+- The placeholder Account screen prints the switches, the word "Tips" among them.
+- A refusal for a bank dispute points to "your messages", which in the app will be the
+  conversations between people.
+- A paused or blocked person can be offered a step that will only be refused.
+
+**The rule that Astra's check sharpened.** "Other earnings" is allowed as two amounts on a
+host's earnings screen (part 16) and nowhere else. Nothing may appear on a phone *only
+because of* a contribution or a tip, with or without a name: no entry of money owed back, no
+count, no notification, no collection sentence, no line on the screen before deleting an
+account. The website and the emails keep everything.
 
 **For the founder to decide** (nothing waits for these until the part in question is built):
 
 1. *A notification when Connect itself writes to someone* (part 12, decision 2a): the phone
-   says only "Connect has written to you." A host has 24 hours to answer a bank dispute, so
-   the builder would have it. The other way: email only, as today.
+   says only "Connect has written to you.", for a short list of causes (a bank dispute over a
+   call that waits for the host's choice, money owed back for a call, a collection Connect
+   started). The builder would have it; the other way is email only, as today.
 2. *A bank dispute's own page in the apps* (proposed as part 16c; parts 16b and 20): today
    that choice is on the website only. Building it is a part of its own.
-3. *The yearly statement in the app* (part 16, decision 7), or left on the website.
-4. *Part 17b's four choices that are only its builder's:* "Messages" as a fifth place at the
+3. *Part 17b's four choices that are only its builder's:* "Messages" as a fifth place at the
    bottom; a notification that names nobody; a person's own switch for it; the apps' switch
    for messages.
-5. *The legal pages in the app* (part 18, decision 5): every document whole, or with the parts
-   about projects left out. With the lawyer.
-6. *Deleting an account,* with the lawyer: a debt or a bank dispute that begins after a host
-   has left (part 19b, decision 9); a person who comes back with the same email address after
-   a pause or a stop on payments (part 19c, decision 3a); whether the other person may keep
+4. *The legal documents in the app* (part 18, decision 5): no way of showing them keeps the
+   apps' rule yet, and three places in the app already lead to them. With the lawyer.
+5. *Deleting an account,* with the lawyer: a debt or a bank dispute that begins after a host
+   has left (part 19b, decision 9); what, if anything, may follow a person who comes back
+   with the same email address (part 19c, decision 3a); whether the other person may keep
    reading what a deleted person wrote (part 19c's table).
+
+No longer on this list: the yearly statement. It stays on the website (part 16, decision 7).
+
+**Astra's check of this update (27 November 2026): "not ready".** Twenty-two points that had
+to be fixed and seven smaller ones; each is answered in the part it belongs to, under
+"Astra's check of this update". In short: seven were ways a contribution's or a tip's money
+could still reach a phone (the statement, money owed back, notifications, the screen before
+deleting, two sentences and a reason in what is built); eight were about deleting an account
+(today's closing would undo what was agreed, the 14-day right, a bank dispute's choice, debt
+deadlines, collections and refunds under way, proof for open cases, ratings, a returning
+person); the rest were statements about memberships, the page after a call, hosts and
+earnings that said more or less than the code does.
+**One point was not taken:** removing the tips switch for the apps altogether. That switch
+is the founder's plan of 20 November (plan 44, decision 18): born off, and turned on only
+after a store has said yes. What was taken from that point: nothing prints the switch on a
+screen (part 09a, decision 4), and part 20 proves that with the apps' switch off the
+website's own tip switch changes nothing on a phone.
 
 **What stays as it was.** Each part is still read against the code on the day it is built, and
 its plan put right once more if the code has moved. Parts 13c, 14b, 16b, 19, 19b and 19c go

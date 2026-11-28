@@ -43,10 +43,12 @@ as evidence for a refund; asking for more time; and the text chat.
   the red button ends the call for both, and each person lands on a screen with "Report",
   "Block" and "Neither". For more time it means two things. A request for more time that is
   still waiting ends with the call: the server answers "This call has ended." to any further
-  step. And time that was added is charged by the same rule as the call it belongs to: if
-  the customer ends the call himself, added time that lies after the press is charged in
-  full with the rest of his booking (plan 51, decision 9). **The app's part of this was typed
-  and unit-tested, but never run on a phone:** the app was paused.
+  step. And time that was added is charged by the same rule as the call it belongs to (plan
+  51, decision 9; `src/lib/payments/ended.ts`). What that comes to depends on who pressed,
+  how the call is billed, what the booking's words said, whether the host was in the call at
+  that moment or the call had not started, and whether a report lowered the charge. So no
+  screen of this part says an amount of its own: it shows the server's sentence. **The app's
+  part of "End call now" was typed and unit-tested, but never run on a phone** (part 09a).
 
 ## Decisions (the builder's)
 
@@ -75,8 +77,9 @@ as evidence for a refund; asking for more time; and the text chat.
    again", "the bank did not allow it", or the new end. The time on the screen moves only
    when the server says the end has moved. The host's Accept appears only when the server
    says the money is ready. **A refusal because of a bank dispute** is shown with the
-   server's sentence and nothing else: no card sheet and no "try again", since trying again
-   cannot help. A call that ends while a request waits takes the request's box off the
+   sentence the server sends the apps (part 09a, decision 5: it names email and the website,
+   not "your messages") and nothing else: no card sheet and no "try again", since trying
+   again cannot help. A call that ends while a request waits takes the request's box off the
    screen; the screen after the call is plan 51's, which exists.
 5. **The chat is in the app:** a person on the website may type, and the person in the app
    must be able to read it and answer. LiveKit's kit for phones carries the same chat as its
@@ -84,20 +87,10 @@ as evidence for a refund; asking for more time; and the text chat.
    is relied on. As on the website, nothing of it is kept.
 6. **The apps' switches apply here too:** with memberships off for the apps, more time for a
    member's call is offered by card only if the server offers it so; the app never decides.
-7. **Before anything of this part is built, plan 51's screens are walked on the Android test
-   phone,** because they came into the app without a phone (see "What is there today"): the
-   question before the press as customer and as host, the press, the three choices, "Block"
-   with its question, "Neither", and the other person's screen going to the choices by
-   itself. What is wrong there is put right first, in this part's pull request, and said in
-   its description.
-   **One thing is already known to be wrong, found by reading on 27 November:** the sentence
-   under "Block" that the app is sent (`END_WORDS.blockWhat` in
-   `src/lib/call-page/end-words.ts`) says "any membership or monthly contribution between
-   you ends". Nothing about a contribution belongs in the apps. The app's answer for that
-   screen (`/api/app/calls/[id]/ended`) gets a sentence of its own that says "calls" and, only
-   while memberships are on for the apps, "membership"; the website's sentence stays. The
-   check script reads every answer of that address for the words "contribution", "project",
-   "diary" and "tip".
+7. **Part 09a comes first.** Plan 51's screens came into the app without a phone, and reading
+   them found words about a contribution in what the app is sent. Walking those screens and
+   putting that right is part 09a, a small pull request of its own; this part is built on
+   top of it.
 
 ## How it is tried
 
@@ -110,8 +103,7 @@ as evidence for a refund; asking for more time; and the text chat.
   same customer's more time from a membership's month still goes through; a request that
   waits when the call is ended with "End call now" can no longer be accepted.
 - `extend-check`, `refunds-check` and `member-calls-check` unchanged and green.
-- On the Android test phone with the website as the other person, with pictures: first plan
-  51's screens (decision 7); then the app sent
+- On the Android test phone with the website as the other person, with pictures: the app sent
   to the background and brought back, with the camera off and on; the phone locked and
   unlocked; the ongoing notice; more time asked, accepted and the end moving; a refused
   extension; the chat in both directions.
@@ -131,9 +123,18 @@ Read again against the code on `main` after pull request 123. What changed in th
 
 1. *A customer with a bank dispute cannot add time by card* (plan 47). "What is there today",
    decision 4, the check script.
-2. *"End call now" exists, in the app too, and was never run on a phone* (plan 51). "What is
-   there today"; decision 7 makes walking it the first step of this part.
-2a. *One sentence of that screen names a monthly contribution.* Decision 7 puts it right.
+2. *"End call now" exists, in the app too, and was never run on a phone* (plan 51), and one
+   sentence of its screen names a monthly contribution. Both are part 09a's, which is built
+   first (decision 7).
 3. Nothing changed in the connection grades or the chat: `src/lib/quality/` is as it was.
 
 This plan is read against the code once more on the day it is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *The sentence about added time after "End call now" said more than the rule does.* "What is
+   there today" now names what the amount depends on, and no screen says an amount of its
+   own.
+2. *The refusal for a bank dispute points to "your messages", which in the app will be
+   something else.* Decision 4, with part 09a.
+3. *What is already built and wrong should not hide inside this part.* It is part 09a now.

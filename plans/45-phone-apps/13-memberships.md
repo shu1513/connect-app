@@ -64,19 +64,32 @@ with three positions.
   sentence ticked before joining (wording version "2026-11-26") promises that button "on
   your membership's page". The app's side of it is part 13c.
 - **Paused with an account** (plans 53 and 55): when the member's or the host's account is
-  paused, the membership is paused, not ended (`ACCOUNT_PAUSE`). Coming member calls are
-  cancelled at no charge and unused time is paid back to the card. The page says "the
-  membership was paused with one of the two accounts", never which one. When the pause is
-  lifted the member gets an email and can resume, with the time they had and the lower of
+  paused, a membership in which there is a member (running, waiting for a payment, or in
+  the middle of resuming) is paused, not ended (`ACCOUNT_PAUSE`). An invitation nobody had
+  accepted ends, as before. A membership that was already paused for another reason stays
+  as it was, with its own reason. At the pause, coming member calls are cancelled at no
+  charge and the unused time of the paid month is paid back to the card: **no minutes are
+  carried over.** The page says "the membership was paused with one of the two accounts",
+  never which one. When the pause is lifted, the member is sent the way to resume, but only
+  once both accounts are open again. Resuming is its own step and can be unavailable (the
+  tidying-up of the old month is not finished, or the host has no offer that can be taken).
+  It starts a **new month**: with the minutes a month they had before, and the lower of
   their old price and the host's price on that day (`resumeTerms` in
   `src/lib/membership/rules.ts`). The resume page sends the price and time it showed, and
-  the step refuses if those are no longer what the member would get.
+  the step refuses if those are no longer what the member would get. Only a pause *with an
+  account* keeps the old terms; after any other pause resuming means the host's membership
+  as it is that day.
 - **A customer with a bank dispute** cannot join, resume, take a host's new offer or switch
   renewal back on (`whyNoNewPayment`, plan 47). Booking from a month they have is not
-  stopped.
+  stopped by that rule. **A separate rule** freezes a month that a bank is itself looking at
+  (nothing of that month can be changed while it is); the two are different checks with
+  different sentences, and the app shows whichever the server sends. What a host is told
+  when her member is the one who is stopped stays neutral, as on the website.
 - **Time given back after the host collected** (plan 50, part 2) goes to the member's card,
   not back into the month, and the month's page shows each such line as "is being paid back
-  to your card" or "paid back to your card".
+  to your card" or "paid back to your card". Behind those two sentences a pay-back can be
+  owed and not yet sent, on its way, paid, or stuck (it failed at Stripe, a bank dispute
+  froze it, or a person at Connect has to look): `src/lib/membership/payback.ts`.
 
 ## Decisions (the builder's)
 
@@ -124,12 +137,20 @@ with three positions.
    screen,** and shows the server's sentence about "End call now" with them. The app holds
    no copy of the words and no version of its own; "the words changed" is shown with the
    new words to be read and pressed again.
-10. **A refusal because of a bank dispute** is the server's sentence, shown as it comes, on
-    every step that would start something new to pay.
-11. **Money on its way back to the card** is shown line by line as the server says it, "is
-    being paid back" or "paid back". The app adds nothing up.
-12. **"Book a time" from a conversation** (part 17b, decision 20) leads a member to this
-    part's booking; it is built with whichever of the two parts comes second.
+10. **A refusal because of a bank dispute** is the sentence the server sends the apps (part
+    09a, decision 5: it names email and the website, not "your messages"), shown as it
+    comes, on every step that would start something new to pay.
+11. **Money on its way back to the card** is shown line by line with the state the server
+    gives it: owed, on its way, paid back, or waiting for a person at Connect. The app never
+    says "paid back" for anything the server has not called paid, and adds nothing up. (If
+    the website's page has no sentence yet for a pay-back that is stuck, one is written for
+    both when this part is built.)
+12. **"Book a time" from a conversation** (part 17b, decision 13) leads a member to this
+    part's booking only when the server says this member can book as a member now (the
+    apps' switch fully on, the membership running, the host able to be booked). Otherwise
+    the conversation keeps what part 17b gives it: the ordinary booking button, or its
+    sentence for a closed conversation. It is built with whichever of the two parts comes
+    second (part 17b, decision 20).
 
 ## How it is tried
 
@@ -175,3 +196,15 @@ Read again against the code on `main` after pull request 123. What changed in th
 6. *Messages* (part 17b) have a way to book. Decision 12.
 
 This plan is read against the code once more on the day it is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *"Every membership is paused and the member comes back as before" was too broad.* "What is
+   there today" now says it state by state: which memberships pause, that no minutes carry
+   over, when the way to resume is sent, when resuming is not possible, and that it is a new
+   month.
+2. *Two sentences were not enough for money on its way back.* Decision 11: four states.
+3. *The refusal for a bank dispute, and the two different rules behind "a bank is involved".*
+   "What is there today"; decision 10.
+4. *Booking as a member from a conversation was promised without its conditions.* Decision
+   12.

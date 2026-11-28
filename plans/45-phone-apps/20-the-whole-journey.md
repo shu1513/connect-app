@@ -23,9 +23,13 @@ this build and a real app in the two stores, each item with who can do it.
    as the host and as the customer, with each of the three choices, and the other person's
    screen; a conversation between a host and a customer, a report of a message and a block
    from it (part 17b); cancelling a new membership within 14 days (part 13c); a membership
-   paused with an account and resumed at the old price; money owed back, with "I think this
-   is wrong" (part 16b); the yearly statement; a customer with a bank dispute being refused
-   a new booking; "Connect has written to you" arriving on the phone. Every screen in light and dark, with
+   paused with an account and resumed on its old terms; money owed back, with "I think this
+   is wrong" (part 16b); the line that says where the yearly statement is; a customer with
+   a bank dispute being refused a new booking. **Where the founder has not decided, or said
+   no, the walk proves the thing is absent:** for the notification "Connect has written to
+   you." (part 12, decision 2a) either the row written for the phone is read (without the
+   store keys nothing travels to a phone, so only the row can be checked) or, if the
+   founder leaves it out, that no such row is written. Every screen in light and dark, with
    large text, and read by the screen reader. Pictures of all of it, the refused and the
    out-of-date states too.
 2. **What the final pass of the website looked for** (plan 11): wording that differs between
@@ -38,12 +42,18 @@ this build and a real app in the two stores, each item with who can do it.
    and reads what comes back; and it makes the things happen that send notifications (a new
    diary post, a contribution paid) and reads what is written for the phones: no field, no
    line, no link and no notification that comes from those things, except the two "Other
-   earnings" amounts (part 16). *Added 27 November:* it also makes the things that carry a
-   project's or a tip's name into newer places, and reads the app's answers for them: a tip
-   and a contribution that Connect refunded after the host collected (money owed back, part
-   16b, and the message "From Connect" about it, whose notification names nothing); the
-   yearly statement of a host with contributions and tips (part 16); a block between two
-   people who have a monthly contribution (the sentence under "Block", part 09b). And in each position of the membership switch it tries every
+   earnings" amounts (part 16). *Added 27 November, and made stricter after Astra's check:*
+   it also makes the newer things that could carry a project's or a tip's money to a phone,
+   and checks that **nothing at all** comes of them there, not even without a name: a tip
+   and a contribution that Connect refunded after the host collected (no take-back in any
+   list or count, "not found" by its number, no notification; part 16b); a bank dispute over
+   a contribution (no notification; part 12); a host whose only earnings are tips (no
+   statement, no collection sentence, the same deletion screen as a host with nothing; parts
+   16 and 19); a block between two people who have a monthly contribution (neither sentence
+   under "Block" says so; part 09a); a person paused with a reason the team typed about a
+   diary (the typed words are in no answer; part 09a). And it turns the website's own tip
+   switch on and off while the apps' tip switch is off: nothing a phone is sent changes.
+   And in each position of the membership switch it tries every
    way to a membership payment, the ones through booking, the calendar and Contacts
    included, with a held month, and checks the result for that position: with the switch
    *on*, the invitation is made and the booking takes the held month, as they should; in the
@@ -68,10 +78,11 @@ You asked for every feature. These are the differences that remain:
   after a host has collected, the founder's form for cancelling within 14 days, and
   everything about pauses and reports.
 - **On the website and in email only** *(added 27 November)*: a bank dispute's own page, with
-  the host's choice within 24 hours ("Fight it" or "Give the money back"), and the messages
+  the host's choice ("Fight it" or "Give the money back", in at most 24 hours), and the messages
   "From Connect". The app's phone only says "Connect has written to you." (part 12, decision
-  2a). A part of its own for these was proposed (16c) and is not decided. Also a copy of the
-  yearly statement for printing.
+  2a). A part of its own for these was proposed (16c) and is not decided. Also the yearly
+  statement, whole (on the website it can be printed and taken as a file), and everything
+  about money owed back for a contribution or a tip.
 - **Not in this build:** signing in with Google (on iPhone it would have to come with a second
   way of signing in that keeps the email address private, such as "Sign in with Apple");
   sharing the phone's own screen in a call (the app shows a screen shared from the website).
@@ -140,8 +151,8 @@ once a real person has the app. Each is looked at again here, before anything is
   and before asking, were added after the walk on the test phone: look at both on a phone.
 
 - **From plan 51 (built by another session while this build was paused):** the app's screens
-  for "End call now" were typed and unit-tested and never run on a phone. Part 09b walks them
-  first; if it could not, they are walked here.
+  for "End call now" were typed and unit-tested and never run on a phone. Part 09a walks
+  them; if it could not, they are walked here.
 - **From bringing the plans up to date (27 November):** the legal pages in the app (part 18,
   decision 5) wait for a decision between showing every document whole and leaving marked
   sections out; nothing goes to a store before that is settled with the lawyer.
@@ -162,13 +173,14 @@ Step 3 above is the standing guard. It stays in the automatic checks after this 
 
 ## Brought up to date (27 November 2026)
 
-Read again after pull request 123. Plan 45 has thirty parts now (13c, 16b and 17b were added
-after this was written). What changed in this plan:
+Read again after pull request 123. Plan 45 has thirty-one parts now (13c, 16b and 17b were
+added after this was written, and 09a on 27 November). What changed in this plan:
 
 1. *The walk* has the new things in it: "End call now", messages, the 14 days, a pause with
-   an account, money owed back, the statement, a bank dispute's refusal, Connect's own
-   notification.
-2. *The 4.9% sweep* also reads the newer places a project's or a tip's name could travel to.
+   an account, money owed back, a bank dispute's refusal; and for what the founder has not
+   decided, a proof of presence or of absence, whichever is decided.
+2. *The 4.9% sweep* also covers the newer ways a project's or a tip's money could reach a
+   phone, and after Astra's check asks for nothing at all there, not only for no name.
 3. *"Where the app is not the website"* names what stays on the website and in email.
 4. *Two more things left for this part:* plan 51's screens on a phone, and the legal pages.
 

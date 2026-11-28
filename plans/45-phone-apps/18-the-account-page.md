@@ -72,21 +72,29 @@ to Hosting, signing out; and the terms, privacy and rules pages. (The report for
    text, and it is a point for the lawyer that the two versions must stay one document.
    When the terms change, the app's "18 and terms" step asks again, because the server says
    so.
-   **To be decided again (27 November):** this decision was written for three pages of
-   which nobody had accepted anything. Now a version's text is frozen and a person's
-   acceptance names that version, so a document a person accepted has to be shown to them
-   as they accepted it. Two ways are open. *Whole:* the app shows all seven documents word
-   for word in their versions; a legal text that describes what the website offers sells
-   nothing in the app. *Marked:* the sections only about projects, contributions and tips
-   are marked in the source, and the app's reader shows "A part about features that are not
-   in this app is left out here; the whole document is on the website." in their place, with
-   the acceptance still naming the whole document. The builder leans to *whole* for the
-   documents a person accepts and to asking the lawyer, and it goes to Astra with this part.
-   Nothing is built from this decision until then.
+   **To be decided again (27 November; put more exactly after Astra's check):** this
+   decision was written for three pages of which nobody had accepted anything. Now a
+   version's text is frozen and a person's acceptance names that version. **Neither way
+   that comes to mind works as it stands:**
+   - *Showing every document whole* puts what the documents say about projects,
+     contributions and tips on a phone.
+   - *Leaving out the sections that are only about those* does not reach them all: the
+     frozen terms also speak of them inside paragraphs about other things (the terms of
+     service and the payment terms both do).
+   And the question is not only about a future screen. The app already leads to these texts
+   in three places: the welcome step links to the documents, the ID check shows a document's
+   text, and the report form links to the rules. So the lawyer is given those three places
+   and the mixed passages themselves, and asked for a way of showing that both keeps the
+   apps' rule and says truthfully which document and which version a person accepted.
+   Nothing more is built on legal text until that answer is there; it comes to Astra with
+   this part.
 6. **A paused account** sees the website's notice with the reason and the appeal, and keeps
-   exactly the things the website leaves it. A pause made by the app looks no different, and
-   the app adds no number and no detail to the server's reason. The ratings' explanation is
-   the server's sentence, so its numbers are never written into the app.
+   exactly the things the website leaves it. **The reason is not the stored one:** a person
+   on the team can type anything into it, words about a diary or a project included, so the
+   app shows the sentence part 09a, decision 3, gives it (paused, what can still be done,
+   that the reason is in the email and on the website, where to write). A pause made by the
+   app looks no different. The ratings' explanation is the server's sentence, so its numbers
+   are never written into the app.
 7. **Emails' "unsubscribe" links** stay web links that need no sign-in; the same choices are
    on this screen.
 
@@ -128,7 +136,8 @@ Read again against the code on `main` after pull request 123. What changed in th
 
 1. *The legal pages became seven versioned documents with recorded acceptances* (plan 46).
    "What is there today" says what exists now. **Decision 5 no longer fits as written** and is
-   marked "to be decided again", with the two ways open. For Astra and the lawyer.
+   marked "to be decided again". After Astra's check it says plainly that neither of the two
+   ways works yet, and what the lawyer is given.
 2. *An account can be paused by the app itself, and its memberships are paused, not ended*
    (plans 52, 53, 55). "What is there today", decision 6, the check script.
 3. *The ratings' explanation has new numbers* (plan 52). Decision 6: the server's sentence.
@@ -137,3 +146,10 @@ Read again against the code on `main` after pull request 123. What changed in th
 5. *A message can be reported* (plan 49). Decision 4, once part 17b is built.
 
 This plan is read against the code once more on the day it is built.
+
+## Astra's check of this update (27 November 2026): "not ready", worked in
+
+1. *The website's reason for a pause can hold words about a project.* Decision 6, with part
+   09a.
+2. *Neither way of showing the legal documents keeps the apps' rule,* and three places in the
+   app already lead to them. Decision 5.
