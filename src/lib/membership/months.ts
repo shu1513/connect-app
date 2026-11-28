@@ -93,6 +93,29 @@ export async function payBackDone(tx: Tx, refund: MembershipRefund, stripeRefund
 }
 
 /**
+ * The other way round, with the month locked: a pay-back that was recorded as paid and that Stripe then says failed
+ * after all (the member's bank sent it back). The member got nothing, so it is owed again, as its next try: the
+ * month has it "to be paid back" once more, what was written as gone back is written back, and a month that was
+ * finished is closed again so that the pay-back job sends it. Only for the very refund of Stripe's the line carries,
+ * and only while the line says it is done: so it happens once. Returns false when there was nothing to undo.
+ */
+export async function payBackUndone(tx: Tx, refundId: string, stripeRefundId: string, reason: string, now: Date): Promise<boolean> {
+  const reopened = await tx
+    .update(schema.membershipRefunds)
+    .set({ status: "owed", stripeRefundId: null, attempt: sql`${schema.membershipRefunds.attempt} + 1`, lastFailedAt: now, finishedAt: null })
+    .where(and(eq(schema.membershipRefunds.id, refundId), eq(schema.membershipRefunds.status, "done"), eq(schema.membershipRefunds.stripeRefundId, stripeRefundId)))
+    .returning();
+  if (reopened.length === 0) return false;
+  const [refund] = reopened;
+  await tx
+    .update(months)
+    .set({ toPayBackCents: sql`${months.toPayBackCents} + ${refund.amountCents}`, paidBackCents: sql`${months.paidBackCents} - ${refund.amountCents}`, status: sql`case when ${months.status} = 'finished' then 'closed' else ${months.status} end`, updatedAt: now })
+    .where(eq(months.id, refund.monthId));
+  await addLedgerEntry(tx, { monthId: refund.monthId, kind: "customer_refund", amountCents: refund.amountCents, stripeRef: stripeRefundId, note: `The pay-back ${refund.id} failed at Stripe after it had been confirmed (${reason.slice(0, 200)}). It is owed again.` });
+  return true;
+}
+
+/**
  * The end of a month (the rulebook's step 5): it is closed for bookings, and its free money is
  * split. The host-caused part is owed back to the card; the rest has expired, and becomes the
  * month's one "expired time" payment, which the host collects like any other share.
@@ -256,7 +279,7 @@ export async function spendSetAside(tx: Tx, monthId: string, cents: number, plac
     .where(eq(months.id, monthId));
 }
 
-type Return = { cents: number; hostCausedCents: number; sourceKey: string; reason: string; paymentId: string; now: Date };
+type Return = { cents: number; hostCausedCents: number; sourceKey: string; reason: string; paymentId: string; now: Date; /** Never free again, also while the member can still book: owed to the card (time given back after the host collected its share). */ toCard?: boolean };
 
 /**
  * Money comes back from one of two places (set aside, for a call that was cancelled or used less
@@ -269,7 +292,7 @@ async function returnFrom(tx: Tx, locked: LockedMonth, from: "setAsideCents" | "
   const { month } = locked;
   if (input.cents < 1) return null;
   const column = months[from];
-  if (canBookFrom(locked, input.now)) {
+  if (!input.toCard && canBookFrom(locked, input.now)) {
     await tx
       .update(months)
       .set({ [from]: sql`${column} - ${input.cents}`, freeCents: sql`${months.freeCents} + ${input.cents}`, hostCausedCents: sql`${months.hostCausedCents} + ${Math.min(input.hostCausedCents, input.cents)}`, updatedAt: input.now })

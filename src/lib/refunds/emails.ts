@@ -163,7 +163,7 @@ export async function queueRefundEmail(tx: Writer, refund: { id: string; payment
  * this step: the time goes back into the membership, or, when the member can no longer book from
  * that month, its money is owed back to their card. The email says which is true.
  */
-export async function queueTimeBackEmail(tx: Writer, refund: { id: string; paymentId: string; amountCents: number; decidedAs: string; reason: string | null }, to: "free" | "card"): Promise<void> {
+export async function queueTimeBackEmail(tx: Writer, refund: { id: string; paymentId: string; amountCents: number; decidedAs: string; reason: string | null; afterCollection?: boolean }, to: "free" | "card"): Promise<void> {
   const [row] = await tx
     .select({ id: schema.calls.id, hostId: schema.calls.hostId, customerId: schema.calls.customerId, startsAt: schema.calls.startsAt })
     .from(schema.payments)
@@ -181,7 +181,10 @@ export async function queueTimeBackEmail(tx: Writer, refund: { id: string; payme
     text:
       (to === "free"
         ? `${who} gave back ${amount} of the membership time your call on ${when} used. It is back in your membership and can be booked again until your month ends.`
-        : `${who} gave back ${amount} of the membership time your call on ${when} used. That month can no longer be booked from, so the money is paid back to your card. Your bank usually shows it within 5 to 10 days.`) +
+        : refund.afterCollection
+          ? // Given back after the host had collected (plans/50-part-2-member-time-owed-back.md): to the card, also while the month can still be booked from.
+            `${who} gave back ${amount} of the membership time your call on ${when} used. The money for it is paid back to your card (it does not go back into your membership). Once it is sent, your bank usually shows it within 5 to 10 days.`
+          : `${who} gave back ${amount} of the membership time your call on ${when} used. That month can no longer be booked from, so the money is paid back to your card. Your bank usually shows it within 5 to 10 days.`) +
       `\n${quoted(`Message from ${who}:`, refund.reason)}\nThe call's page:\n${results(row)}\n`,
   });
 }
