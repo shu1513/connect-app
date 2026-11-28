@@ -394,6 +394,8 @@ send it.
   still on its way.
 - A try too old to repeat is looked for among **all** refunds of the PaymentIntent, every page,
   by refund id and attempt number together.
+- How a try whose answer never arrived is followed up was hardened on 27 November 2026: see
+  "The pay-back's follow-up, hardened" at the end.
 - Nothing is paid back from a month whose dispute is open or lost (the rulebook's "Disputes").
 
 ### `src/lib/membership/months.ts`: the only code that changes a month's numbers
@@ -1042,3 +1044,132 @@ About 31 comments: 8 marked major, 2 outside the changed lines, about 21 smaller
   and there are no membership pages yet; part three's own review covers its pages.
 - *A time limit on waiting for a host's calendar lock in the helper.* Every job that touches a
   host's calendar waits for that lock in the same way; the invitations now run last.
+
+## The pay-back's follow-up, hardened (27 November 2026)
+
+Not a new feature and no decision of the founder's: a weakness named at the end of
+`plans/50-part-1-gifts-owed-back.md` ("Known, and left") and fixed here. A pay-back whose
+answer from Stripe never arrived is now followed up exactly as a call's refund is
+(`reconcileOperations` in `src/lib/payments/jobs.ts`), and as a tip's or a contribution's
+refund is since pull request 113. Why it matters: a pay-back that is called "not made" is
+sent again as a new try an hour later. A pay-back is nearly always a part of the month's
+charge, so enough of the charge is left for that new try to pay the member a second time.
+
+What changed, in `src/lib/membership/payback.ts` and `recover.ts`:
+
+1. **The first request has a last moment.** Whoever writes a try down sends it at once: no
+   later than 30 seconds after it was written down (by the database's clock, read last of
+   all), and each sending is given up after 10 seconds (the Stripe library sends once more
+   by itself when the connection was closed under it, so two are allowed for). Together
+   that is shorter than the minute the helper waits before it looks. So when the helper
+   looks, the first request has either reached Stripe or will never be sent. A writer that
+   is too late sends nothing and leaves the try to the helper, which sends it under the same
+   label.
+2. **A repeat is not believed as it comes back.** Under the same label Stripe returns its
+   first answer, as it was then. The refund is now asked about by its own number, and booked
+   as it stands now: paid, still on its way, or failed since.
+3. **A "no" to a repeat is not the end.** Stripe's complete list of the charge's refunds is
+   searched for this line and this attempt first. A refund that is there is booked, once.
+   Only when it is not there did the try not happen: owed again, a new try in an hour, as
+   before.
+4. **"Not on Stripe's list" has to wait.** Once a try is too old to repeat (23 hours), a
+   search that finds nothing is final only if it began 24 hours after the try was written
+   down. Until then the try stays open and is looked at again. A search that takes longer
+   than 20 seconds counts as not made.
+5. **Before any new try, a look for the old one.** A new try only exists because the try
+   before it was recorded as "not made". Before a try after the first is sent, by whoever
+   sends it (the sender and the helper alike), Stripe's list is searched for a refund of an
+   earlier try of the same line that is not over. If one is there, it is the line's refund:
+   it is booked as the new try's outcome and nothing is sent. If Stripe has not finished
+   that refund yet, the line waits "at Stripe" with it, and the helper's asking about it by
+   its number now books the answer for the try the line is on, not for the try the refund
+   itself names (it used to read the try from the refund, and would have thrown the answer
+   away for ever).
+6. **The hour before a new try starts when the "no" is written down,** not at the start of
+   the helper's round, which may have begun long before.
+
+The search of Stripe's list (`refundOnStripesList`, `isTry`, `earlierTryAtStripe`) is now
+one piece of code for contributions and memberships, in `src/lib/payments/refund-tries.ts`:
+both tell Stripe the line and the try with every request. The waiting times and "a look is
+not the action" were already one definition (`SEARCH_WITHIN_MS`, `SETTLED_AFTER_MS`,
+`REFUND_SEND_WITHIN_MS`, `REFUND_SEND_TIMEOUT_MS`, `lookUp`).
+
+**Not changed:** a line that is "done" stays done; a line "at Stripe" is asked about by its
+own number; nothing new is sent while the month's charge is disputed, and a try written down
+before a dispute is still followed to its answer; the email to the member is written in the
+step that confirms the pay-back, also when that step is this follow-up. A contribution's
+refund behaves as before: its three search functions only moved.
+
+**How it was tried.** `scripts/membership-check.ts` has a new journey (29) against Stripe's
+test mode, answering in Stripe's place only where test mode cannot be made to refuse or fail
+a refund. Requests to Stripe are counted and their labels read, not only the refunds that
+exist afterwards. A part pay-back that went through unheard and whose repeat is refused is
+booked once and not sent again (on the old code the same case paid the member twice: 5.00
+and 5.00); a refused repeat with nothing on the list is owed again, the hour counted from
+the refusal although the helper's round began 50 minutes earlier, and sent once after it,
+with 10 seconds and no repeats by the library; a repeat that returns an old "succeeded" for
+a refund that has failed since is not booked as paid; a line that was moved on although its
+earlier try was paid is not sent again, by the sender and by the helper alike: the earlier
+refund is booked, also when Stripe had not finished it yet; after 23 hours a missing refund
+stays open, and after 24 it is final; after 23 hours a refund on the list is booked without
+a second request; a writer that is too late sends nothing, and the helper sends it once,
+under the same label; a "no" to a mere look at Stripe decides nothing. After Astra's check
+(below) the journey also proves the order of things with a search that is made slow: a
+search begun before the 24 hours were over is not final, a sender whose last moment passes
+during its look for an earlier try sends nothing, and the hour is counted from after the
+search; a refund of the same line and another try is not taken for this try; an earlier
+try's refund that fails while the line waits on it makes the line owed again; and a "no" to
+the look for an earlier try stops the sender and the helper alike.
+Each of these was also run once against code broken on purpose in the matching place (the
+last moment looked at before the search, "final" decided after it, the hour taken from the
+round's start, the try read from the refund, the attempt left out of the search): every one
+failed its check, and the code was put back.
+
+Plan 50, part 2 was merged while this was being built. Its check in
+`scripts/member-calls-check.ts` only says that a confirmed pay-back failed (Stripe's test
+mode really paid it), and then sends the next try. That try now finds the refund alive on
+Stripe's list and books it, where it used to pay a second time; the check says so now. A
+refund that really failed is passed over, and the next try goes out as plan 50 means it to.
+
+## Astra's check of the pay-back's follow-up (27 November 2026): "merge after fixes"
+
+Five points. Three were taken, two are left and named.
+
+1. *A helper that stands still for more than an hour at one exact step* (after it has read
+   that a try is open, before its repeat leaves), while a second helper is refused on the
+   same try and nothing is on Stripe's list: the line moves on, is paid as a new try, and
+   the first helper then wakes up and sends the old try, which Stripe pays too. **Left, and
+   named.** It is the same for a call's refund and a contribution's, so it should be decided
+   for all three at once, not for memberships alone. Astra's fix (a short life for the
+   helper's look) makes the moment smaller and cannot close it: the Stripe library can still
+   send a request once more by itself after such a standstill. It needs two helpers, a
+   refusal, and a standstill of over an hour in a step that takes a fraction of a second.
+   Proposed as a follow-up of its own.
+2. *A pay-back that Stripe confirmed and that fails days later stays booked as paid.*
+   **Not here:** it was so before, it is in the code for Stripe's messages
+   (`src/lib/disputes/takeback.ts`, `months.ts`), and plan 50, part 2 is building exactly
+   that right now (a confirmed pay-back that fails is owed again as a new try). This
+   change fits it: a failed refund on Stripe's list is passed over by the look for an
+   earlier try, so the new try goes out.
+3. *Pay-backs that cannot be sent could keep others waiting.* The helper tries the 50 oldest
+   pay-backs that are owed; one whose month has an action without an answer is refused under
+   the lock and stays where it was, so fifty of those would keep a newer pay-back of another
+   month waiting. A try that now stays open until its 24 hours are over makes that a little
+   more likely. **Taken:** such lines are left out before the 50 are picked, as a
+   contribution's refunds already are.
+4. *The checks did not pin the order of things:* a sender that looked at its last moment
+   before its search, or a helper that decided "final" after its search, would have passed.
+   **Taken:** the three cases with a slow search, above.
+5. *Some checks proved less than they said.* **Taken:** the 10 seconds and "no repeats" are
+   now read from a first try too; the search for this try is shown a refund of the same line
+   and another try; the refund a line waits on is made to fail as well as to succeed, and
+   how often it is asked about is counted; the refused looks are counted, and the look
+   before a new try is refused too.
+
+Astra also confirmed: the six rules stand in the same order as for a contribution; two
+helpers cannot book the same try twice; closing a month keeps what is owed, and a finished
+month is reopened when time is given back; a dispute still stops new tries; moving the three
+search functions changed nothing for contributions; holds, takings and letting go are
+followed up as before. For going live: the app and its helper are put out together, because
+an older sender has no last moment for sending (rule 5 covers a try it left behind, not a
+request it still holds).

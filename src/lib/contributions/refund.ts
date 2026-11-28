@@ -18,9 +18,10 @@ import type Stripe from "stripe";
 import { db, schema } from "@/db";
 import type { ContributionRefund } from "@/db/schema";
 import { currentSplit, REFUND_SEND_TIMEOUT_MS, REFUND_SEND_WITHIN_MS } from "@/lib/payments/actions";
-import { addLedgerEntry, MoneyError, NotSentError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, runOwnedOperation, SEARCH_WITHIN_MS, type OwnedPlan, type Tx } from "@/lib/payments/operations";
+import { addLedgerEntry, MoneyError, NotSentError, OutcomeUnknownError, RETRY_AFTER_REFUSAL_MS, runOwnedOperation, type OwnedPlan, type Tx } from "@/lib/payments/operations";
 import { splitAfterRefunds } from "@/lib/payments/pricing";
-import { lookUp, stripe } from "@/lib/payments/stripe";
+import { earlierTryAtStripe, isTry, refundOnStripesList } from "@/lib/payments/refund-tries";
+import { stripe } from "@/lib/payments/stripe";
 import { queueRefundEmail } from "./emails";
 import { lockForPayment, lockShare, paymentOwner, type LockedPayment } from "./locks";
 import { ContributionError } from "./rules";
@@ -110,45 +111,9 @@ export function refundAtStripe(params: RefundParams, label: string, how: { maxNe
   );
 }
 
-/**
- * The first refund on Stripe's complete list of a charge's refunds that is the wanted one, or undefined when the
- * list shows none. Every page: a payment can have several refunds on its one charge. A look, not the action: a "no"
- * to the look itself proves nothing and is thrown as "could not look" (`lookUp`). So is a search that took too
- * long, each page and the whole of it: a search that did not finish is never "not there".
- */
-export async function refundOnStripesList(intentId: string, wanted: (refund: Stripe.Refund) => boolean): Promise<Stripe.Refund | undefined> {
-  const until = Date.now() + SEARCH_WITHIN_MS;
-  return lookUp(async () => {
-    for await (const candidate of stripe().refunds.list({ payment_intent: intentId, limit: 100 }, { timeout: SEARCH_WITHIN_MS })) {
-      if (wanted(candidate)) return candidate;
-      if (Date.now() > until) throw new Error("the search through this charge's refunds took too long");
-    }
-    // (Also when the last page came late and held nothing: a search that ran past its time proves nothing.)
-    if (Date.now() > until) throw new Error("the search through this charge's refunds took too long");
-    return undefined;
-  });
-}
-
-/** Whether a refund on Stripe's list is this line's and this try's. */
-export const isTry = (params: Pick<RefundParams, "refundId" | "attempt">) => (refund: Stripe.Refund) => refund.metadata?.refundId === params.refundId && refund.metadata?.attempt === String(params.attempt);
-
-/**
- * The last safeguard against paying one line twice, looked at before ANY try after the first is sent, by whoever
- * sends it: a refund that an EARLIER try of this line made at Stripe and that is not over there (failed or
- * cancelled). A new try only exists because the one before was recorded as "not made". Every way that record can
- * be wrong although each step judged rightly by what it saw (two helpers repeating at the same moment, one refused
- * and the other paid a moment later; the Stripe library sending a request a second time by itself after a closed
- * connection; a try written down before 27 November 2026, whose sender had no last moment) leaves the earlier
- * refund on Stripe's list by the time the new try is due, an hour later. Then that refund is the line's refund: it
- * is booked as this try's outcome and nothing is sent.
- */
-export async function earlierTryAtStripe(params: Pick<RefundParams, "intentId" | "refundId" | "attempt">): Promise<Stripe.Refund | undefined> {
-  if (params.attempt <= 1) return undefined;
-  return refundOnStripesList(params.intentId, (refund) => {
-    const attempt = Number(refund.metadata?.attempt);
-    return refund.metadata?.refundId === params.refundId && Number.isInteger(attempt) && attempt < params.attempt && refund.status !== "failed" && refund.status !== "canceled";
-  });
-}
+// Searching Stripe's list of a charge's refunds for a line's try is shared with a membership's pay-back
+// (payments/refund-tries.ts). Handed on from here, where a contribution's code has always found it.
+export { earlierTryAtStripe, isTry, refundOnStripesList };
 
 /**
  * Records what became of one try, whoever learned it, with the payment locked. Does nothing unless
