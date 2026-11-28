@@ -6243,9 +6243,9 @@ and sentences in `auto-pause-rules.ts`):
   paid calls with in that time. A report does not count when its reporter's account is closed,
   when the two reported each other, when a bank took the call's money back, or when a person on
   the team closed it. Money the host gave back does not take a report out.
-- *Ratings:* an average of 2.0 or lower from at least 10 different people, counting paid calls
-  only. At 2.5 or lower the person gets one warning email, and a pause comes no sooner than 14
-  days after that email was really sent.
+- *Ratings:* an average of 2.0 or lower from 11 or more different people, counting paid calls
+  only. At 2.5 or lower the person gets a warning email (each role has its own), and a pause
+  comes no sooner than 14 days after that email was really sent.
 
 The pause is the founder's own (`pauseByItself` beside `pauseUnderage` in
 `src/lib/safety/reports.ts`). The person is told the rule, never who reported or rated them and
@@ -6261,18 +6261,19 @@ Nothing else waits for it.
 
 **Whose decisions.** The founder's: an automatic way, harder to reach than the first proposal,
 low ratings as a second reason, 5 people for an average, memberships paused rather than ended.
-Every number and detail is the builder's: 5 people, 90 days, 1 in 10, 2.0 from 10 people, the
+Every number and detail is the builder's: 5 people, 90 days, 1 in 10, 2.0 from 11 people, the
 warning at 2.5 and the 14 days, the 50 people of the rolling average.
 
 **Reviews.** The automatic security check found three things, all taken (ratings of free calls
 counted; a count made out of date by a lifted pause; a host could pay complaints away by giving
 money back). Astra (Codex, effort high) said "not ready" twice, with 22 and then 18 points; what
 was taken and what was not is at the end of the plan. Left as it is, and said to the founder:
-one person with five accounts that each pay for a call can have a host paused. CodeRabbit: see
-the pull request.
+one person with five accounts that each pay for a call can have a host paused. CodeRabbit: 10
+points, 9 taken (among them: a dispute on added time, a warning for each role, "11 people"
+where the groups of ratings make "10" untrue); the one not taken is at the end of the plan.
 
 **Checks, after the last fixes.** 1,176 automatic tests, lint and types.
-`scripts/auto-pause-check.ts` (new, 51 checks, all passed): the fifth reporter pauses; ten things
+`scripts/auto-pause-check.ts` (new, 54 checks, all passed): the fifth reporter pauses; eleven things
 that take a report out and three that must not; the share; a customer is paused like a host; an
 admin and a closed account never; lifting, a second press, and a page showing an older pause;
 the warning, an email that never left, the 14 days, a call across the fresh start; a count that

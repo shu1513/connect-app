@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "customer_rating_warned_at" timestamp with time zone;

@@ -75,7 +75,8 @@ So a pause made by mistake costs a host her members. That is the reason for the 
    matters is who made it.
 4a. **"Really paid for". (builder, after the automatic security check and Astra)** Money was taken
    for the call (a member's call: a part of the month was used for it), and no bank took it
-   back: a payment with a bank dispute that is open or lost does not count. Money that the host
+   back: a call with a bank dispute that is open or lost on any of its payments (its own, or
+   one for time that was added) does not count. Money that the host
    or Connect gave back afterwards does **not** undo it. Otherwise a host could give their money
    back to the people who complained, or who rated low, and make it all disappear.
 5. **Urgent reports stay as they are. (builder)** "Someone under 18" and "threats" still email the
@@ -83,19 +84,23 @@ So a pause made by mistake costs a host her members. That is the reason for the 
 
 ### Paused by itself because of ratings
 
-6. **An average of 2.0 or lower from at least 10 different people, counting paid calls only.
-   (builder)** Counted as the shown average is (each person once, a week after the call, whole
+6. **An average of 2.0 or lower from 11 or more people, counting paid calls only. (builder)**
+   (Ratings count in whole groups, the first 5 people and then 3 at a time, so an average is
+   from 5, 8, 11, 14, ... people. The builder first said "at least 10"; 11 is the first such
+   number above 10, and the rule and every sentence now say 11.) Counted as the shown average is (each person once, a week after the call, whole
    groups, the most recent 50), for the person as a host and as a customer, each by itself, but
    only from ratings of calls that were really paid for (decision 4a): a free call costs nothing
    to make. Only ratings of calls that started after the last time a pause was lifted count
    (decision 8). So this average can differ from the one a page shows.
 6a. **A warning first, and then at least 14 days. (builder; Uber and Lyft warn first)** When this
    average is 2.5 or lower, the person gets one email: their average is low, and an account at
-   2.0 or lower from 10 or more people is paused, no sooner than 14 days from now. Nobody is
+   2.0 or lower from 11 or more people is paused, no sooner than 14 days from now. Nobody is
    paused for ratings without that email, and not before 14 days have passed since it: also not
    an account that is already at the line when it is first looked at. One warning per fresh
-   start (decision 8), for the account, not for each role. There is no such warning for reports
-   (see "What stays").
+   start (decision 8) for each role: a warning about someone's ratings as a host never stands
+   in for one about their ratings as a customer. A warning whose email can no longer be found
+   (emails are emptied two years after they were sent) is taken back, and a new one is sent.
+   There is no such warning for reports (see "What stays").
 
 ### What happens
 
@@ -104,7 +109,7 @@ So a pause made by mistake costs a host her members. That is the reason for the 
    email saying that it happened and why: nothing to decide unless the person writes in.
 7a. **The person is given the rule, never a number of their own. (builder, after Astra)** Not who
    reported or rated them, not how many people reported them ("several different people"), and
-   not their average or how many people it is from ("2.0 or lower from 10 or more people"). An
+   not their average or how many people it is from ("2.0 or lower from 11 or more people"). An
    average counted for the pause is not the one their pages show, and the two side by side could
    give one person's stars away. The founder's email has the numbers.
 8. **Lifting a pause is a fresh start. (builder)** A person on the team lifted it, so a person has
@@ -226,4 +231,20 @@ ratings more than the pages alone do (the words promise nothing else now); a "pa
 line that the old button wrote for an account that was not paused can make a fresh start later
 than it was (the safe side); no check with a dispute on a membership month or with two rounds
 at the same instant.
+
+**CodeRabbit: 10 points and one more in its summary.** Taken: a dispute on a payment for added
+time left the call counting when its own payment was fine (now any dispute on any of the call's
+payments takes it out); a warning about ratings as a host could be followed by a pause for
+ratings as a customer (each role has its own warning now, `user.customer_rating_warned_at`,
+migration 0070); "at least 10 people" did not match the groups ratings count in (11 everywhere
+now); a warning whose email was emptied after two years would have stopped the rule for that
+account for good (it is taken back and sent anew); a report closed in the instant between the
+second count and the pause (closing a report now holds the account's row as the pause does);
+the pause email said "had calls with you" where the rule says paid calls; the lawyer's section
+did not say that the round is switched off; two checks that could pass with wrong code (three
+calls across the fresh start where five are needed; reports whose moment depended on two
+clocks). Changed in words only: the note on `pauseByItself` said the founder is told when the
+account was paused already, which cannot happen there. Not taken: if the email "a paused
+account still has calls" cannot be written after the pause, nothing tries again (the pause by
+hand and the pause for an age under 18 work the same way; it is written to the log).
 

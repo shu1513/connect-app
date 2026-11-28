@@ -29,15 +29,21 @@ type Reader = Pick<typeof db, "select" | "execute">;
  * A bank's dispute is read where the money work reads it (collect.ts): the payment's own mark
  * while a dispute is open, the month's mark for a member's call, and the dispute's record once
  * one is lost. The marks are written first when a dispute arrives, so a dispute whose record
- * could not be written yet still takes the call out.
+ * could not be written yet still takes the call out. A dispute on ANY of the call's payments
+ * takes the whole call out: its own payment, or one for time that was added to it.
  */
 const paidCallOf = (call: string) =>
-  sql.raw(`exists (
-    select 1 from "payments" p
-    where p.call_id = ${call}.id and p.status = 'charged' and coalesce(p.charged_cents, 0) > 0
-      and p.dispute_open = false
-      and not exists (select 1 from "membership_months" m where m.id = p.month_id and m.dispute in ('open', 'lost'))
-      and not exists (select 1 from "disputes" d where d.payment_id = p.id and d.status = 'lost')
+  sql.raw(`(
+    exists (select 1 from "payments" p where p.call_id = ${call}.id and p.status = 'charged' and coalesce(p.charged_cents, 0) > 0)
+    and not exists (
+      select 1 from "payments" q
+      where q.call_id = ${call}.id
+        and (
+          q.dispute_open = true
+          or exists (select 1 from "membership_months" m where m.id = q.month_id and m.dispute in ('open', 'lost'))
+          or exists (select 1 from "disputes" d where d.payment_id = q.id and d.status = 'lost')
+        )
+    )
   )`);
 
 const since90 = (now: Date) => new Date(now.getTime() - AUTO_PAUSE.withinDays * DAY_MS).toISOString();
@@ -143,25 +149,33 @@ type Candidate = { id: string; name: string; email: string; as: "host" | "custom
  * with fewer). Only a first cut: the average itself is counted for each one.
  */
 async function lowRatedCandidates(only?: string): Promise<Candidate[]> {
-  const rows = await db.execute<{ id: string; name: string; email: string; rated_as: string; auto_pause_from: Date | string | null; rating_warned_at: Date | string | null }>(sql`
-    select u.id, u.name, u.email, g.rated_as, u.auto_pause_from, u.rating_warned_at
+  const rows = await db.execute<{ id: string; name: string; email: string; rated_as: string; auto_pause_from: Date | string | null; rating_warned_at: Date | string | null; customer_rating_warned_at: Date | string | null }>(sql`
+    select u.id, u.name, u.email, g.rated_as, u.auto_pause_from, u.rating_warned_at, u.customer_rating_warned_at
     from "ratings" g
     join "user" u on u.id = g.rated_id
     where u.paused_at is null
       and u.closed_at is null
       and not exists (select 1 from "admins" a where a.user_id = u.id)
       ${only !== undefined ? sql`and u.id = ${only}` : sql``}
-    group by u.id, u.name, u.email, g.rated_as, u.auto_pause_from, u.rating_warned_at
+    group by u.id, u.name, u.email, g.rated_as, u.auto_pause_from, u.rating_warned_at, u.customer_rating_warned_at
     having count(distinct g.rater_id) >= ${RATING.minPeople} and count(*) filter (where g.stars <= 2) >= 2
   `);
   const when = (value: Date | string | null) => (value ? new Date(value) : null);
-  return rows.map((row) => ({ id: row.id, name: row.name, email: row.email, as: row.rated_as === "host" ? "host" : "customer", from: when(row.auto_pause_from), warnedAt: when(row.rating_warned_at) }));
+  return rows.map((row) => {
+    const as = row.rated_as === "host" ? ("host" as const) : ("customer" as const);
+    // Each role has its own warning: a pause for one never rests on a warning about the other.
+    return { id: row.id, name: row.name, email: row.email, as, from: when(row.auto_pause_from), warnedAt: when(as === "host" ? row.rating_warned_at : row.customer_rating_warned_at) };
+  });
 }
+
+/** The column that holds the warning of one role. */
+const markOf = (as: "host" | "customer") => (as === "host" ? schema.user.ratingWarnedAt : schema.user.customerRatingWarnedAt);
+const markSet = (as: "host" | "customer", at: Date | null) => (as === "host" ? { ratingWarnedAt: at } : { customerRatingWarnedAt: at });
 
 const same = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null);
 /** The moment something is decided inside its own step: never earlier than the round's own clock, and not an old one if the round took long. */
 const decisionTime = (now: Date) => new Date(Math.max(now.getTime(), Date.now()));
-const warningKey = (userId: string, warnedAt: Date) => `rating-warning:${userId}:${warnedAt.getTime()}`;
+const warningKey = (userId: string, as: "host" | "customer", warnedAt: Date) => `rating-warning:${userId}:${as}:${warnedAt.getTime()}`;
 
 /**
  * The one warning about low ratings (decision 6a), written and marked in one step with the
@@ -172,7 +186,7 @@ async function warnAboutRatings(one: Candidate, now: Date): Promise<boolean> {
   return db.transaction(async (tx) => {
     // (Held the way a pause holds it, which lets a call or a request that names this person be written meanwhile.)
     const [row] = await tx
-      .select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt, from: schema.user.autoPauseFrom, warnedAt: schema.user.ratingWarnedAt })
+      .select({ pausedAt: schema.user.pausedAt, closedAt: schema.user.closedAt, from: schema.user.autoPauseFrom, warnedAt: markOf(one.as) })
       .from(schema.user)
       .where(eq(schema.user.id, one.id))
       .for("no key update");
@@ -181,21 +195,28 @@ async function warnAboutRatings(one: Candidate, now: Date): Promise<boolean> {
     const at = decisionTime(now);
     const shown = await averageSince(one.id, one.as, one.from, at, tx);
     if (!ratingsWarn(shown) && !ratingsPause(shown)) return false;
-    await tx.update(schema.user).set({ ratingWarnedAt: at }).where(eq(schema.user.id, one.id));
-    await queueEmail(tx, { to: one.email, subject: AUTO_PAUSE_WORDS.ratings.warnSubject, text: AUTO_PAUSE_WORDS.ratings.warnText(one.name, one.as, SUPPORT_EMAIL), key: warningKey(one.id, at) });
+    await tx.update(schema.user).set(markSet(one.as, at)).where(eq(schema.user.id, one.id));
+    await queueEmail(tx, { to: one.email, subject: AUTO_PAUSE_WORDS.ratings.warnSubject, text: AUTO_PAUSE_WORDS.ratings.warnText(one.name, one.as, SUPPORT_EMAIL), key: warningKey(one.id, one.as, at) });
     return true;
   });
 }
 
 /**
- * When the warning this account was marked with really went out: the moment its email was sent,
- * or null while it has not been (still waiting, or it could not be delivered). The 14 days run
- * from here: nobody is paused for ratings on the strength of an email that never left.
+ * When the warning this account was marked with (for this role) really went out: the moment its
+ * email was sent, or null while it has not been (still waiting, or it could not be delivered).
+ * The 14 days run from here: nobody is paused for ratings on the strength of an email that never
+ * left. "gone": the email's line is no longer there to be found (emails are emptied two years
+ * after they were sent, and lose their key then), so nobody can say any more when it was sent.
  */
-async function warningSentAt(one: Candidate): Promise<Date | null> {
+async function warningSentAt(one: Candidate): Promise<Date | null | "gone"> {
   if (!one.warnedAt) return null;
-  const [mail] = await db.select({ sentAt: schema.emailOutbox.sentAt }).from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, warningKey(one.id, one.warnedAt)));
-  return mail?.sentAt ?? null;
+  const [mail] = await db.select({ sentAt: schema.emailOutbox.sentAt }).from(schema.emailOutbox).where(eq(schema.emailOutbox.dedupeKey, warningKey(one.id, one.as, one.warnedAt)));
+  return mail ? mail.sentAt : "gone";
+}
+
+/** A warning whose email can no longer be found is taken back, with the account's row held, so that the next round warns afresh: a pause never rests on it. */
+async function forgetWarning(one: Candidate): Promise<void> {
+  await db.update(schema.user).set(markSet(one.as, null)).where(and(eq(schema.user.id, one.id), eq(markOf(one.as), one.warnedAt!)));
 }
 
 /**
@@ -239,12 +260,19 @@ export async function runAutoPauses(now: Date, only?: string): Promise<{ paused:
   // Ratings: first the one warning; the pause only some days after that email was sent.
   for (const one of await lowRatedCandidates(only)) {
     try {
-      if (paused.includes(one.id) || warned.includes(one.id)) continue;
+      if (paused.includes(one.id)) continue;
       const looked = await averageSince(one.id, one.as, one.from, now);
       if (!ratingsWarn(looked) && !ratingsPause(looked)) continue;
       if (one.warnedAt === null) {
         if (await warnAboutRatings(one, now)) warned.push(one.id);
-      } else if (ratingsPause(looked) && warnedLongEnough(await warningSentAt(one), now)) {
+        continue;
+      }
+      const sentAt = await warningSentAt(one);
+      if (sentAt === "gone") {
+        await forgetWarning(one);
+        continue;
+      }
+      if (ratingsPause(looked) && warnedLongEnough(sentAt, now)) {
         let decided: ShownAverage = looked!;
         const done = await pauseByItself({
           userId: one.id,

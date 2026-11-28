@@ -238,6 +238,11 @@ export async function closeReport(input: { reportId: string; adminId: string; no
     const [found] = await tx.select({ context: schema.reports.context, contextId: schema.reports.contextId, reason: schema.reports.reason }).from(schema.reports).where(eq(schema.reports.id, input.reportId));
     const marksPictures = found?.context === "post" && found.reason === "under18";
     if (found && marksPictures) await lockPost(tx, found.contextId);
+    // The account the report is about is held while its report is closed, the way a pause by the app holds it
+    // (plans/52, decision 8a): such a pause counts the open reports with that row held, so a report is closed
+    // either before that count or after the pause, never in between.
+    const [about] = await tx.select({ reportedId: schema.reports.reportedId }).from(schema.reports).where(eq(schema.reports.id, input.reportId));
+    if (about) await tx.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.id, about.reportedId)).for("no key update");
     const [report] = await tx
       .update(schema.reports)
       .set({ status: "closed", adminNote: input.note, closedBy: input.adminId, closedAt: new Date() })
@@ -437,7 +442,7 @@ export async function pauseUnderage(input: {
  * pauses.
  *
  * Never an admin's account, and not a closed one (if it is opened again, the next round looks at it). "paused"
- * only when this call paused it: an account that was paused already stays as it was, and the founder is told.
+ * only when this call paused it: an account that is paused already is left exactly as it is.
  * `key` must be the same for the same cause within one fresh start, so that nothing is sent twice.
  *
  * `expectedFrom` is the fresh start (`auto_pause_from`) the caller counted with. It is read again in the pause's
@@ -508,7 +513,7 @@ export async function liftPause(input: { adminId: string; userId: string; since?
     // button must not move the fresh start forward and so throw away what was reported since the real lift.
     const lifted = await tx
       .update(schema.user)
-      .set({ pausedAt: null, pausedReason: null, autoPauseFrom: new Date(), ratingWarnedAt: null, updatedAt: new Date() })
+      .set({ pausedAt: null, pausedReason: null, autoPauseFrom: new Date(), ratingWarnedAt: null, customerRatingWarnedAt: null, updatedAt: new Date() })
       .where(and(eq(schema.user.id, input.userId), isNotNull(schema.user.pausedAt), input.since ? eq(schema.user.pausedAt, input.since) : undefined))
       .returning({ id: schema.user.id });
     if (lifted.length === 0) return false;

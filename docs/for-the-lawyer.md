@@ -898,8 +898,13 @@ guard against repeated reports is the builder's choice, which the founder asked 
 
 ## 26. An account paused by the app itself, and the rating average (new, plan 52, 27 November 2026)
 
-What the app now does (`plans/52-automatic-pause.md`): about every 10 minutes it looks for
-accounts that have reached one of two lines, and pauses them with no person deciding.
+**This is built and switched off.** The round that does it runs only where `AUTO_PAUSE=on` is
+set, and it stays off until a pause no longer ends an account's memberships for good (the
+founder wants them paused instead; that is the next piece of work) and until the questions
+below are answered.
+
+What the app does once it is switched on (`plans/52-automatic-pause.md`): about every 10 minutes
+it looks for accounts that have reached one of two lines, and pauses them with no person deciding.
 
 - **Reports:** 5 different people reported the account within 90 days, each of them had a call
   with it in that time that was really paid for, and those people are at least 1 in 10 of
@@ -907,9 +912,10 @@ accounts that have reached one of two lines, and pauses them with no person deci
   reporter's account is closed, if the two reported each other, if a bank took the call's money
   back, or if a person on the team has closed it. Money the host gave back does not take a
   report out.
-- **Ratings:** an average of 2.0 or lower from at least 10 different people, counting only
-  ratings of calls that were paid for. At 2.5 or lower the person gets one warning email, and
-  the pause comes no sooner than 14 days after it.
+- **Ratings:** an average of 2.0 or lower from 11 or more different people, counting only
+  ratings of calls that were paid for. At 2.5 or lower the person gets a warning email (one for
+  their ratings as a host, one for their ratings as a customer), and the pause comes no sooner
+  than 14 days after that email was sent.
 
 The person is told the rule that was reached, in general words: never who reported or rated
 them, how many people reported them, or what their average is. The founder gets an email that it

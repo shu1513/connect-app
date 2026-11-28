@@ -14,9 +14,13 @@ export const AUTO_PAUSE = {
   withinDays: 90,
   /** ... and those people are at least one in this many of all the different people the account had a really paid call with in that time. */
   oneIn: 10,
-  /** Ratings: an average of this or lower, from at least `minRaters` different people who each rated a call that was really paid for. */
+  /**
+   * Ratings: an average of this or lower, from at least `minRaters` different people who each rated a call that was
+   * really paid for. Ratings count in whole groups (the first 5 people, then 3 at a time), so an average is from
+   * 5, 8, 11, 14, ... people: 11 is the first such number above 10.
+   */
   lowAverage: 2.0,
-  minRaters: 10,
+  minRaters: 11,
   /** Ratings: at this average or lower the person is warned by email, once. */
   warnAverage: 2.5,
   /** Ratings: an account is paused for its ratings no sooner than this many days after that warning. */
@@ -64,7 +68,7 @@ const BEING_ENDED = "Their waiting requests are being ended and their calls that
 export const AUTO_PAUSE_WORDS = {
   reports: {
     reason: "Paused automatically: several different people who had paid calls with this account reported it within a short time.",
-    because: "automatically, because several different people who had calls with you reported you to us within a short time. The app made this pause by itself, without a person at Connect deciding it; a person will look at it if you write to us.",
+    because: "automatically, because several different people who had paid calls with you reported you to us within a short time. The app made this pause by itself, without a person at Connect deciding it; a person will look at it if you write to us.",
     founderSubject: "An account was paused automatically: reports",
     founderText: (person: { name: string; email: string }, facts: { reporters: number; people: number }, listUrl: string) =>
       `The app has paused the account of ${person.name} (${person.email}) by itself: ${facts.reporters} different people who had paid calls with them reported them in the last ${AUTO_PAUSE.withinDays} days, out of ${facts.people} people they had paid calls with in that time. ${BEING_ENDED}\n\nThere is nothing to decide unless they write in. If the pause is wrong, lift it here, and the reports made so far will not pause the account again:\n\n${listUrl}`,
