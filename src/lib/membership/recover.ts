@@ -18,13 +18,17 @@
  *     24 hours after the try was written down. Until then the try stays open;
  *   - and before anything is repeated for a try after the first, Stripe's list is searched for a
  *     refund of an earlier try (payments/refund-tries.ts, earlierTryAtStripe): that one is booked
- *     instead.
+ *     instead;
+ *   - a repeat only leaves from a look at the try that is a moment old, so a helper that stood
+ *     still sends nothing (repeatFromFreshLook); and a refund that is alive at Stripe although
+ *     the books do not have it is said out loud (sayIfRefundNotInBooks).
  */
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { captureAtStripe } from "@/lib/payments/actions";
 import { failOwnedOperation, finishOwnedOperation, SETTLED_AFTER_MS } from "@/lib/payments/operations";
-import { earlierTryAtStripe, isTry, refundOnStripesList } from "@/lib/payments/refund-tries";
+import { formatMoney } from "@/lib/payments/access";
+import { earlierTryAtStripe, isTry, refundOnStripesList, repeatFromFreshLook, sayIfRefundNotInBooks, WHY_NOT_REPEATED } from "@/lib/payments/refund-tries";
 import { isDefiniteRefusal, lookUp, stripe, stripeErrorMessage } from "@/lib/payments/stripe";
 import { applyLetGo, applyTaken, cancelAtStripe, confirmSavedCard, LABEL_SAFE_MS, syncMonth } from "./charge";
 import { monthOwner } from "./locks";
@@ -91,12 +95,36 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
       // the line's refund. It is booked as this try's outcome, and nothing is repeated.
       refund = await earlierTryAtStripe(params as PayBackParams);
       if (refund) console.error(`[membership] pay-back ${params.refundId}: Stripe already has refund ${refund.id} of an earlier try, which had been recorded as not made. It is booked, and try ${params.attempt} is not repeated.`);
+      // For a refund this helper holds, alive at Stripe: if the line does not carry it once the try has an outcome
+      // (the try was written down as "not made" meanwhile, or the line was booked with another refund), nothing is
+      // changed and the founders are told.
+      const sayIfNotInBooks = (alive: { id: string; status: string | null }) =>
+        sayIfRefundNotInBooks({
+          operationId: operation.id,
+          refund: alive,
+          booked: async () => (await db.select({ stripeRefundId: schema.membershipRefunds.stripeRefundId }).from(schema.membershipRefunds).where(eq(schema.membershipRefunds.id, params.refundId)))[0]?.stripeRefundId ?? null,
+          about: `a membership's pay-back of ${formatMoney(params.amountCents)} to the member's card (pay-back ${params.refundId}, try ${params.attempt}, month ${monthId})`,
+          next: "if this pay-back is still waiting to be sent again, its next try (an hour after the last one failed at the earliest, and not while the charge is disputed) finds this refund at Stripe and counts it instead of sending. If a later try has already been sent, the member may have been paid twice, and Connect does nothing more about it.",
+        });
       if (!refund && canRepeat()) {
         try {
-          const replayed = await refundAtStripe(params as PayBackParams, operation.label);
-          // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
-          // asked by its own number: one that was paid at first can have failed since.
-          refund = await lookUp(() => stripe().refunds.retrieve(replayed.id));
+          // Sent only from a look at the try that is a moment old, with a limit of time and no later repeats
+          // (payments/refund-tries.ts, repeatFromFreshLook): a helper that stood still sends nothing.
+          const repeat = await repeatFromFreshLook(operation.id, canRepeat, (how) => refundAtStripe(params as PayBackParams, operation.label, how));
+          if (!repeat.sent && repeat.why !== "too_late") {
+            console.log(`[membership] unfinished pay-back on month ${monthId}: not repeated (${WHY_NOT_REPEATED[repeat.why]})`);
+            return;
+          }
+          if (repeat.sent) {
+            // Under the same label Stripe gives the FIRST answer back, as it was then. What the refund is now is
+            // asked by its own number: one that was paid at first can have failed since. (If that asking fails, the
+            // try may not be looked at again, so a refund the books do not have is said at once, from the answer.)
+            const answer = repeat.answer;
+            refund = await lookUp(() => stripe().refunds.retrieve(answer.id)).catch(async (error) => {
+              await sayIfNotInBooks(answer);
+              throw error;
+            });
+          }
         } catch (error) {
           // A clear "no" to the repeat proves nothing about the first request (it may have gone through before,
           // say, a permission was taken away): Stripe's own list of this charge's refunds settles it, below.
@@ -129,6 +157,8 @@ export async function recoverMonthOperation(operation: typeof schema.moneyOperat
         // As it stands at Stripe now: paid, still on its way (then asked about by its own number), or failed since.
         const found = refund;
         await finishOwnedOperation(operation.id, owner, found.id, (locked, tx) => applyPayBackOutcome(tx, locked, payBack(found.id, outcomeStatus(found.status)), now));
+        // (If another helper ended this try meanwhile, the write above changed nothing.)
+        await sayIfNotInBooks(found);
       }
     }
     console.log(`[membership] checked unfinished ${operation.kind} on month ${monthId}`);
