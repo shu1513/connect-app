@@ -189,7 +189,11 @@ export default async function MembershipPage(props: PageProps<"/memberships/[id]
               <strong>Paused{membership.pausedReason && PAUSED_WHY[membership.pausedReason] ? `, because ${PAUSED_WHY[membership.pausedReason]}` : ""}.</strong> It costs nothing and gives no member time.{" "}
               {membership.pausedReason === ACCOUNT_PAUSE ? "You can resume once that pause is over; we write to you then." : `You can still book ${hostName} like any customer.`}
             </p>
-            <p className="mt-2 opacity-80">Resuming is like joining again: you get {hostName}&apos;s membership as it is then, tick the box, enter a card, and a new month starts.</p>
+            <p className="mt-2 opacity-80">
+              {membership.pausedReason === ACCOUNT_PAUSE
+                ? `When you resume you come back with the time you had, at the price you had (or at ${hostName}'s member price of that day, if that is lower): you tick the box, enter a card, and a new month starts.`
+                : `Resuming is like joining again: you get ${hostName}'s membership as it is then, tick the box, enter a card, and a new month starts.`}
+            </p>
             {host ? (
               <p className="mt-2">
                 <Link href={`/h/${host.handle}/membership`} className="inline-flex min-h-11 items-center rounded bg-blue-600 px-4 py-2 font-medium text-white">
@@ -368,7 +372,7 @@ function Running(props: { membership: Membership; month: MembershipMonth; hostNa
         <details className="mt-6">
           <summary className="cursor-pointer underline underline-offset-2">Cancel membership</summary>
           <p className="mt-2">
-            Your price of {price} per 15 minutes and your {time} a month are yours while your membership goes on. If it is paused and you come back later, you get {hostName}&apos;s membership as it is then.
+            Your price of {price} per 15 minutes and your {time} a month are yours while your membership goes on. If you cancel and come back later, you get {hostName}&apos;s membership as it is then.
           </p>
           <div className="mt-3 flex flex-wrap items-start gap-3">
             {!membership.memberStoppedAt && (

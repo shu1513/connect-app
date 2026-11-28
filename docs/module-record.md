@@ -6569,3 +6569,35 @@ paused account were run after Astra's points.
 **For the lawyer** (`docs/for-the-lawyer.md`, section 27): charging again after a pause without a
 new yes from the contributor.
 
+## After a pause with an account, a member comes back at their old price (plan 55, 27 November 2026)
+
+**What it is.** Resuming a paused membership has always given the member the host's membership as
+it is on that day. Since plan 53 a membership can be paused because one of its two accounts was
+paused, which the member did not choose. The founder: "members keep their old prices when they
+resume yes?" (`plans/55-old-price-on-resume.md`). Now a member who resumes after a pause with an
+account comes back with the time they had, at the lower of two prices: the one they had and the
+host's member price of that day, exactly the sum a renewal does. After any other pause nothing
+changes. One rule, `resumeTerms` in `src/lib/membership/rules.ts`, is used by the page that
+shows the terms and by the step that writes the agreement and the new month
+(`src/lib/membership/join.ts`).
+
+**How it came up.** The builder had told the founder that a paused member "keeps their price".
+The code did not do that; CodeRabbit's point on plan 53's wording brought it out, the founder
+was told, and asked for it.
+
+**Whose decisions.** The founder's: the old price is kept. The builder's: only after a pause
+with an account; the lower of the two prices; the old time as well.
+
+**Reviews.** Astra (Codex, effort high): "not ready", 6 points; 4 taken (among them: a page left
+open could record a yes to other terms than the ones it showed, so the page now sends what it
+showed and the step checks it), 2 not, with reasons at the end of the plan. CodeRabbit's review
+limit was reached, so the builder read the whole change again instead.
+
+**Checks.** Unit tests for `resumeTerms`. `scripts/membership-check.ts`, journey 27, against
+Stripe's test area: the host raises her price and halves the time during the pause, and the
+member comes back as they were, with an agreement that says so; she lowers her price, and the
+next member gets the lower one with the time he had. Journey 26: an ordinary pause still gets
+the host's membership as it is then.
+
+**What was not tried.** The resume page in a browser.
+

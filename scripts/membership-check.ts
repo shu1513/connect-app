@@ -1791,17 +1791,30 @@ async function main() {
     await helper(new Date());
     check("lifting the pause", (await liftPause({ adminId: founder.id, userId: host.id })) === true);
     check("each member whose membership was paused with it gets an email with the way to resume; the person who was only invited gets none", (await emails(paid.member.email, "You can resume your membership")) === 1 && (await emails(onHold.member.email, "You can resume your membership")) === 1 && (await emails(asked.member.email, "You can resume your membership")) === 0);
+    // Meanwhile the host has raised her member price and halved the time (plans/55): someone who was paused with an
+    // account comes back with the time they had, at the price they had.
+    await save(host, { on: true, pricePer15Cents: 900, includedMinutes: 60 });
     const again = await resumeAs(paid);
     await pay(again.monthId);
     const resumed = await MS(paid.membershipId);
+    const newMonth = await M(again.monthId);
+    const [, kept] = await agreementsOf(paid.membershipId);
+    check("the host raised her price and halved the time meanwhile: the member comes back with the time they had, at the price they had", newMonth.totalCents === before.totalCents && newMonth.includedMinutes === before.includedMinutes && resumed.ownPricePer15Cents === was.ownPricePer15Cents && resumed.ownMinutes === was.ownMinutes && kept.kind === "resumed" && kept.pricePer15Cents === was.ownPricePer15Cents && kept.minutes === was.ownMinutes && newMonth.agreementId === kept.id && resumed.agreementId === kept.id, `${newMonth.totalCents} ${newMonth.includedMinutes}`);
     const old = await M(paid.monthId);
     check("the member resumes by themselves: a new month, a new agreement, and the old month's pay-back stands", resumed.status === "active" && resumed.period === a.period + 1 && resumed.pausedAt === null && resumed.pausedReason === null && resumed.agreementId !== a.agreementId && (await M(again.monthId)).status === "held" && old.freeCents === 0 && old.toPayBackCents + old.paidBackCents === before.freeCents);
     // A clean-up that runs late, beside the resume, touches nothing of the new period.
     await E.cleanUpEnding(paid.membershipId, new Date());
     check("a late clean-up after the resume leaves the new month alone", (await M(again.monthId)).status === "held" && (await M(again.monthId)).endedHow === null && (await MS(paid.membershipId)).status === "active");
+    // A page that showed other terms than he would get now (the host's own, say, from before this rule) is refused.
+    const hostsOwn = await offerOf(host);
+    const staleTerms = await refusal(J.resume({ customerId: onHold.member.id, membershipId: onHold.membershipId, requestId: randomUUID(), agreed: true, wordingVersion: WORDING, offerVersion: hostsOwn.version, shown: { pricePer15Cents: hostsOwn.pricePer15Cents, includedMinutes: hostsOwn.includedMinutes }, now: new Date() }));
+    check("\"Resume\" from a page that showed other terms than he comes back with is refused: nobody agrees to a price or a time they did not see", /has changed since this page was opened/.test(staleTerms ?? "") && (await MS(onHold.membershipId)).status === "paused" && (await agreementsOf(onHold.membershipId)).length === 1, staleTerms ?? "it went through");
+    // And then she lowers it below what they paid: a member's price only ever goes down.
+    await save(host, { on: true, pricePer15Cents: 600, includedMinutes: 60 });
     const [, second] = await Promise.all([Promise.resolve(), resumeAs(onHold)]);
     await pay(second.monthId);
-    check("the member whose month was only held resumes too", (await MS(onHold.membershipId)).status === "active");
+    const lower = await M(second.monthId);
+    check("the member whose month was only held resumes too; the host has lowered her price by then, so he gets the lower price, with the time he had", (await MS(onHold.membershipId)).status === "active" && (await MS(onHold.membershipId)).ownPricePer15Cents === 600 && lower.includedMinutes === b.ownMinutes && lower.totalCents === (600 * b.ownMinutes!) / 15, `${lower.totalCents} ${lower.includedMinutes}`);
     await audit("after a pause with the host's account, resumed", paid);
     await audit("after a pause with the host's account, held only, resumed", onHold);
 
