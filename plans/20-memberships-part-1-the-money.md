@@ -1125,6 +1125,12 @@ last moment looked at before the search, "final" decided after it, the hour take
 round's start, the try read from the refund, the attempt left out of the search): every one
 failed its check, and the code was put back.
 
+Plan 50, part 2 was merged while this was being built. Its check in
+`scripts/member-calls-check.ts` only says that a confirmed pay-back failed (Stripe's test
+mode really paid it), and then sends the next try. That try now finds the refund alive on
+Stripe's list and books it, where it used to pay a second time; the check says so now. A
+refund that really failed is passed over, and the next try goes out as plan 50 means it to.
+
 ## Astra's check of the pay-back's follow-up (27 November 2026): "merge after fixes"
 
 Five points. Three were taken, two are left and named.

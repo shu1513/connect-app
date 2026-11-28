@@ -6257,14 +6257,18 @@ that cannot be sent right now (its month has an action without an answer) no lon
 place among the 50 the helper tries per round. Nothing else behaves differently. No change
 to the database.
 
-**How it was checked.** Type check, lint, 1,165 automatic tests. A new journey (29) in
+**How it was checked.** Type check, lint, 1,168 automatic tests. A new journey (29) in
 `scripts/membership-check.ts` (33 checks, real refunds in Stripe's test area, with the
 script answering in Stripe's place only where the test area cannot be made to refuse or
 fail). The journey was first run against the old code, where the main case failed as feared:
 the member got 5.00 twice. With the new code the member gets it once. The checks added
 after Astra's review were each run once against code broken on purpose in the matching
 place, and each failed as it should. The whole script (507 checks) and the contribution's
-own journey 19 were run again after the last change and pass.
+own journey 19 were run again after the last change and pass. So was the collecting journey
+of `scripts/member-calls-check.ts`, which came in with plan 50, part 2 while this was being
+built: there the script only says that a pay-back failed, and the next try now finds the
+refund Stripe had really made and books it, where it used to pay a second time. Its check
+now says so.
 
 **Astra's review** (gpt-6.2-astra, effort high) said "merge after fixes", with five points:
 three taken (the batch above, and stronger checks: the order of things with a slow search, a
