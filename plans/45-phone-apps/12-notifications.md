@@ -48,7 +48,9 @@ stand-in, and no notification leaves this Mac.
    host is not told more often by phone than by email); a request answered;
    a request about to run out (host); the three reminders; a
    refund asked and answered; a membership needing the member (while memberships are on for
-   the apps); a card that failed before a booked call. **Never:** anything about
+   the apps); a card that failed before a booked call. *Added 27 November:* a new message
+   from the other person of a conversation, by the rules of part 17b, decision 19 (its own
+   switch, one line per conversation, never urgent). **Never:** anything about
    contributions, tips or the diary, emails to followers, admin and sign-in emails.
 3. **Checked again at the moment of sending:** is this still that person's phone and are
    they still signed in on it; is the request still waiting, the call not cancelled; are
