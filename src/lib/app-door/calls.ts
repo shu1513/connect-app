@@ -15,6 +15,7 @@ import { CALL_WORDS, cancelRuleSentence, cancelWords, paidHowWords, payPoints } 
 import { roomOpensAt, roomState } from "@/lib/calls";
 import { comingCallRows, listCalls, pastCallRows } from "@/lib/home/list-calls";
 import { payOpensAt } from "@/lib/payments/rules";
+import { mayStillAct } from "@/lib/safety/may-act";
 import { callFor } from "./home";
 import type { AppCallPage, AppCalls } from "./types";
 
@@ -41,9 +42,14 @@ export async function callPageFor(person: { id: string }, callId: string, now: D
   const page = await gatherCallPage(person.id, callId, now, { sync: false });
   if (!page) return null;
   const { call, role, payment } = page;
+  // The step that pays and the way into the room are refused once the call's two people may no longer act (an account
+  // closed or paused, or a block between them; the step that cancels such a call may not have run yet). So neither is
+  // offered then: the page says that the call can no longer go ahead, in the state that offers nothing
+  // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6). Cancelling, "Report" and "Block" stay.
+  const stopped = (page.state === "pay" || page.state === "room") && !(await mayStillAct(call.hostId, call.customerId));
   // A call whose booked end has passed is over, whatever else was open about it (unpaid, or its room simply
   // empty now): the page then says so and offers nothing more. (The website's page finds this out by its own clock.)
-  const state = page.state !== "cancelled" && roomState(call, now) === "closed" ? "ended" : page.state;
+  const state = page.state !== "cancelled" && roomState(call, now) === "closed" ? "ended" : stopped ? "blocked" : page.state;
   const over = state === "cancelled" || state === "ended";
   return {
     id: call.id,
@@ -55,7 +61,7 @@ export async function callPageFor(person: { id: string }, callId: string, now: D
     paidHow: paidHowWords({ kind: payment?.kind ?? null, role, pricePer15: page.pricePer15, upTo: page.upTo }),
     serverNow: now.toISOString(),
     state,
-    ...stateWords({ ...page, state }),
+    ...(stopped && state === "blocked" ? { words: [CALL_WORDS.cannotGoAhead], small: null } : stateWords({ ...page, state })),
     pay:
       state === "pay" && page.bookedPrice && page.pricePer15
         ? {

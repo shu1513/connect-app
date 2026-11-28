@@ -47,9 +47,8 @@ export type AppPerson = {
   name: string;
   email: string;
   timeZone: string | null;
+  /** Only a yes or no. Why an account is paused is never sent: those words are typed by a person at Connect, and the app says where to read them. */
   paused: boolean;
-  /** Why, in the founder's words, when the account is paused and a reason was given; otherwise null. Hers alone to read. */
-  pausedReason: string | null;
   /** What stands between this person and the home page; null when nothing does. */
   next: "welcome" | null;
   /** Her host profile's state, or null for someone who never applied. */
@@ -72,6 +71,16 @@ export type AppStart = {
 /** One legal document as the "18 or older and terms" step shows it. */
 export type AppAgreement = { name: string; title: string; version: string; href: string };
 
+/**
+ * A version of a legal document that is announced and not yet in effect, as the "18 or older and
+ * terms" step says it above its button: which document, from which day ("2027-01-12"), whether it
+ * is one the step accepts (the person is asked to accept the new version on its day) or one they
+ * are only told about, the fixed sentence to show, and the words and the path of the link to that
+ * version on the website. Never what the version changes: that summary is written freely for each
+ * version, and is on the website's page behind the link.
+ */
+export type AppComingAgreement = { name: string; title: string; version: string; from: string; accepted: boolean; words: string; link: string; href: string };
+
 /** The answer of GET /api/app/welcome: what the "18 or older and terms" step shows. */
 export type AppWelcome = {
   /** True when this person has done the step already (the app then goes on). */
@@ -86,6 +95,8 @@ export type AppWelcome = {
    * then asks for the step again.
    */
   agreements: AppAgreement[];
+  /** The versions that are announced and not yet in effect: said above the button, accepted by nothing here. Empty when none is coming. */
+  coming: AppComingAgreement[];
   /** Her saved time zone, if she has one. */
   timeZone: string | null;
   /** Every time zone name the server accepts. The app offers the phone's own if it is among them. */
@@ -175,6 +186,7 @@ export type AppCallPage = {
   paidHow: string;
   /** The server's clock when this was put together: what the countdown counts from. */
   serverNow: string;
+  /** "blocked": nothing can be done here. Its sentence says why: the payment is no longer in place, or the call's two people may no longer act (an account closed or paused, or a block between them), and then no pay step and no way into the room is offered. */
   state: "cancelled" | "ended" | "too_early" | "pay" | "host_waits" | "blocked" | "room";
   /** The state's own sentence and a smaller one under it; null where the state has its own part below ("pay", "room"). */
   words: AppPart[] | null;
@@ -438,7 +450,9 @@ export type AppBooking = {
   call: { id: string } | null;
   /**
    * Only for the host: what she may know about the person asking, her own note, and how she answers.
-   * For a customer whose account is closed, or across a block, only the name is filled.
+   * While the request's two people may no longer act (an account closed or paused, or a block between
+   * them), nothing is filled, not even the name: the page then says "This request is no longer available.",
+   * for either of the two, with no step and with "Report" and "Block" under labels that name nobody.
    */
   host: {
     customerName: string;
@@ -521,9 +535,10 @@ export type AppIdentityStart = { url: string };
 export type AppFollowDone = { words: string; follow: "following" | "ended" | "none" };
 
 /**
- * One request waiting for a host's answer, with what she may know about the person asking. For
- * someone whose account is closed, or across a block, only the name, the time, the length and
- * the price are filled.
+ * One request waiting for a host's answer, with what she may know about the person asking. A
+ * request whose two people may no longer act (an account closed or paused, or a block between
+ * them) is not on the list at all. Should one of the two change in the instant the list is put
+ * together, only the name, the time, the length and the price are filled.
  */
 export type AppWaitingOne = {
   id: string;

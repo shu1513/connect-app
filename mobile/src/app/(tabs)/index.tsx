@@ -8,6 +8,7 @@ import { useHome } from "@/home/use-home";
 import { takeHostPage } from "@/lib/after-sign-in";
 import { phoneZone } from "@/lib/home-rules";
 import { useStart } from "@/lib/opening";
+import { pausedWords } from "@/lib/opening-rules";
 import { Card, Heading, Loading, Notice, Page, Problem, Words } from "@/ui/pieces";
 
 /**
@@ -42,13 +43,9 @@ export default function HomePlace() {
       {/* What is on the screen is the last answer that came. If a newer one did not come, that is said. */}
       {problem ? <Notice>{problem}</Notice> : null}
       {me?.paused ? (
-        // Told in the app, in the words of the website's own page for it: that page shows whoever is signed in to the
-        // browser, who need not be the person in the app.
-        <Notice>
-          Your account is paused: you can look, but not book, host or join calls.
-          {me.pausedReason ? `\n\nReason: ${me.pausedReason}` : ""}
-          {`\n\nIf you think this is a mistake, write to ${start?.supportEmail}.`}
-        </Notice>
+        // Told in the app, in fixed words: that the account is paused, what it can still do, where the reason is, and
+        // where to write. The reason itself is not sent to the app (it is typed by a person at Connect).
+        <Notice>{pausedWords(start?.supportEmail ?? "").join("\n\n")}</Notice>
       ) : null}
       {home.hosting?.page ? <Words soft>You are a host. Your page: /h/{home.hosting.page}</Words> : null}
 

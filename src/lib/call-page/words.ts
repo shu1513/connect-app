@@ -90,6 +90,8 @@ export const CALL_WORDS = {
   hostWaitsSmall: (bookedPrice: string) => `The call can only start once ${bookedPrice} is held on their card.`,
   updatesByItself: " This page updates by itself.",
   blocked: "This call cannot go ahead because its payment is no longer in place.",
+  /** For the phone app, in place of the step to pay or the way into the room, when the call's two people may no longer act (an account closed or paused, or a block between them). It says no more than that. */
+  cannotGoAhead: "This call can no longer go ahead.",
   payTitle: "Confirm and pay",
   payButton: (bookedPrice: string) => `Hold ${bookedPrice} and confirm the call`,
   payBusy: "Placing the hold…",

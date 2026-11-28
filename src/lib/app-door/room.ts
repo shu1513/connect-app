@@ -14,6 +14,7 @@ import { APP_ROOM_WORDS, ROOM_WORDS } from "@/lib/call-page/room-words";
 import { CALL_WORDS } from "@/lib/call-page/words";
 import { roomOpensAt, roomState } from "@/lib/calls";
 import { COUNTDOWN_SECONDS, WATCH_SECONDS } from "@/lib/extend/rules";
+import { mayStillAct } from "@/lib/safety/may-act";
 import type { AppRoom } from "./types";
 
 /** How often the screen asks where the call stands, near its end (the website's call screen asks as often). */
@@ -33,7 +34,9 @@ export async function roomFor(person: { id: string }, callId: string, now: Date)
     endsAt: call.endsAt.toISOString(),
     opensAt: roomOpensAt(call).toISOString(),
     serverNow: now.toISOString(),
-    ready: page.state === "room" && roomState(call, now) !== "closed",
+    // The same rule as going in (src/lib/video/enter.ts): also not while the two may no longer act, so that "Join" is
+    // never offered for a room nobody can enter (plans/45-phone-apps/09a, decision 6).
+    ready: page.state === "room" && roomState(call, now) !== "closed" && (await mayStillAct(call.hostId, call.customerId)),
     about: role === "host" && page.about?.text ? { title: CALL_WORDS.aboutTitle(page.otherName ?? "this customer"), text: page.about.text } : null,
     watchSeconds: WATCH_SECONDS,
     askEverySeconds: ASK_EVERY_SECONDS,

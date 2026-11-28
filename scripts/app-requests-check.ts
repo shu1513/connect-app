@@ -208,21 +208,47 @@ async function main() {
       const web = await asBrowser("/host/requests", { jar: hana.jar });
       check("the website's page says the same sentences, from the same place", web.status === 200 && web.text.includes("2 people asked for this time. Choose one.") && web.text.includes("New: not enough ratings yet") && web.text.includes("Requests for calls (") && web.text.includes(ann.name), `${web.status}`);
 
-      // A request left over from a customer whose account is closed, or across a block: the name and nothing else.
+      // A request left over from a customer whose account is closed or paused, or across a block, before the step that
+      // ends it has run: it is not on the list at all, nor in its number (plans/45-phone-apps/09a, decision 6). (Until
+      // part 09a the list kept such a request with the customer's name; that expectation is turned round here.)
       await db.update(schema.user).set({ closedAt: now }).where(eq(schema.user.id, cy.id));
       await db.insert(schema.blocks).values({ blockerId: ben.id, blockedId: hana.id });
-      const after = everyRequest((await list(hana.jar)).body);
-      const closed = after.find((request) => request.id === cyAsk.id);
-      const blocked = after.find((request) => request.id === benAsk.id);
-      const bare = (request: typeof closed) => request !== undefined && request.known === false && request.rating === null && request.ratingWords === null && request.idConfirmed === false && request.words === "" && request.note === null && request.photoId === null;
-      check("of a customer whose account is closed: the name, the time, the price, and nothing personal", bare(closed) && closed?.name === cy.name && closed.price === "free", JSON.stringify(closed));
-      check("the same across a block, whoever blocked whom", bare(blocked) && blocked?.name === ben.name);
-      check("everyone else is shown as before", after.find((request) => request.id === annAsk.id)?.words === "About my garden.");
-      // One request as the host sees it follows the very same rule.
-      const closedPage = (await requestPage(cyAsk.id, hana.jar)).body;
-      check("and one such request, opened, says no more than the list", closedPage?.role === "host" && closedPage.host?.customerName === cy.name && closedPage.host.known === false && closedPage.host.rating === null && closedPage.host.ratingWords === null && closedPage.host.idConfirmed === false && closedPage.host.words === null && closedPage.host.photoId === null && closedPage.host.note === null, JSON.stringify(closedPage?.host).slice(0, 200));
+      const left = await list(hana.jar);
+      const after = everyRequest(left.body);
+      check("a request of a customer whose account is closed is not on the host's list, and nowhere in the answer", !after.some((request) => request.id === cyAsk.id) && !left.reply.text.includes(cy.name) && !left.reply.text.includes(cyAsk.id), left.reply.text.slice(0, 160));
+      check("nor is one across a block, whoever blocked whom", !after.some((request) => request.id === benAsk.id) && !left.reply.text.includes(ben.name) && !left.reply.text.includes(benAsk.id));
+      check("the list's number and its groups count only the others: a time two people asked for is now one person's", left.body?.title === "Requests for calls (2)" && left.body.groups.length === 2 && left.body.groups[0].requests.length === 1 && left.body.groups[0].many === null, `${left.body?.title} ${left.body?.groups.length}`);
+      check("everyone else is shown as before", after.find((request) => request.id === annAsk.id)?.words === "About my garden." && after.find((request) => request.id === annAsk.id)?.name === ann.name);
+      // One such request, asked for directly: "no longer available", with no name in any field.
+      const GONE = "This request is no longer available.";
+      const nameless = (reply: Reply, name: string) => {
+        const page = reply.status === 200 ? (reply.json as AppBooking) : null;
+        return page !== null && page.role === "host" && page.stageWords === GONE && page.title === "A request for a call" && page.host?.customerName === "" && page.host.known === false && page.host.rating === null && page.host.ratingWords === null && page.host.idConfirmed === false && page.host.words === null && page.host.photoId === null && page.host.note === null && page.host.answer === null && page.hearBy === null && page.refreshSeconds === null && !reply.text.includes(name);
+      };
+      const closedPage = await requestPage(cyAsk.id, hana.jar);
+      const blockedPage = await requestPage(benAsk.id, hana.jar);
+      check("the closed customer's request, opened directly, says it is no longer available, with no name in any field", nameless(closedPage.reply, cy.name), closedPage.reply.text.slice(0, 240));
+      check("and so does the one across a block", nameless(blockedPage.reply, ben.name), blockedPage.reply.text.slice(0, 240));
+      check('"Report" and "Block" are still there, under labels that name nobody', closedPage.body?.report === "Report this person" && closedPage.body.block?.label === "Block this person" && blockedPage.body?.report === "Report this person" && blockedPage.body.block?.label === "Block this person");
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, cy.id));
       await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, ben.id));
+
+      // A customer paused a moment ago, before the tidying-up (the pause is written straight into the database).
+      await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cy.id));
+      const during = await list(hana.jar);
+      check("a customer paused a moment ago: his request is not in the host's list or its number", !everyRequest(during.body).some((request) => request.id === cyAsk.id) && during.body?.title === "Requests for calls (3)" && !during.reply.text.includes(cy.name), `${during.body?.title}`);
+      const pausedPage = await requestPage(cyAsk.id, hana.jar);
+      check("asked for directly it answers \"no longer available\", with no name in any field", nameless(pausedPage.reply, cy.name), pausedPage.reply.text.slice(0, 240));
+      const webDuring = await asBrowser("/host/requests", { jar: hana.jar });
+      check("the website's list leaves it out too", webDuring.status === 200 && !webDuring.text.includes(cy.name) && webDuring.text.includes(ann.name), `${webDuring.status}`);
+      await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cy.id));
+
+      // A host paused a moment ago: her list holds no customer's details.
+      await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, hana.id));
+      const hers = await list(hana.jar);
+      check("a paused host's list holds no customer's details: it is empty, and says so", hers.reply.status === 200 && hers.body?.groups.length === 0 && hers.body.title === "Requests for calls (0)" && hers.body.empty === "Nothing is waiting for your answer." && ![ann, ben, cy, cust].some((one) => hers.reply.text.includes(one.name)), hers.reply.text.slice(0, 200));
+      await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, hana.id));
+      check("with the pauses lifted, everything is on the list again", (await list(hana.jar)).body?.title === "Requests for calls (4)");
     }
 
     // ----------------------------------------------------------------------
@@ -372,11 +398,18 @@ async function main() {
       const changed = await save(custAsk.id, hana.jar, { text: "Likes evenings.", shown: "Likes mornings." });
       const emptied = await save(custAsk.id, hana.jar, { text: "", shown: "Likes evenings." });
       check("she changes it, and an empty note removes it", (changed.json as AppNoteSaved).text === "Likes evenings." && emptied.status === 200 && (emptied.json as AppNoteSaved).text === null && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, hana.id))).length === 0);
-      // Across a block no note can be kept, and none is shown.
+      // Across a block no note can be kept, and none is shown. (The refusal is now the request's own: while its
+      // details are withheld, the address neither sends the note nor takes a change to it. Part 09a, decision 6.)
       await db.insert(schema.blocks).values({ blockerId: cust.id, blockedId: hana.id });
       const across = await save(custAsk.id, hana.jar, { text: "After the block.", shown: null });
-      check("across a block she can keep no note", sentence(across) === "You can keep a note only about someone who has asked you for a call. Nothing was saved. What you typed is still in the box." && (await requestPage(custAsk.id, hana.jar)).body?.host?.note === null);
+      check("across a block she can keep no note", sentence(across) === "This request is no longer available. Nothing was saved. What you typed is still in the box." && (await requestPage(custAsk.id, hana.jar)).body?.host?.note === null && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, hana.id))).length === 0, sentence(across));
       await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, cust.id));
+      // The same while the customer is paused (which the note's own rule would have let through).
+      await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cust.id));
+      const whilePaused = await save(custAsk.id, hana.jar, { text: "During the pause.", shown: null });
+      check("nor while the customer's account is paused: the note on a request follows the request", refusal(whilePaused) === "not_valid" && sentence(whilePaused) === "This request is no longer available. Nothing was saved. What you typed is still in the box." && (await requestPage(custAsk.id, hana.jar)).body?.host?.note === null && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, hana.id))).length === 0, sentence(whilePaused));
+      await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
+      check("with the pause lifted her notepad is back", (await requestPage(custAsk.id, hana.jar)).body?.host?.note?.text === null);
     }
 
     // ----------------------------------------------------------------------
@@ -387,8 +420,9 @@ async function main() {
       const page = done.json as AppBooking;
       const blocks = await db.select().from(schema.blocks).where(and(eq(schema.blocks.blockerId, hana.id), eq(schema.blocks.blockedId, cust.id)));
       check("the host blocks the person asking: it is done, and their request has ended", done.status === 200 && blocks.length === 1 && page.notice === "Blocked. They cannot ask you for calls any more, and any requests or future calls between you have ended." && page.stage !== "waiting" && page.host?.answer === null && (await row(custAsk.id)).stage !== "waiting", done.text.slice(0, 200));
-      check("from then on her page of it says nothing personal about them", page.host?.known === false && page.host.words === null && page.host.note === null && page.host.customerName === cust.name);
-      check("it says that the request has ended (not that it was not answered in time), and does not offer to block again", page.stageWords === "This request has ended." && page.block === null, `${page.stageWords} ${JSON.stringify(page.block)}`);
+      // (Until part 09a her page kept the customer's name and said "This request has ended."; both are turned round.)
+      check("from then on her page of it says nothing about them, not even the name", page.host?.known === false && page.host.words === null && page.host.note === null && page.host.customerName === "" && page.title === "A request for a call" && !done.text.includes(cust.name), done.text.slice(0, 200));
+      check("it says that the request is no longer available (not that it was not answered in time), and does not offer to block again", page.stageWords === "This request is no longer available." && page.block === null && page.report === "Report this person", `${page.stageWords} ${JSON.stringify(page.block)}`);
       const web = await asBrowser(`/bookings/${custAsk.id}`, { jar: hana.jar });
       check("the website's page says the same sentence", web.status === 200 && web.text.includes("This request has ended.") && !web.text.includes("not answered in time"), `${web.status}`);
       check("and it is off her list", !everyRequest((await list(hana.jar)).body).some((request) => request.id === custAsk.id));

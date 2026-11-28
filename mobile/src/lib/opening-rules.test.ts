@@ -1,6 +1,6 @@
 import type { AppStart } from "../../../src/lib/app-door/types";
 import { UNREACHABLE } from "./api-rules";
-import { gotThrough, isStart, openingAfter, openingFrom, PLEASE_UPDATE, signedOut, someoneSignedIn } from "./opening-rules";
+import { gotThrough, isStart, openingAfter, openingFrom, pausedWords, PLEASE_UPDATE, signedOut, someoneSignedIn } from "./opening-rules";
 
 const start: AppStart = { updateNeeded: false, switches: { memberships: "on", tips: false, availableNow: true }, me: null, termsVersion: "2026-11-rules", supportEmail: "support@connect.example" };
 
@@ -20,7 +20,7 @@ describe("what the app shows when it opens", () => {
   });
 
   it("does not open on an answer that lacks what the screens read", () => {
-    const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, pausedReason: null, next: null, host: null };
+    const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, next: null, host: null };
     expect(isStart(start)).toBe(true);
     expect(isStart({ ...start, me })).toBe(true);
     expect(isStart({ ...start, me: { ...me, timeZone: "Europe/London", next: "welcome", host: { status: "approved", hidden: false } } })).toBe(true);
@@ -39,15 +39,31 @@ describe("what the app shows when it opens", () => {
       { ...start, me: { ...me, host: { status: "approved" } } },
       { ...start, termsVersion: 3 },
       { ...start, supportEmail: undefined },
-      { ...start, me: { ...me, pausedReason: 5 } },
+      { ...start, me: { ...me, paused: "yes" } },
     ]) {
       expect(isStart(bad)).toBe(false);
       expect(openingFrom({ ok: true, data: bad as never })).toEqual({ kind: "unreachable", message: UNREACHABLE });
     }
   });
 
+  it("the switches the server sends are still read, each of them", () => {
+    // The app needs them (a thing that is off is not shown). Nothing prints them on a screen any more.
+    expect(isStart({ ...start, switches: { memberships: "use_only", tips: true, availableNow: false } })).toBe(true);
+    expect(isStart({ ...start, switches: { memberships: "on", availableNow: true } })).toBe(false);
+    expect(isStart({ ...start, switches: { memberships: "on", tips: false } })).toBe(false);
+  });
+
+  it("tells a paused person where the reason is and where to write, and never a reason itself", () => {
+    const words = pausedWords("support@connect.example");
+    expect(words[0]).toContain("Your account is paused.");
+    expect(words[0]).toContain("take a request back, cancel a call, and report or block someone");
+    expect(words.join(" ")).toContain("in the email we sent you when your account was paused, and on the Connect website");
+    expect(words.join(" ")).toContain("write to support@connect.example");
+    expect(words.join(" ")).not.toMatch(/Reason:/);
+  });
+
   it("tells a whole answer from half of one, for the screens that wait on it", () => {
-    const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, pausedReason: null, next: null, host: null };
+    const me = { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, next: null, host: null };
     expect(gotThrough({ ok: true, data: start })).toBe(true);
     expect(gotThrough({ ok: true, data: {} as never })).toBe(false);
     expect(gotThrough({ ok: false, code: "unreachable", message: UNREACHABLE })).toBe(false);
@@ -59,7 +75,7 @@ describe("what the app shows when it opens", () => {
   });
 
   it("shows nobody signed in the moment someone signs out, and keeps it so when Connect cannot be reached", () => {
-    const signedInAs = { kind: "ready", start: { ...start, me: { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, pausedReason: null, next: null, host: null } } } as const;
+    const signedInAs = { kind: "ready", start: { ...start, me: { id: "u1", name: "Ada", email: "ada@example.com", timeZone: null, paused: false, next: null, host: null } } } as const;
     const out = signedOut(signedInAs);
     expect(out).toEqual({ kind: "ready", start });
     expect(openingAfter(out, { ok: false, code: "unreachable", message: UNREACHABLE })).toBe(out);

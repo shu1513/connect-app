@@ -5,9 +5,11 @@
  *
  * Nothing about a customer whose account is closed, or while either has blocked the other
  * (plans/38, decision 7): closing an account or blocking ends the waiting requests, but that step
- * can fail, and a request that is still there is then shown with the name, its time, length and
- * price, and nothing else: no rating, no "ID confirmed", no photo, no note, and not what they
- * wrote when asking. The name stays: the host has to know whose request she is declining.
+ * can fail. Since part 09a of the phone apps (decision 6) such a request, and one of a paused
+ * customer, is not on the host's list at all (`waitingForHost` leaves it out). What is asked here
+ * stays as a second look, for a block or a closing written down in the instant between the two:
+ * such a request is then shown with the name, its time, length and price, and nothing else: no
+ * rating, no "ID confirmed", no photo, no note, and not what they wrote when asking.
  */
 import "server-only";
 import { hostNotesAbout, openAndUnblocked } from "@/lib/people/contacts";

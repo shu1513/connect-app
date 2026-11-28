@@ -1,5 +1,5 @@
 import { answer, appRequest, refuse } from "@/lib/app-door/gate";
-import { bookingPageFor, mayBlockThrough, mayEnterCard } from "@/lib/app-door/booking";
+import { bookingPageFor, detailsWithheld, mayBlockThrough, mayEnterCard } from "@/lib/app-door/booking";
 import { switchesForApps } from "@/lib/app-door/start";
 import type { AppCardStep, AppNoteSaved } from "@/lib/app-door/types";
 import { accept, BookingError, cardStepOf, decline, finishCardStep, takeBack } from "@/lib/booking/bookings";
@@ -38,7 +38,9 @@ const FOR_EITHER = ["block"];
  *
  * Who is asking comes from the sign-in, and which of the two they are from the request itself.
  * A request that does not exist, one that is somebody else's, one the host was never sent, and a
- * step that is the other person's are all the same "not found". What the app says happened in
+ * step that is the other person's are all the same "not found". While the request's two people
+ * may no longer act, no card is asked for and the host's note is neither sent nor changed
+ * (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6). What the app says happened in
  * Stripe's sheet is never believed, and nothing here holds or charges money. Every step but
  * "card" and "note" answers with the request's page as it stands afterwards.
  */
@@ -70,6 +72,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
     // off for the apps. Reading the request, and taking it back, stay possible.
     if (booking.stage === "card" && !mayEnterCard(booking, switches)) return refuse("switched_off");
     if (step === "card") {
+      // No card is asked for on a request that can no longer be sent (the host's account was paused or closed a
+      // moment ago, say). The step itself refuses too (`cardStepOf`); here it is said in the page's own sentence.
+      if (await detailsWithheld(me, booking)) return refuse("not_valid", REQUEST_WORDS.noLongerAvailable);
       try {
         const card = await cardStepOf({ bookingId: id, customer: me, now });
         // Past its time the request is over, also before the helper has written that down. (Saying "the card is
@@ -109,6 +114,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/app/booking
     const sent: unknown = await request.json().catch(() => null);
     const given = (sent !== null && typeof sent === "object" ? sent : {}) as { text?: unknown; shown?: unknown };
     if (typeof given.text !== "string" || (given.shown !== null && typeof given.shown !== "string")) return refuse("not_valid");
+    // The note that hangs on a request follows the request: while its details are withheld, this address neither
+    // sends the note nor takes a change to it (plans/45-phone-apps/09a, decision 6). Nothing of it is lost.
+    if (await detailsWithheld(me, booking)) return refuse("not_valid", `${REQUEST_WORDS.noLongerAvailable} ${WAITING_WORDS.noteNotSaved}`);
     try {
       // Who may keep a note about whom, and that the note is still the one the screen was showing, is decided there.
       const stored = await saveHostNote({ hostId: me.id, customerId: booking.customerId, text: given.text, shown: given.shown, now });

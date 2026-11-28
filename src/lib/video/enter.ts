@@ -10,6 +10,7 @@ import { canJoin, roomState } from "@/lib/calls";
 import { callForParticipant } from "@/lib/payments/access";
 import { paymentBlocksJoin } from "@/lib/payments/rules";
 import { isBlockedEitherWay } from "@/lib/safety/block-check";
+import { mayStillAct } from "@/lib/safety/may-act";
 import { switches } from "@/lib/safety/switches";
 import { createEntryPass, removeFromRoom, videoServerUrl } from "./livekit";
 
@@ -93,7 +94,9 @@ export async function enterCall(user: { id: string; name: string; paused: boolea
   if (call.safetyEndedAt) return no(409, "not_now", MESSAGES.closed);
   if (user.paused) return no(403, "paused", PAUSED);
   if ((await switches()).joiningOff) return no(503, "switched_off", "Calls are paused across Connect right now. Please try again shortly.");
-  if (await isBlockedEitherWay(call.hostId, call.customerId)) return no(409, "not_now", MESSAGES.closed);
+  // A block between the two, and also the other person's account paused or closed a moment ago, before their calls
+  // were ended (plans/45-phone-apps/09a, decision 6): nobody goes into such a room.
+  if (!(await mayStillAct(call.hostId, call.customerId))) return no(409, "not_now", MESSAGES.closed);
 
   const now = new Date();
   const decision = canJoin(call, user.id, now);

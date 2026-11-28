@@ -1,6 +1,7 @@
 # Phone apps, part 09a: before going on (what is already built, put right)
 
-**Status:** a plan only. Written 27 November 2026 by the builder alone. Part of plan 45. It
+**Status:** built on 27 November 2026 (the account is at the end, "As built"). The plan was
+written that day by the builder alone. Part of plan 45. It
 was made when the plans were brought up to date after a week's pause: reading the code, and
 then Astra's check of the updated plans ("not ready"), found faults in what the apps already
 have. They are gathered here so that they are put right first, in one small pull request,
@@ -206,3 +207,87 @@ with real things behind them, so the next one is caught by a check and not by a 
 3. *A version's summary is free text and can speak of contributions.* Decision 7: the app's
    notice has fixed words.
 4. *Which disputes stop new payments* was put too widely. "What is there today", point 5.
+
+## As built (27 November 2026)
+
+**Who built it.** For the first time in this plan the first version was not written in the
+builder's own session. The founder has free credits for automated runs of Claude and asked
+for them to be used first. So a second Claude, started from the terminal with a written brief
+(this plan, the build plan's rule, and what it might and might not run), built decisions 2 to
+7 in one run of 22 minutes; it could run lint, the type check and the unit tests, and no
+check script. The builder of this plan then read every change, ran the check scripts, walked
+the phone, and made the corrections below. Astra and CodeRabbit read the result as always.
+
+**What was built,** decision by decision:
+
+- *2:* `END_WORDS.blockWhat` gives the website's sentence and the app's; the app's address for
+  the screen after "End call now" asks for the app's, in both places.
+- *3:* the app's opening answer no longer has a pause's reason at all; the home screen shows
+  fixed words (`pausedWords` in `mobile/src/lib/opening-rules.ts`).
+- *4:* the line of switches is off the Account screen.
+- *5:* `whyNoNewPayment` takes "for the app" and then gives the one sentence that names no
+  cause; `askForCall` passes it for a request from the app.
+- *6:* the rule is one small file, `src/lib/safety/may-act.ts` (`mayActWith`, `mayStillAct`).
+  It is asked by the host's list of requests (`waitingForHost`, so the website's and the
+  app's lists, numbers and calendar groups all follow), the card step, the check before a
+  call's money is held, the room's door, the look into the room, the app's page of a call,
+  and the app's page of a request with its card and note steps.
+- *7:* `comingAtSignUp` in `src/legal/notices.ts` feeds the website's page (drawn as before)
+  and the app's answer, which gets fixed words and a link and never the summary.
+
+**Where it differs from the decisions above, and why it was left so:**
+
+- **A customer's own list of requests still shows his request to a paused host;** its own
+  screen says "no longer available". After the tidying-up such a request is shown as ended,
+  it does not vanish, so taking it off his list would not be "as if the tidying-up had run".
+- **A paused person keeps their own screens:** a paused host who opens a request directly
+  still sees who asked, and can decline, but is not offered Accept. Decision 6 gives "no
+  longer available" to the other person. The one exception is a paused customer's request
+  at the card step, which shows the sentence alone.
+- **On the website, a request that already has its card step at Stripe still shows the card
+  form while the host is paused.** The request is not sent: the step that finishes it ends
+  it.
+- **The room's door asks the rule once,** before its locked step; inside that step only a
+  block is asked again, as before.
+- **A coming document version cannot be announced inside the running website** (the list of
+  documents is code), so `app-door-check` tries that case with the function the address
+  calls, as `agreements-check` does, and over the wire only checks that the field is there.
+- **New words that are the builder's:** "This call can no longer go ahead.", the heading "A
+  request for a call", the label "this person", and the paused sentence on the home screen.
+- **For later parts:** only asking for a call has a way in from the app today. More time by
+  card (part 09b) and joining a membership (part 13) must pass "for the app" to
+  `whyNoNewPayment` when they get theirs.
+
+**How it was tried.**
+
+- Lint, the type check and the unit tests, for the website (1,192 tests) and the phone app
+  (104).
+- Seventeen check scripts, against a database and a website of the builder's own: the eight
+  this part changed (`app-door`, `app-home`, `app-requests`, `app-booking`, `app-calls`,
+  `app-room`, `end-now`, `home`) and nine more that its changes could touch (`safety`,
+  `agreements`, `app-hosts`, `booking`, `verified`, `payments`, `disputes`, `journey`,
+  `accounts`). All pass. The terminal Claude had written its eight without being able to run
+  them; six passed as written.
+- **Two things were not the build's:** `app-booking-check` had expected eight points about
+  the money since before "End call now" added a ninth (pull request 111); that expectation
+  is corrected here. And one line of `photo-check` fails on `main` as it does here (it
+  compares a line of the host's page that another change rewrote); it is not this part's
+  and was left.
+- **More expectations had to turn than the three named above:** in `app-requests-check` also
+  the note refused across a block, and the page after a block, which now say "This request
+  is no longer available."
+- **On the Android test phone,** with pictures: the camera check and the call; the question
+  before "End call now"; the three choices; the question before "Block" (no contribution in
+  either place, "membership" with the switch on); "Neither", and the way back to the choices
+  from the call's page; the other person ending the call, and the phone going to the choices
+  by itself with her name; the report form opened from there; "Block" pressed for real;
+  a paused account's home screen, paused with a reason typed about a diary post (the fixed
+  words, nothing of the reason); the Account screen without the line of switches; a request
+  across a block ("A request for a call", "This request is no longer available.", "Report
+  this person").
+- **Not walked on the phone:** the question as the host (the same screen; its words are
+  checked by `end-now-check`); a paid call's sentences about the money (the walk used free
+  calls; `end-now-check` and `app-room-check` check them with real holds in Stripe's test
+  mode); "Block this person" on a request across a block (the request for the walk was put
+  into the database by hand and was not one that can be blocked through; `app-booking-check`
+  checks it for a real one); the notice of a coming document version (none is announced).

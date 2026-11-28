@@ -248,7 +248,22 @@ async function main() {
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, cust.id));
       await db.insert(schema.blocks).values({ blockerId: host.id, blockedId: cust.id });
       check("a blocked pair: the call reads as ended, for both", sentence(await step(id, "enter", cust.jar)) === "This call has ended." && sentence(await step(id, "enter", host.jar)) === "This call has ended.");
+      check("and the look into the room offers no \"Join\" to either: it asks the same rule as going in", (await room(id, cust.jar)).body?.ready === false && (await room(id, host.jar)).body?.ready === false);
       await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, host.id));
+      // (Part 09a, decision 6.) The other person's account paused or closed a moment ago, written straight into the
+      // database, so their calls are not ended yet: nobody goes into that room, and the look into it is not ready.
+      try {
+        await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, host.id));
+        check("nobody goes into a room whose other person was paused a moment ago, and the look into it is not ready", sentence(await step(id, "enter", cust.jar)) === "This call has ended." && (await room(id, cust.jar)).body?.ready === false);
+        await db.update(schema.user).set({ pausedAt: null, closedAt: now }).where(eq(schema.user.id, host.id));
+        check("nor into one whose other person's account was closed a moment ago", sentence(await step(id, "enter", cust.jar)) === "This call has ended." && (await room(id, cust.jar)).body?.ready === false);
+        await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, host.id));
+        await db.update(schema.user).set({ pausedAt: now }).where(eq(schema.user.id, cust.id));
+        check("the same the other way round: the host does not go into a room whose customer was paused a moment ago", sentence(await step(id, "enter", host.jar)) === "This call has ended." && (await room(id, host.jar)).body?.ready === false);
+      } finally {
+        await db.update(schema.user).set({ pausedAt: null, closedAt: null }).where(inArray(schema.user.id, [host.id, cust.id]));
+      }
+      check("with all of that lifted, the room is ready for both again", (await room(id, cust.jar)).body?.ready === true && (await room(id, host.jar)).body?.ready === true);
       const before = await switches();
       await setSwitches({ joiningOff: true });
       let paused: Reply = { status: 0, json: null, text: "not asked", headers: {} };
@@ -329,8 +344,40 @@ async function main() {
       // The screen after it: who ended the call, and the three choices, in the website's words. No account id travels.
       const screenReply = await asApp(`/api/app/calls/${id}/ended`, { jar: cust.jar });
       const screen = screenReply.json as AppEndedScreen | null;
-      check("the screen after it: who ended the call, and the three choices with what each does", screenReply.status === 200 && keys(screen) === "block,lines,neither,report,title,what" && screen?.title === END_WORDS.title && screen.lines[0] === END_WORDS.byYou(true) && screen.report.label === REPORT_WORDS.reportPerson(hostName) && screen.report.what === END_WORDS.reportWhat(hostName) && screen.block.label === BLOCK_WORDS.label(hostName) && screen.block.what === END_WORDS.blockWhat(hostName) && screen.block.done === false && keys(screen.block) === "done,doneWords,label,no,sure,what,yes" && screen.neither.label === END_WORDS.neither, screenReply.text.slice(0, 200));
+      check("the screen after it: who ended the call, and the three choices with what each does", screenReply.status === 200 && keys(screen) === "block,lines,neither,report,title,what" && screen?.title === END_WORDS.title && screen.lines[0] === END_WORDS.byYou(true) && screen.report.label === REPORT_WORDS.reportPerson(hostName) && screen.report.what === END_WORDS.reportWhat(hostName) && screen.block.label === BLOCK_WORDS.label(hostName) && screen.block.done === false && keys(screen.block) === "done,doneWords,label,no,sure,what,yes" && screen.neither.label === END_WORDS.neither, screenReply.text.slice(0, 200));
       check("it carries no account id and is not kept on the way", !screenReply.text.includes(host.id) && !screenReply.text.includes(cust.id) && String(screenReply.headers["cache-control"]).includes("no-store"));
+      // (Part 09a, decision 2. Until then this check expected the app's sentence under "Block" to equal the website's,
+      // which names a monthly contribution; that is turned round.) With a membership and a monthly contribution
+      // between the two: the app's sentence, under "Block" and in the question before it, never names a contribution,
+      // and names a membership only while memberships are on for the apps. The website's page keeps its sentence.
+      {
+        const [membership] = await db.insert(schema.memberships).values({ hostId: host.id, customerId: cust.id, status: "active", since: now }).returning();
+        const [project] = await db.insert(schema.projects).values({ hostId: host.id, name: `Album ${RUN}`, startedAt: new Date(now.getTime() - 60 * 24 * 60 * MINUTE) }).returning();
+        const [monthly] = await db.insert(schema.contributions).values({ projectId: project.id, hostId: host.id, contributorId: cust.id, kind: "monthly", amountCents: 1000, status: "running", requestKey: randomUUID() }).returning();
+        const before = await switches();
+        const blockOf = async () => ((await asApp(`/api/app/calls/${id}/ended`, { jar: cust.jar })).json as AppEndedScreen | null)?.block;
+        try {
+          await setSwitches({ appMemberships: "on" });
+          const on = await blockOf();
+          await setSwitches({ appMemberships: "use_only" });
+          const useOnly = await blockOf();
+          await setSwitches({ appMemberships: "off" });
+          const off = await blockOf();
+          // (Memberships switched off for everyone are off in the apps too; then the app's switch changes nothing.)
+          const forEveryone = before.memberships !== "off";
+          check("the app's sentence under \"Block\" is not the website's: it names no contribution", on !== undefined && on.what !== END_WORDS.blockWhat(hostName) && [on, useOnly, off].every((block) => block !== undefined && !/contribution/i.test(`${block.what} ${block.sure}`)), `${on?.what}`);
+          check("the question the app asks before blocking is that same sentence", [on, useOnly, off].every((block) => block !== undefined && block.sure === block.what));
+          check("with memberships on for the apps (also when nothing is bought in the app) it names a membership", on?.what === END_WORDS.blockWhat(hostName, { memberships: forEveryone }) && useOnly?.what === on?.what && /membership/i.test(on?.what ?? "") === forEveryone, `${on?.what}`);
+          check("with memberships off for the apps it names calls and nothing else", off?.what === END_WORDS.blockWhat(hostName, { memberships: false }) && !/membership/i.test(`${off?.what} ${off?.sure}`), `${off?.what}`);
+          const webEnded = await asBrowser(`/calls/${id}/ended`, { jar: cust.jar });
+          check("the website's own page keeps its sentence, with the membership and the monthly contribution", webEnded.status === 200 && webEnded.text.includes("any membership or monthly contribution between you ends"), `${webEnded.status}`);
+        } finally {
+          await setSwitches({ appMemberships: before.appMemberships });
+          await db.delete(schema.contributions).where(eq(schema.contributions.id, monthly.id));
+          await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+          await db.delete(schema.memberships).where(eq(schema.memberships.id, membership.id));
+        }
+      }
       const hostScreen = (await asApp(`/api/app/calls/${id}/ended`, { jar: host.jar })).json as AppEndedScreen | null;
       check("the host reads who ended it, by the customer's name", hostScreen?.lines[0] === END_WORDS.byOther(cust.name, true) && hostScreen.block.label === BLOCK_WORDS.label(cust.name));
       check("nobody signed in, a stranger and a browser get no such screen; nor is there one for a call that has not ended", refusal(await asApp(`/api/app/calls/${id}/ended`)) === "not_signed_in" && refusal(await asApp(`/api/app/calls/${id}/ended`, { jar: stranger.jar })) === "not_found" && refusal(await asBrowser(`/api/app/calls/${id}/ended`, { jar: cust.jar })) === "not_the_app" && refusal(await asApp(`/api/app/calls/${ahead.call.id}/ended`, { jar: cust.jar })) === "not_found");

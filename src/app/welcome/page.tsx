@@ -4,9 +4,8 @@ import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
 import { TimeZoneSelect } from "@/components/time-zone-select";
 import { shownValue } from "@/legal/accept";
-import { dayWords } from "@/legal/document-page";
-import { comingVersions } from "@/legal/notices";
-import { agreementsToAccept, DOCUMENTS, GENERAL_DOCUMENTS, versionHref } from "@/legal/versions";
+import { comingAtSignUp } from "@/legal/notices";
+import { agreementsToAccept } from "@/legal/versions";
 import { safeNext } from "@/lib/safe-next";
 import { getSignedIn } from "@/lib/session";
 import { timeZones } from "@/lib/time-zones";
@@ -43,10 +42,8 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
   const agreements = agreementsToAccept("sign_up", now);
   // Every version that is announced and not yet in effect, said above the button, so that someone signing up today
   // knows of it before agreeing. Also for the two documents that are told and not accepted (the Privacy Policy, the
-  // Copyright Policy). The same list the emails are written from.
-  const coming = comingVersions(now)
-    .filter((one) => one.audience === "everyone")
-    .map(({ name, version }) => ({ name, version, accepted: (GENERAL_DOCUMENTS as readonly string[]).includes(name) }));
+  // Copyright Policy). The same list, in the same words, that the phone app's step is sent (without the summary).
+  const coming = comingAtSignUp(now);
   const documentLinks = agreements.map((agreement, index) => (
     <span key={agreement.name}>
       {index > 0 && (index === agreements.length - 1 ? " and the " : ", the ")}
@@ -91,13 +88,13 @@ export default async function WelcomePage(props: PageProps<"/welcome">) {
           Your time zone (used for the times in your emails)
           <TimeZoneSelect zones={timeZones()} saved={person.timeZone} />
         </label>
-        {coming.map(({ name, version, accepted }) => (
-          <p key={`${name}@${version.version}`} className="rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`${name}@${version.version}`}>
-            From {dayWords(version.effectiveFrom)} a new version of the {DOCUMENTS[name].title} applies. {version.summary}{" "}
-            <Link href={versionHref(name, version.version)} target="_blank" className="underline underline-offset-2">
-              Read it
+        {coming.map((one) => (
+          <p key={`${one.name}@${one.version}`} className="rounded border border-neutral-400 p-3 text-sm" data-agreement-coming={`${one.name}@${one.version}`}>
+            {one.applies} {one.summary}{" "}
+            <Link href={one.href} target="_blank" className="underline underline-offset-2">
+              {one.read}
             </Link>
-            .{accepted ? " You will be asked to accept it then." : ""}
+            .{one.thenAccept ? ` ${one.thenAccept}` : ""}
           </p>
         ))}
         <p className="text-sm" data-agreement-sentence>

@@ -9,7 +9,8 @@ import { type, useColors } from "@/ui/theme";
  * The person asking a host for a call, as the host may know them
  * (plans/45-phone-apps/07-a-hosts-requests.md): the photo if she is handed one, the name, how
  * other hosts rated them, and whether their ID is confirmed. What may be said is decided on the
- * server; for someone whose account is closed, or across a block, only the name arrives.
+ * server. A request whose two people may no longer act (an account closed or paused, or a block
+ * between them) is not on a list at all, and its own page names nobody.
  */
 export function Asker({ name, photoId, rating, ratingWords: none, idConfirmed, line }: { name: string; photoId: string | null; rating: { average: number; count: number } | null; ratingWords: string | null; idConfirmed: boolean; line?: string }) {
   const colors = useColors();

@@ -498,19 +498,24 @@ async function main() {
       const requestsPage = await page("/host/requests", bri.jar);
       check("the requests page shows all of them, with its own return field, and the note folded", count(requestsPage.html, "data-request=") === 8 && count(requestsPage.html, 'name="from" value="requests"') === 16 && !requestsPage.html.includes('name="from" value="home"') && requestsPage.html.includes('data-host-note="folded"'), `${count(requestsPage.html, "data-request=")} shown`);
       check("the customer who asked sees no list of requests to answer", !(await page("/", regular.jar)).html.includes("data-request-list"));
-      // A request that is still waiting although the account was closed, or a block was made (ending it can fail).
+      // A request that is still waiting although the account was closed, or a block was made (ending it can fail). Its
+      // two people may no longer act, so it is not on a list at all, nor in its number, as if it had been ended
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 6). Until that part, this check expected both
+      // requests to stay on the two lists with the customer's name and nothing else; that is turned round here.
       await db.update(schema.user).set({ closedAt: new Date() }).where(eq(schema.user.id, asking[1].id));
       await db.insert(schema.blocks).values({ blockerId: regular.id, blockedId: bri.id });
       for (const [path, where] of [
         ["/", "the home page"],
         ["/host/requests", "the requests page"],
       ] as const) {
-        const html = (await page(path, bri.jar)).html;
+        const shown = await page(path, bri.jar);
+        const html = shown.html;
         const rowOf = (id: string) => html.slice(html.indexOf(`data-request="${id}"`), html.indexOf("Decline", html.indexOf(`data-request="${id}"`)));
-        const [closedRow, blockedRow, openRow] = [rowOf(sameTime[1].id), rowOf(fromRegular.id), rowOf(sameTime[0].id)];
-        const bare = (row: string) => row !== "" && !row.includes("ratings") && !row.includes("ID confirmed") && !row.includes("data-host-note") && !row.includes("&ldquo;") && !row.includes("“") && !row.includes("/host-photos/");
-        check(`${where}: a request of a closed account, and one across a block, show the name, time, length and price, and nothing else about the customer`, bare(closedRow) && bare(blockedRow) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`), `${words(closedRow).slice(0, 90)} | ${words(blockedRow).slice(0, 90)}`);
-        check("  and the request beside them keeps its details", words(openRow).includes(`Request words 0 ${RUN}`) && openRow.includes("ratings"));
+        const openRow = rowOf(sameTime[0].id);
+        check(`${where}: a request of a closed account, and one across a block, are not on the list at all`, !html.includes(`data-request="${sameTime[1].id}"`) && !html.includes(`data-request="${fromRegular.id}"`) && !html.includes(`Request words 1 ${RUN}`) && !html.includes(`A request from the regular ${RUN}`) && !html.includes(asking[1].name), `${count(html, "data-request=")} shown`);
+        // Eight requests waited; six are left. (The time two people asked for is now one person's.)
+        check("  nor in its number", (path === "/" ? shown.words.includes("See all 6 requests") : count(html, "data-request=") === 6) && !shown.words.includes("2 people asked for this time. Choose one."), `${count(html, "data-request=")} shown`);
+        check("  and the open request beside them is still there, with its details", html.includes(`data-request="${sameTime[0].id}"`) && words(openRow).includes(`Request words 0 ${RUN}`) && openRow.includes("ratings"));
       }
       await db.update(schema.user).set({ closedAt: null }).where(eq(schema.user.id, asking[1].id));
       await db.delete(schema.blocks).where(and(eq(schema.blocks.blockerId, regular.id), eq(schema.blocks.blockedId, bri.id)));

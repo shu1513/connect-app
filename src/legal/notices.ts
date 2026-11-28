@@ -70,6 +70,57 @@ export function comingVersions(now: Date): Coming[] {
   });
 }
 
+/** One coming version as the last step of signing up says it, above its button. */
+export type ComingAtSignUp = {
+  name: DocumentName;
+  title: string;
+  version: string;
+  /** The day it takes effect, as "2027-01-12". */
+  effectiveFrom: string;
+  /** One of the documents the step accepts (the person is asked to accept the new version on its day), or one they are only told about. */
+  accepted: boolean;
+  /** The address of exactly that version. */
+  href: string;
+  /** The fixed sentence: "From 12 January 2027 a new version of the Payment Terms applies." */
+  applies: string;
+  /**
+   * What changes, as it was written for this version: free text. The website's page shows it. The phone app is
+   * never sent it: a version that changes the terms about contributions or tips would put those on a phone.
+   */
+  summary: string;
+  /** The words of the link to the version. */
+  read: string;
+  /** "You will be asked to accept it then.", for a document the step accepts; null for one a person is only told about. */
+  thenAccept: string | null;
+};
+
+/**
+ * Every version that is announced and not yet in effect, as the last step of signing up says it, so that someone
+ * signing up today knows of it before agreeing. Also for the two documents that are told and not accepted (the
+ * Privacy Policy, the Copyright Policy). One function for the website's page and for the phone app's address
+ * (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 7): the website shows every part; the app is sent
+ * every part but the summary. The same list the emails are written from.
+ */
+export function comingAtSignUp(now: Date): ComingAtSignUp[] {
+  return comingVersions(now)
+    .filter((one) => one.audience === "everyone")
+    .map(({ name, version }) => {
+      const accepted = (GENERAL_DOCUMENTS as readonly DocumentName[]).includes(name);
+      return {
+        name,
+        title: DOCUMENTS[name].title,
+        version: version.version,
+        effectiveFrom: version.effectiveFrom,
+        accepted,
+        href: versionHref(name, version.version),
+        applies: `From ${dayInWords(version.effectiveFrom)} a new version of the ${DOCUMENTS[name].title} applies.`,
+        summary: version.summary,
+        read: "Read it",
+        thenAccept: accepted ? "You will be asked to accept it then." : null,
+      };
+    });
+}
+
 /** The last moment at which an email still gives the full 30 days. */
 export function noticeDeadline(version: DocumentVersion): Date {
   return new Date(dayOf(version.effectiveFrom).getTime() - NOTICE_DAYS * DAY_MS);

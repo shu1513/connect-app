@@ -279,7 +279,7 @@ async function main() {
       check("a paid call: the most it can cost, and the price it is worked out from", p?.price === "$40.00 at most ($20.00 per 15 minutes)" && p.seen.price === 2000 && p.seen.freeCancel === 60, p?.price);
       check("the box about the card carries the website's sentence, word for word", p?.cardTerms === CARD_TERMS("$40.00") && p.cardTermsVersion === CARD_CONSENT_VERSION && p.button === "Continue to card details");
       check("a paid call says the same, with the host's own cancelling rule", p?.what === "A live, private one-to-one video call. It is not recorded. You can cancel for free until 1 hour before the call starts. After that, cancelling costs the full booked price.", p?.what);
-      check("the points about the money are all there", p?.points.length === 8 && JSON.stringify(p.points).includes("Nothing is held or charged now.") && JSON.stringify(p.points).includes("until 1 hour before the call starts") && p.points[7].some((part) => typeof part === "object" && "time" in part && new Date(part.time).getTime() === payCutoff(new Date(paidSlot), 60).getTime()));
+      check("the points about the money are all there, with what ending the call himself costs", p?.points.length === 9 && JSON.stringify(p.points).includes("Nothing is held or charged now.") && JSON.stringify(p.points).includes("If you end the call yourself with") && JSON.stringify(p.points).includes("until 1 hour before the call starts") && p.points[8].some((part) => typeof part === "object" && "time" in part && new Date(part.time).getTime() === payCutoff(new Date(paidSlot), 60).getTime()));
       // The website's own page for the same time says the same.
       const web = await asBrowser(`/h/${noor.handle}/book?length=30&start=${encodeURIComponent(paidSlot)}`, { jar: cust.jar });
       check("the website's page for the same time says the same sentences", web.status === 200 && web.text.includes(CARD_TERMS("$40.00")) && web.text.includes(`Ask ${noor.displayName} for a call`) && web.text.includes("$40.00 at most ($20.00 per 15 minutes)") && web.text.includes("This is a request, not a reservation."), `${web.status}`);
@@ -744,6 +744,122 @@ async function main() {
       await db.update(schema.user).set({ pausedAt: null }).where(eq(schema.user.id, spent.id));
       // Cancel the open check at Stripe, so nothing of this run stays open there.
       await stripe().identity.verificationSessions.cancel(checks[0].stripeSessionId).catch(() => undefined);
+    }
+
+    // ----------------------------------------------------------------------
+    console.log("\n8. While a pause or a block is not tidied up yet, and a refusal that names no cause (part 09a)");
+    {
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decisions 5 and 6. A pause and a block are written
+      // straight into the database here, so the step that ends the requests of the people concerned has not run.)
+      const { STOPPED_IN_APP, STOPPED_WHILE_OPEN } = await import("../src/lib/disputes/paying");
+      const { whileDisputed } = await import("./stopped-customer");
+      const GONE = "This request is no longer available.";
+      const guest = await newPerson("guest");
+      await passId(guest.id);
+      const self = (await db.select().from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, second.id)))[0];
+      const sentTo = await send(self.handle, await okSummary(self.handle, (await openTimes(self.handle, guest.jar))[14], guest.jar), guest.jar);
+      const id = (sentTo.json as AppBookSent | null)?.id ?? "";
+      if (!id) throw new Error(`The request for part 8 could not be made: ${sentTo.status} ${sentTo.text.slice(0, 160)}`);
+      const setPaused = (userId: string, on: boolean) => db.update(schema.user).set({ pausedAt: on ? new Date() : null }).where(eq(schema.user.id, userId));
+      /** A page whose details are withheld: the one sentence, a heading that names nobody, no step, and none of the other person's names anywhere in the answer. */
+      const withheld = (reply: Reply, otherNames: string[]) => {
+        const page = reply.status === 200 ? (reply.json as AppBooking) : null;
+        if (!page || page.stageWords !== GONE || page.title !== "A request for a call" || page.hostHandle !== null || page.reason !== null) return false;
+        if (page.hearBy !== null || page.card !== null || page.takeBack !== null || page.takeBackSure !== null || page.waitingWords !== null || page.refreshSeconds !== null) return false;
+        const host = page.host;
+        if (host !== null && !(host.customerName === "" && host.known === false && host.rating === null && host.ratingWords === null && host.idConfirmed === false && host.words === null && host.note === null && host.answer === null && host.photoId === null)) return false;
+        return otherNames.every((name) => !reply.text.includes(name));
+      };
+
+      // A customer paused a moment ago.
+      await setPaused(guest.id, true);
+      const own = await requestPage(id, guest.jar);
+      check(
+        "a customer paused a moment ago still reads their own request, and is offered only what a paused person may do: take it back, report, block",
+        own.body?.stageWords === "Sent. Waiting for the host's answer." && own.body.title === `Your request to ${self.displayName}` && own.body.takeBack !== null && own.body.card === null && own.body.report === `Report ${self.displayName}` && own.body.block?.label === `Block ${self.displayName}`,
+        own.reply.text.slice(0, 200),
+      );
+      const hostLooks = await requestPage(id, second.jar);
+      check("the host, asking for that request directly, is told it is no longer available: no name in any field, and no step", withheld(hostLooks.reply, [guest.name]) && hostLooks.body?.role === "host", hostLooks.reply.text.slice(0, 240));
+      check('"Report" and "Block" are still there for her, under labels that name nobody', hostLooks.body?.report === "Report this person" && hostLooks.body.block?.label === "Block this person" && hostLooks.body.block.sure.startsWith("This person will not be able to ask you for calls any more"), JSON.stringify([hostLooks.body?.report, hostLooks.body?.block]));
+      const noNote = await asApp(`/api/app/bookings/${id}/note`, { jar: second.jar, body: { text: "Written during the pause.", shown: null } });
+      check("the note that hangs on the request is not taken while its details are withheld, and nothing is written", refusal(noNote) === "not_valid" && sentence(noNote) === `${GONE} Nothing was saved. What you typed is still in the box.` && (await db.select().from(schema.hostNotes).where(eq(schema.hostNotes.hostId, second.id))).length === 0, sentence(noNote));
+      check("accepting it is refused by the step itself", sentence(await step(id, "accept", second.jar)) === "This customer's account is no longer active." && (await row(id)).stage === "waiting");
+      await setPaused(guest.id, false);
+
+      // A host paused a moment ago.
+      await setPaused(second.id, true);
+      const hers = await requestPage(id, second.jar);
+      check("a host paused a moment ago still reads the request, and is not offered Accept, which the address refuses", hers.body?.role === "host" && hers.body.host?.customerName === guest.name && hers.body.host.answer === null && refusal(await step(id, "accept", second.jar)) === "paused" && (await row(id)).stage === "waiting", JSON.stringify(hers.body?.host).slice(0, 200));
+      const custLooks = await requestPage(id, guest.jar);
+      check("her customer, asking for the request directly, is told it is no longer available: no name, no host's page, nothing to take back", withheld(custLooks.reply, [self.displayName, self.handle]) && custLooks.body?.role === "customer" && custLooks.body.host === null, custLooks.reply.text.slice(0, 240));
+      check('and can still report or block, under labels that name nobody', custLooks.body?.report === "Report this person" && custLooks.body.block?.label === "Block this person");
+      await setPaused(second.id, false);
+
+      // A block between the two that has not ended the request (yet).
+      await db.insert(schema.blocks).values({ blockerId: guest.id, blockedId: second.id });
+      const blocker = await requestPage(id, guest.jar);
+      const blockedOne = await requestPage(id, second.jar);
+      check("across a block each of the two is told the request is no longer available, with no name and no step", withheld(blocker.reply, [self.displayName, self.handle]) && withheld(blockedOne.reply, [guest.name]), `${blocker.reply.text.slice(0, 120)} | ${blockedOne.reply.text.slice(0, 120)}`);
+      check('"Report" stays for both; "Block" stays for the one who has not blocked, and is not offered a second time to the one who has', blocker.body?.report === "Report this person" && blockedOne.body?.report === "Report this person" && blockedOne.body.block?.label === "Block this person" && blocker.body.block === null);
+      await db.delete(schema.blocks).where(eq(schema.blocks.blockerId, guest.id));
+      check("with the block gone the request reads as before, for both", (await requestPage(id, guest.jar)).body?.title === `Your request to ${self.displayName}` && (await requestPage(id, second.jar)).body?.host?.customerName === guest.name);
+
+      // A paid request at its card step, and its host paused a moment ago: no card is saved for it.
+      const paidSent = await send(noor.handle, await okSummary(noor.handle, nextPaid(), guest.jar), guest.jar);
+      const cardId = (paidSent.json as AppBookSent | null)?.id ?? "";
+      check("(a paid request stands at its card step, and offers the card)", (await requestPage(cardId, guest.jar)).body?.card !== null && (await row(cardId))?.stage === "card", `${paidSent.status} ${paidSent.text.slice(0, 120)}`);
+      await setPaused(noor.id, true);
+      const stopped = await requestPage(cardId, guest.jar);
+      check("with the host paused a moment ago, the request's page shows the sentence alone: no card step, no Report, no Block", withheld(stopped.reply, [noor.displayName, noor.handle]) && stopped.body?.report === null && stopped.body.block === null, stopped.reply.text.slice(0, 240));
+      const noCard = await step(cardId, "card", guest.jar);
+      check(
+        "and no card can be saved for it: the address refuses in the page's sentence, the step behind it hands out nothing, and blocking through it stays refused",
+        refusal(noCard) === "not_valid" && sentence(noCard) === GONE && (await B.cardStepOf({ bookingId: cardId, customer: { id: guest.id, name: guest.name, email: guest.email }, now: new Date() })) === null && refusal(await step(cardId, "block", guest.jar)) === "not_found" && (await row(cardId)).stage === "card",
+        `${noCard.status} ${sentence(noCard)}`,
+      );
+      await setPaused(noor.id, false);
+      check("(with the pause lifted the card step is offered again)", (await requestPage(cardId, guest.jar)).body?.card !== null);
+      await setPaused(guest.id, true);
+      check("a paused customer's own request at its card step shows the sentence alone too: entering a card is refused to a paused person", withheld((await requestPage(cardId, guest.jar)).reply, [noor.displayName, noor.handle]) && refusal(await step(cardId, "card", guest.jar)) === "paused");
+      await setPaused(guest.id, false);
+
+      // A customer whose bank has an open dispute cannot start anything new that costs money (plans/47, decision 9).
+      // In the app the refusal names no bank and no dispute, whatever the dispute was about.
+      /** The same as `whileDisputed`, for a dispute about a contribution: written straight into the database, and taken away again. */
+      const whileContributionDisputed = async <T>(customerId: string, hostId: string, work: () => Promise<T>): Promise<T> => {
+        const [project] = await db.insert(schema.projects).values({ hostId, name: `Album ${RUN}`, startedAt: new Date(Date.now() - 60 * 24 * 60 * MINUTE) }).returning();
+        const [contribution] = await db.insert(schema.contributions).values({ projectId: project.id, hostId, contributorId: customerId, kind: "once", amountCents: 2500, requestKey: randomUUID() }).returning();
+        const [payment] = await db.insert(schema.contributionPayments).values({ contributionId: contribution.id, number: 1, originKey: `check-${randomUUID()}`, amountCents: 2500, feePercentBps: 0, feeFixedCents: 0, feeForeignCardBps: 0 }).returning();
+        const disputeId = `du_check_${randomUUID().replace(/-/g, "")}`;
+        await db.insert(schema.disputes).values({ id: disputeId, contributionPaymentId: payment.id, hostId, customerId, amountCents: 2500, reason: "fraudulent", stage: "chargeback", status: "needs_response", openedAt: new Date(), stageBeganAt: new Date() });
+        try {
+          return await work();
+        } finally {
+          await db.delete(schema.disputes).where(eq(schema.disputes.id, disputeId));
+          await db.delete(schema.contributionPayments).where(eq(schema.contributionPayments.id, payment.id));
+          await db.delete(schema.contributions).where(eq(schema.contributions.id, contribution.id));
+          await db.delete(schema.projects).where(eq(schema.projects.id, project.id));
+        }
+      };
+      const disputeSlot = nextPaid();
+      const tryPaid = async () => send(noor.handle, await okSummary(noor.handle, disputeSlot, guest.jar), guest.jar);
+      const overCall = await whileDisputed(guest.id, noor.id, tryPaid);
+      const overContribution = await whileContributionDisputed(guest.id, noor.id, tryPaid);
+      check("a paid request refused in the app after a bank dispute about a call: the app's own sentence", overCall.status === 400 && refusal(overCall) === "not_valid" && sentence(overCall) === STOPPED_IN_APP, `${overCall.status} ${sentence(overCall)}`);
+      check("after a dispute about a contribution the app's answer is the same, word for word and field for field", overContribution.status === overCall.status && overContribution.text === overCall.text, overContribution.text.slice(0, 200));
+      check('neither answer holds "bank" or "dispute", or anything about a contribution', !/bank|dispute|chargeback|contribution/i.test(`${overCall.text} ${overContribution.text}`));
+      let onWebsite = "";
+      await whileContributionDisputed(guest.id, noor.id, () =>
+        B.askForCall({ customer: { id: guest.id, name: guest.name, email: guest.email }, hostId: noor.id, startsAt: new Date(disputeSlot), lengthMinutes: 30, note: "", requestKey: randomUUID(), agreedToCardTerms: true, seen: { pricePer15Cents: 2000, freeCancelMinutes: 60, cardTermsVersion: CARD_CONSENT_VERSION }, now: new Date() }).then(
+          () => undefined,
+          (error: Error) => {
+            onWebsite = error.message;
+          },
+        ),
+      );
+      check("the website's own function keeps its sentence, which says why", onWebsite === STOPPED_WHILE_OPEN, onWebsite);
+      check("and none of those made a request", (await db.select().from(schema.bookings).where(and(eq(schema.bookings.customerId, guest.id), eq(schema.bookings.hostId, noor.id)))).length === 1);
     }
   } finally {
     await restoreSwitches();

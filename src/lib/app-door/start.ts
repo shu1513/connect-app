@@ -36,11 +36,7 @@ export async function startFor(asked: AppRequest): Promise<AppStart> {
   // The stamp of the general documents in effect at this moment (plans/46, decision 5), not the one from when the server started.
   const base = { updateNeeded: asked.updateNeeded, switches: switchesForApps(asked.switches), termsVersion: generalStamp(new Date()), supportEmail: SUPPORT_EMAIL };
   if (!person) return { ...base, me: null };
-  const [[profile], [own]] = await Promise.all([
-    db.select({ status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, person.id)),
-    // Why the account is paused, as the website's own page for a paused person shows it. Asked only for someone who is.
-    person.paused ? db.select({ pausedReason: schema.user.pausedReason }).from(schema.user).where(eq(schema.user.id, person.id)) : [],
-  ]);
+  const [profile] = await db.select({ status: schema.hostProfiles.status, hidden: schema.hostProfiles.hidden }).from(schema.hostProfiles).where(eq(schema.hostProfiles.userId, person.id));
   return {
     ...base,
     me: {
@@ -48,8 +44,10 @@ export async function startFor(asked: AppRequest): Promise<AppStart> {
       name: person.name,
       email: person.email,
       timeZone: person.timeZone,
+      // Only that the account is paused. Why is not sent: the stored reason is typed by a person at Connect and can
+      // be about anything, also about something the apps do not have. The app says where to read it
+      // (plans/45-phone-apps/09a-what-is-built-put-right.md, decision 3).
       paused: person.paused,
-      pausedReason: person.paused ? (own?.pausedReason ?? null) : null,
       next: person.welcomed ? null : "welcome",
       host: profile ? { status: profile.status, hidden: profile.hidden } : null,
     },

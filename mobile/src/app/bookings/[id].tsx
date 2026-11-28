@@ -298,7 +298,9 @@ function OneRequest({ id }: { id: string }) {
   const takeBackLabel = page.takeBack;
   const sure = page.takeBackSure;
   const hostHandle = page.hostHandle;
-  const host = page.host;
+  // The host's part without a name: the request's details are withheld (its two people may no longer act). The page
+  // then shows its one sentence, and nothing about the person who asked.
+  const host = page.host?.customerName ? page.host : null;
   const answer = host?.answer ?? null;
   const block = page.block;
   // Only what belongs to the stage on the screen is said.

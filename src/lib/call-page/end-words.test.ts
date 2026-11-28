@@ -102,6 +102,22 @@ describe("what the call's page says about the money", () => {
   });
 });
 
+describe("what blocking ends, said before it is done", () => {
+  it("the website's sentence names calls, a membership and a monthly contribution", () => {
+    expect(END_WORDS.blockWhat("Maya")).toBe(
+      "Maya can no longer ask you for calls or write to you. Your other calls with Maya that are still to come are cancelled at no charge, and any membership or monthly contribution between you ends. Maya is told that those have ended, never that you blocked them.",
+    );
+  });
+  it("the phone app's sentence never names a contribution, and a membership only while memberships are on for the apps", () => {
+    const on = END_WORDS.blockWhat("Maya", { memberships: true });
+    const off = END_WORDS.blockWhat("Maya", { memberships: false });
+    expect(on).toBe("Maya can no longer ask you for calls or write to you. Your other calls with Maya that are still to come are cancelled at no charge, and any membership between you ends. Maya is told that those have ended, never that you blocked them.");
+    expect(off).toBe("Maya can no longer ask you for calls or write to you. Your other calls with Maya that are still to come are cancelled at no charge. Maya is told that those have ended, never that you blocked them.");
+    for (const words of [on, off]) expect(words).not.toMatch(/contribution|project|diary|tip/i);
+    expect(off).not.toMatch(/membership/i);
+  });
+});
+
 describe("the thank-you after a report that decided a call's charge", () => {
   it("says what it did, after the usual thank-you; any other report says nothing about money", () => {
     const base = { reference: 9, block: "done" as const, callsNotCancelled: 0 };

@@ -5,9 +5,10 @@ import { useOpening } from "@/lib/opening";
 import { Button, Card, Heading, Notice, Page, Words } from "@/ui/pieces";
 
 /**
- * Account (plans/45-phone-apps/18-the-account-page.md). An empty page for now, with what the
- * server said when the app opened, so the frame can be seen to work, and, in a test build only,
- * the two test screens.
+ * Account (plans/45-phone-apps/18-the-account-page.md). An empty page for now, with who the
+ * server said is signed in when the app opened, so the frame can be seen to work, and, in a test
+ * build only, the two test screens. What is switched on for the apps is not printed here: the app
+ * uses the switches, and no screen says them (plans/45-phone-apps/09a, decision 4).
  */
 export default function AccountPlace() {
   const { opening, askAgain, leave: signOutHere } = useOpening();
@@ -28,9 +29,6 @@ export default function AccountPlace() {
       <Card>
         <Heading>What Connect said when the app opened</Heading>
         <Words>{start?.me ? `Signed in as ${start.me.name}.` : "Nobody is signed in."}</Words>
-        <Words soft>
-          Memberships: {start?.switches.memberships ?? "unknown"}. Tips: {start?.switches.tips ? "on" : "off"}. Available now: {start?.switches.availableNow ? "on" : "off"}.
-        </Words>
         <Words soft>
           App version {APP_VERSION}.{TEST_SCREENS ? ` Server: ${SERVER || "not set"}.` : ""}
         </Words>
