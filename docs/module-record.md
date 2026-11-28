@@ -6227,7 +6227,8 @@ founder's page action itself is not pressed by a check. The phone apps have none
 ## A membership's pay-back can no longer be paid twice after a lost answer (plan 20, follow-up, 27 November 2026)
 
 **What it is about.** Not a new feature and no decision of the founder's: the weakness that
-the entry above left for later. When Stripe's answer to a membership's pay-back was lost, the
+the entry on a tip's or a contribution's refund (plan 50, part 1, follow-up, two entries
+up) left for later. When Stripe's answer to a membership's pay-back was lost, the
 app's follow-up could wrongly conclude "it was not made" and send the pay-back again an hour
 later. A pay-back is nearly always a part of the month's charge, so the member could then get
 the money twice.
